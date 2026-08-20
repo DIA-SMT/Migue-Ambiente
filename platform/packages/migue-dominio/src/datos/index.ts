@@ -21,3 +21,30 @@ export {
   type PuntoVerde,
   type ZonaRecoleccion,
 } from "./catalogo.ts";
+
+export {
+  obtenerOAbrirConversacion,
+  registrarEntrante,
+  registrarSaliente,
+  actualizarFlujo,
+  cerrarConversacion,
+  ErrorDeEscritura,
+  type Conversacion,
+  type OrigenRespuesta,
+  type TrazaMensaje,
+} from "./conversaciones.ts";
+
+export {
+  crearTicket,
+  crearSolicitudPrograma,
+  registrarSinRespuesta,
+  type Procedencia,
+  type MotivoSinRespuesta,
+} from "./registros.ts";
+
+export {
+  aplicarEfectos,
+  huboFallas,
+  idDeTicket,
+  type ResultadoEfecto,
+} from "./efectos.ts";

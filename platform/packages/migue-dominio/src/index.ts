@@ -11,3 +11,5 @@
 export { normalizar, contienePalabra, primerTerminoPresente, recortar, escaparRegex } from "./texto.ts";
 export * from "./reglas/index.ts";
 export * from "./datos/index.ts";
+export * from "./flujos/index.ts";
+export * from "./mensajeria.ts";

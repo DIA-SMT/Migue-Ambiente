@@ -97,6 +97,10 @@ const TEXTOS = new Map<string, string>([
   ],
   ["educa_requisitos", "Necesito nombre de la institución, dirección, responsable y cantidad de alumnos."],
   ["transforma_requisitos", "Necesito la dirección exacta y fotos de la zona."],
+  [
+    "separa_info",
+    "El servicio SEPARÁ pasa los Miércoles y Sábados de 09 a 12 hs (dentro de las 4 avenidas). Dejá tus reciclables limpios y secos.",
+  ],
 ]);
 
 const CONFIG = new Map<string, unknown>([

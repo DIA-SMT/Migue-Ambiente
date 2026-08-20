@@ -1127,3 +1127,140 @@ insert into public.configuracion (clave, valor, descripcion, categoria) values
    'Marcadores que se pueden usar en los textos del bot. Se reemplazan al enviar. Un marcador mal escrito queda visible en el mensaje, así se detecta en la primera prueba.',
    'referencia')
 on conflict (clave) do nothing;
+
+-- >>>>>>>>>>>>>>>>>>>> 012_referencia_de_foto.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 012 · Referencia de foto separada de la URL final
+-- ===========================================================================
+-- El flujo captura un `file_id` de Telegram, que NO es una URL: es un
+-- identificador que sólo sirve contra la API del canal de origen. El worker lo
+-- descarga después y lo sube a Supabase Storage, y ahí sí hay URL.
+--
+-- Reutilizar `photo_url` para las dos cosas dejaría al panel sin saber si el
+-- valor que tiene es algo que puede mostrar o algo que todavía no se procesó.
+-- Con dos columnas la respuesta es obvia: si `photo_url` está en null y
+-- `photo_ref` no, la foto está en camino.
+-- ===========================================================================
+
+alter table public.tickets
+  add column if not exists photo_ref text;
+
+comment on column public.tickets.photo_ref is
+  'Referencia del archivo en el canal de origen (file_id de Telegram). El worker la resuelve y llena photo_url.';
+comment on column public.tickets.photo_url is
+  'URL pública en Supabase Storage. Null mientras el worker no haya descargado la foto.';
+
+-- Permite al worker encontrar rápido lo que le falta procesar.
+create index if not exists tickets_foto_pendiente_idx
+  on public.tickets (created_at)
+  where photo_ref is not null and photo_url is null;
+
+alter table public.program_requests
+  add column if not exists photo_ref text,
+  add column if not exists photo_url text;
+
+comment on column public.program_requests.photo_ref is
+  'Referencia del archivo en el canal de origen. Aplica sobre todo a TRANSFORMÁ (fotos de relevamiento) y SEPARÁ.';
+
+-- ---------------------------------------------------------------------------
+-- Ventana de conversación
+-- ---------------------------------------------------------------------------
+-- Si un vecino escribe de nuevo tres días después, no es la misma
+-- conversación: reutilizarla mezclaría dos consultas distintas en un mismo
+-- hilo y falsearía las métricas de duración y de mensajes por conversación.
+insert into public.configuracion (clave, valor, descripcion, categoria) values
+  ('conversacion_ventana_horas', '24'::jsonb,
+   'Horas de inactividad tras las que una conversación abierta se considera terminada y el próximo mensaje abre una nueva.',
+   'negocio')
+on conflict (clave) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Tipo de trabajo para descargar media de un canal
+-- ---------------------------------------------------------------------------
+-- Usar `ingestar_documento` para bajar la foto de un vecino sería mentirle al
+-- panel: son dos cosas distintas con prioridades distintas. Detrás de una foto
+-- hay alguien esperando respuesta; detrás de un PDF del panel no.
+alter table public.trabajos drop constraint if exists trabajos_tipo_check;
+alter table public.trabajos
+  add constraint trabajos_tipo_check check (tipo in (
+    'ingestar_documento',
+    'reindexar_documento',
+    'borrar_documento',
+    'reindexar_todo',
+    'descargar_media'
+  ));
+
+-- >>>>>>>>>>>>>>>>>>>> 013_agrupar_sin_respuesta.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 013 · Agrupación de preguntas sin responder
+-- ===========================================================================
+-- `sin_respuesta` es la tabla más valiosa del sistema: cada fila es un vecino
+-- que se fue sin respuesta, y el panel permite resolverla creando una FAQ.
+--
+-- Pero sin agrupar no sirve. Cincuenta vecinos preguntando lo mismo se ven
+-- como cincuenta problemas distintos en lugar del único que son, y quien
+-- revise el panel no puede saber qué conviene resolver primero.
+--
+-- Por qué una función en la base y no lógica en la aplicación:
+--
+--   1. El operador de similitud trigram (%) no se expresa bien por PostgREST.
+--   2. Resolverlo en dos viajes —buscar parecida, después insertar— abre una
+--      carrera: dos mensajes simultáneos con la misma pregunta no se ven entre
+--      sí y crean dos filas. Acá es una sola sentencia atómica.
+-- ===========================================================================
+
+create or replace function public.agrupar_sin_respuesta(
+  p_pregunta        text,
+  p_motivo          text,
+  p_conversacion_id uuid    default null,
+  p_mensaje_id      uuid    default null,
+  p_confianza       numeric default null,
+  p_umbral          real    default 0.6
+)
+returns table (id uuid, agrupada boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_existente uuid;
+begin
+  -- `set_limit` fija el umbral que usa el operador % en esta sesión.
+  perform set_limit(p_umbral);
+
+  -- Se busca sólo entre las PENDIENTES: una pregunta ya resuelta que vuelve a
+  -- aparecer es señal de que la FAQ no alcanzó, y merece fila propia para que
+  -- se vea que el arreglo no funcionó.
+  select s.id into v_existente
+    from public.sin_respuesta s
+   where s.estado = 'pendiente'
+     and s.pregunta % p_pregunta
+   order by similarity(s.pregunta, p_pregunta) desc
+   limit 1;
+
+  if v_existente is not null then
+    update public.sin_respuesta
+       set veces_repetida = veces_repetida + 1,
+           actualizado_en = now()
+     where public.sin_respuesta.id = v_existente;
+    return query select v_existente, true;
+  end if;
+
+  insert into public.sin_respuesta
+    (pregunta, motivo, conversacion_id, mensaje_id, confianza)
+  values
+    (p_pregunta, p_motivo, p_conversacion_id, p_mensaje_id, p_confianza)
+  returning public.sin_respuesta.id, false;
+end $$;
+
+comment on function public.agrupar_sin_respuesta is
+  'Registra una pregunta sin responder agrupándola con una pendiente parecida (trigram). Atómica: evita filas duplicadas por mensajes simultáneos.';
+
+-- El índice trigram que hace rápida la búsqueda ya existe desde la migración
+-- 004 (sin_respuesta_pregunta_trigram_idx). Este índice parcial acelera el
+-- filtro por estado, que es el que más se consulta desde el panel.
+create index if not exists sin_respuesta_pendientes_repetidas_idx
+  on public.sin_respuesta (veces_repetida desc, creado_en desc)
+  where estado = 'pendiente';

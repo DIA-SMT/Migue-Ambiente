@@ -17,7 +17,14 @@ export type NombreFlujo =
   | "retiro_no_habitual"
   | "reclamo_recoleccion"
   | "programa_educa"
-  | "programa_transforma";
+  | "programa_transforma"
+  /**
+   * SEPARÁ no está como flujo en la spec —figura como información— pero el
+   * documento de QA agrega un caso que sí requiere capturar datos: los
+   * domicilios FUERA de las 4 avenidas, donde el recorrido no llega y hay que
+   * coordinar el retiro con el equipo.
+   */
+  | "programa_separa";
 
 /** Datos que el flujo fue capturando. Serializable: vive en Redis. */
 export type DatosFlujo = Readonly<Record<string, unknown>>;

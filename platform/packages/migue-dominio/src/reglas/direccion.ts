@@ -46,6 +46,21 @@ function esNumeroDeCalle(token: string): boolean {
 }
 
 /**
+ * Sustantivos que, cuando siguen a un número, lo convierten en una cantidad y
+ * no en una altura.
+ *
+ * El rol de un número lo define lo que va DESPUÉS, no sólo lo que va antes.
+ * Sin esta lista, «Escuela Normal, 30 alumnos» se leía como la dirección
+ * «Escuela Normal 30» y registraba la solicitud sin pedir el domicilio.
+ */
+const SUSTANTIVOS_CONTADOS = new Set([
+  "alumnos", "alumno", "chicos", "chicas", "estudiantes", "ninos", "ninas",
+  "personas", "bolsas", "bolsa", "bolsones", "dias", "dia", "semanas", "semana",
+  "meses", "mes", "anos", "kg", "kilos", "kilogramos", "metros", "metro", "m3",
+  "cuadras", "cuadra", "horas", "hora", "unidades", "tarimas", "sillas",
+]);
+
+/**
  * Separa la parte «entre X y Y» del resto.
  *
  * Se hace primero porque los nombres de las calles cruzadas pueden contener
@@ -95,9 +110,15 @@ const FIN_A_DESCARTAR = [" hace ", " desde ", " porque ", " y no ", " que no ", 
  * a la que no se puede mandar una cuadrilla.
  */
 const NO_ES_CALLE = new Set([
+  // Vocabulario del reclamo
   "no", "pasa", "pasan", "paso", "pasaron", "tengo", "tenemos", "necesito",
   "quiero", "hay", "esta", "estan", "camion", "basura", "residuos", "bolsa",
   "bolsas", "recolector", "reclamo", "queja", "servicio", "vino", "vienen",
+  // Etiquetas de datos de contacto. Sin estas, el segmento «tel 381 4440012»
+  // de un mensaje con varios datos se leía como calle «tel», altura 381 — y
+  // ganaba sobre la dirección real, que venía en un segmento posterior.
+  "tel", "telefono", "tel.", "cel", "celular", "cel.", "whatsapp", "wsp",
+  "contacto", "mail", "email", "dni", "nombre", "soy", "llamar", "alumnos",
 ]);
 
 /**
@@ -176,10 +197,13 @@ export function interpretarDireccion(texto: string): DireccionInterpretada {
   // de tomar el 25 como altura.
   let indiceNumero = -1;
   for (let i = tokens.length - 1; i >= 0; i--) {
-    if (esNumeroDeCalle(tokens[i]!)) {
-      indiceNumero = i;
-      break;
-    }
+    if (!esNumeroDeCalle(tokens[i]!)) continue;
+    // Un número seguido de un sustantivo contable es una cantidad, no una
+    // altura: se descarta y se sigue buscando hacia atrás.
+    const siguiente = tokens[i + 1];
+    if (siguiente !== undefined && SUSTANTIVOS_CONTADOS.has(normalizar(siguiente))) continue;
+    indiceNumero = i;
+    break;
   }
 
   let numero: string | null = null;
@@ -258,4 +282,39 @@ export function formatearDireccion(d: DireccionInterpretada): string {
   if (d.entreCalles) partes.push(`entre ${d.entreCalles}`);
   if (d.referencia) partes.push(d.referencia);
   return partes.join(", ");
+}
+
+/**
+ * Busca una dirección DENTRO de un texto que trae varios datos juntos.
+ *
+ * `interpretarDireccion` asume que todo el texto es la dirección, y sirve
+ * cuando el bot preguntó justamente eso. Pero en los flujos de programas el
+ * vecino manda todo en un mensaje —«Escuela Normal, Muñecas 200, responsable
+ * Luciano, 30 alumnos, tel 3815267804»— y ahí el texto completo no es una
+ * dirección: hay tres números y sólo uno es la altura.
+ *
+ * Estrategia: primero se prueba el texto entero, y si no da, se prueba
+ * segmento por segmento. El primer segmento que resuelve en una dirección
+ * completa gana.
+ *
+ * Sin esto, el bot le pedía la dirección que el vecino ya había escrito, que
+ * es exactamente la queja del documento de QA.
+ */
+export function buscarDireccion(texto: string): DireccionInterpretada {
+  const completo = interpretarDireccion(texto);
+  if (completo.completa) return completo;
+
+  const segmentos = texto
+    .split(/[,;·\n|]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 3);
+
+  for (const segmento of segmentos) {
+    const d = interpretarDireccion(segmento);
+    if (d.completa) return d;
+  }
+
+  // Ninguno resolvió: se devuelve el intento sobre el texto completo, que es
+  // el que produce el mensaje de repregunta más útil.
+  return completo;
 }
