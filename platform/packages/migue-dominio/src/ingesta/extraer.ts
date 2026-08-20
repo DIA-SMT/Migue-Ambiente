@@ -88,6 +88,19 @@ export async function extraer(
   nombreArchivo: string,
   formato: Formato = formatoDe(nombreArchivo),
 ): Promise<ResultadoExtraccion> {
+  // EL HASH VA PRIMERO, y no es una preferencia de estilo.
+  //
+  // `pdfjs` se apropia del ArrayBuffer que recibe y lo deja desacoplado: después
+  // de `extraerPdf`, el mismo Uint8Array mide cero bytes. Calculando el hash
+  // después, todo PDF quedaba guardado con el hash del contenido vacío
+  // (e3b0c442…), y como `documentos.hash_sha256` tiene un índice único, el
+  // segundo PDF chocaba contra el primero y no se indexaba nunca.
+  //
+  // Se descubrió indexando el corpus real: de tres PDFs, uno quedó con el hash
+  // del vacío y los otros dos fallaron con «duplicate key value violates unique
+  // constraint». Los DOCX no lo mostraban porque `fflate` no toma posesión.
+  const hash = hashDe(datos);
+
   let extraido: DocumentoExtraido;
 
   switch (formato) {
@@ -115,7 +128,7 @@ export async function extraer(
   return {
     fragmentos: fragmentar(extraido.paginas),
     cantidadPaginas: extraido.cantidadPaginas,
-    hash: hashDe(datos),
+    hash,
     caracteres,
   };
 }

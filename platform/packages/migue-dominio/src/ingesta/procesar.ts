@@ -129,12 +129,25 @@ async function indexar(trabajo: Trabajo, puertos: PuertosIngesta): Promise<Resul
     return { ok: false, error: detalle, reintentable: !definitivo };
   }
 
-  const cantidad = await puertos.reemplazarFragmentos(
-    documento.id,
-    resultado.fragmentos,
-    resultado.cantidadPaginas,
-    resultado.hash,
-  );
+  // El guardado también puede fallar, y su fallo es el más traicionero: el
+  // documento ya quedó marcado como 'procesando', así que si no se lo marca en
+  // error acá, el panel lo muestra girando para siempre y nadie sabe por qué.
+  // Pasó de verdad al indexar el corpus: dos PDFs quedaron en 'procesando' con
+  // el trabajo en 'error', y los dos estados se contradecían.
+  let cantidad: number;
+  try {
+    cantidad = await puertos.reemplazarFragmentos(
+      documento.id,
+      resultado.fragmentos,
+      resultado.cantidadPaginas,
+      resultado.hash,
+    );
+  } catch (error) {
+    const detalle = error instanceof Error ? error.message : String(error);
+    await puertos.marcarError(documento.id, detalle);
+    // Sí se reintenta: casi siempre es la red o la base, no el documento.
+    return { ok: false, error: detalle, reintentable: true };
+  }
 
   puertos.registrar(
     "info",

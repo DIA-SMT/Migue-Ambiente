@@ -1,4 +1,6 @@
 import { describe, it } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
 import assert from "node:assert/strict";
 import { strToU8, zipSync } from "fflate";
 import {
@@ -10,6 +12,10 @@ import {
 } from "./procesar.ts";
 import { formatoDe, hashDe, FormatoNoSoportadoError } from "./extraer.ts";
 import { claveDeStorage } from "./clave.ts";
+import { extraer } from "./extraer.ts";
+
+/** sha256 de la cadena vacía: el valor que aparecía cuando pdfjs se quedaba con el buffer. */
+const HASH_DEL_VACIO = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /** DOCX mínimo con texto suficiente para pasar el umbral de extracción. */
 function docxConTexto(): Uint8Array {
@@ -314,5 +320,115 @@ describe("claveDeStorage", () => {
 
   it("un archivo sin extensión no rompe", () => {
     assert.equal(claveDeStorage("LEEME", hash), "c8114c85-LEEME");
+  });
+});
+
+describe("extraer · el hash sobrevive a la extracción", () => {
+  it("un PDF se guarda con el hash de SU contenido, no con el del vacío", async () => {
+    // El bug: `pdfjs` se apropia del ArrayBuffer y lo deja desacoplado, así que
+    // calcular el hash después de extraer devolvía siempre
+    // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, que es
+    // el sha256 de la cadena vacía. Con un índice único sobre
+    // `documentos.hash_sha256`, el primer PDF se guardaba con ese hash y el
+    // segundo chocaba y no se indexaba nunca.
+    //
+    // Este test usa el corpus real porque el bug necesita un PDF de verdad: un
+    // PDF inventado no hace que pdfjs tome posesión del buffer.
+    const ruta = path.join(
+      process.env["USERPROFILE"] ?? process.env["HOME"] ?? ".",
+      "ambiente/corpus/Ambiente - Residuos no Habituales",
+      "Datos de entrenamiento Chatbot Ambiente/aonxhSOrXNzurOiYcOWE.pdf",
+    );
+    if (!fs.existsSync(ruta)) {
+      // El corpus no está versionado: en otra máquina este test no aplica.
+      return;
+    }
+
+    const datos = new Uint8Array(fs.readFileSync(ruta));
+    const esperado = hashDe(datos);
+    assert.notEqual(esperado, HASH_DEL_VACIO, "el archivo de prueba no puede estar vacío");
+
+    const resultado = await extraer(datos, "aonxhSOrXNzurOiYcOWE.pdf");
+
+    assert.equal(resultado.hash, esperado, "el hash no es el del contenido del PDF");
+    assert.notEqual(resultado.hash, HASH_DEL_VACIO, "guardó el hash del vacío");
+    assert.ok(resultado.fragmentos.length > 20, "además tenía que extraer el texto");
+  });
+
+  it("dos PDFs distintos dan hashes distintos", async () => {
+    // Es la consecuencia que importa: con el bug, los tres PDFs del corpus daban
+    // el MISMO hash y el índice único dejaba entrar sólo al primero.
+    const base = path.join(
+      process.env["USERPROFILE"] ?? process.env["HOME"] ?? ".",
+      "ambiente/corpus/Ambiente - Residuos no Habituales/Datos de entrenamiento Chatbot Ambiente",
+    );
+    const uno = path.join(base, "QBaZninxWuexyJcS6s0i.pdf");
+    const dos = path.join(base, "UQNV8gvyAKsepwqXnoBX.pdf");
+    if (!fs.existsSync(uno) || !fs.existsSync(dos)) return;
+
+    const a = await extraer(new Uint8Array(fs.readFileSync(uno)), "a.pdf");
+    const b = await extraer(new Uint8Array(fs.readFileSync(dos)), "b.pdf");
+
+    assert.notEqual(a.hash, b.hash);
+    assert.notEqual(a.hash, HASH_DEL_VACIO);
+    assert.notEqual(b.hash, HASH_DEL_VACIO);
+  });
+
+  it("un DOCX también conserva su hash", async () => {
+    const datos = docxConTexto();
+    const esperado = hashDe(datos);
+    const resultado = await extraer(datos, "prueba.docx");
+    assert.equal(resultado.hash, esperado);
+  });
+});
+
+describe("procesarTrabajo · el documento nunca queda en «procesando»", () => {
+  it("si falla el guardado, el documento queda en error y no girando", async () => {
+    // Sin esto el panel muestra el documento «procesando» para siempre, mientras
+    // el trabajo figura en «error»: dos estados que se contradicen y nadie sabe
+    // cuál creer. Pasó al indexar el corpus con dos PDFs.
+    const espia = espiar({
+      async reemplazarFragmentos() {
+        throw new Error('duplicate key value violates unique constraint "documentos_hash_unico"');
+      },
+    });
+    const resultado = await procesarTrabajo(trabajo(), espia.puertos);
+
+    assert.equal(resultado.ok, false);
+    assert.ok(
+      espia.llamadas.includes("marcarError(doc-1)"),
+      `quedó en procesando: ${espia.llamadas.join(" -> ")}`,
+    );
+    assert.ok(espia.errorMarcado?.includes("documentos_hash_unico"));
+  });
+
+  it("todo camino de falla marca el documento, salvo que ni exista", async () => {
+    // Barrido de los cuatro modos de falla. El que no marca es el del documento
+    // borrado, y ahí es correcto: no hay fila que marcar.
+    const casos = [
+      ["archivo ausente", { descargar: async () => null }, true],
+      [
+        "sin texto",
+        { descargar: async () => zipSync({ "word/document.xml": strToU8("<w:document/>") }) },
+        true,
+      ],
+      [
+        "falla el guardado",
+        {
+          async reemplazarFragmentos(): Promise<number> {
+            throw new Error("se cayó la base");
+          },
+        },
+        true,
+      ],
+      ["documento borrado", { leerDocumento: async () => null }, false],
+    ] as const;
+
+    for (const [nombre, sobre, deberiaMarcar] of casos) {
+      const espia = espiar(sobre);
+      await procesarTrabajo(trabajo(), espia.puertos);
+      const marco = espia.llamadas.includes("marcarError(doc-1)");
+      assert.equal(marco, deberiaMarcar, `«${nombre}»: ${espia.llamadas.join(" -> ")}`);
+    }
   });
 });
