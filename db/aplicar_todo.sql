@@ -1298,6 +1298,14 @@ create index if not exists sin_respuesta_pendientes_repetidas_idx
 
 create or replace function public.buscar_conocimiento(
   p_consulta   text,
+  -- Términos de la expansión, separados por espacios. Opcional.
+  --
+  -- Van aparte de la consulta y NO concatenados, por una razón que costó un
+  -- bug: `websearch_to_tsquery` une los términos con AND. Pegar los términos
+  -- expandidos a la consulta hacía la búsqueda MÁS restrictiva —exigía que
+  -- aparecieran todos— cuando el objetivo de expandir es exactamente el
+  -- contrario. Acá se usan para armar una consulta OR aparte.
+  p_terminos   text default null,
   p_limite     int  default 8,
   -- Cuánto pesa más una FAQ que un fragmento de PDF. Una respuesta escrita por
   -- un humano del área le gana a un pedazo de documento institucional: ya está
@@ -1332,14 +1340,16 @@ set search_path = public
 as $$
 declare
   v_consulta tsquery;
+  v_amplia   tsquery;
+  v_palabras text;
   -- Se pregunta explícitamente si hay resultados en vez de leer ROW_COUNT
   -- después de un RETURN QUERY. plpgsql no documenta claramente esa
   -- combinación, y una suposición sobre este lenguaje ya costó dos errores en
   -- producción. Un EXISTS cuesta poco y no deja lugar a dudas.
   v_hay_resultados boolean;
 begin
-  -- websearch_to_tsquery tolera lo que escribe una persona: comillas sueltas,
-  -- «or», signos de pregunta. plainto_tsquery se rompe con eso.
+  -- Nivel 1 · PRECISIÓN. websearch_to_tsquery une con AND: exige que
+  -- aparezcan todos los términos. Cuando encuentra algo, es lo más relevante.
   v_consulta := websearch_to_tsquery('public.es_sin_acentos', coalesce(p_consulta, ''));
 
   if v_consulta is null or numnode(v_consulta) = 0 then
@@ -1354,6 +1364,48 @@ begin
       join public.documentos d on d.id = fr.documento_id
      where d.activo and d.estado = 'listo' and fr.busqueda @@ v_consulta
   ) into v_hay_resultados;
+
+  -- Nivel 2 · RECALL. Si el AND no encontró nada, se prueba con OR sobre la
+  -- consulta más los términos expandidos. `ts_rank` se encarga de ordenar: un
+  -- documento que coincide en más términos rankea más alto, así que abrir a OR
+  -- no arruina la relevancia, sólo amplía el conjunto candidato.
+  if not v_hay_resultados then
+    -- Se sanea antes de armar la consulta: to_tsquery se rompe con paréntesis
+    -- o signos, y estos términos los escribió un modelo de lenguaje.
+    v_palabras := regexp_replace(
+      lower(coalesce(p_consulta, '') || ' ' || coalesce(p_terminos, '')),
+      '[^a-záéíóúüñ0-9 ]', ' ', 'g'
+    );
+    v_palabras := array_to_string(
+      array(select distinct w from unnest(string_to_array(v_palabras, ' ')) w where length(w) >= 3),
+      ' | '
+    );
+
+    if v_palabras <> '' then
+      begin
+        v_amplia := to_tsquery('public.es_sin_acentos', v_palabras);
+      exception when others then
+        -- Un término raro que igual rompió to_tsquery no puede dejar al bot
+        -- sin responder: se sigue al respaldo difuso.
+        v_amplia := null;
+      end;
+    end if;
+
+    if v_amplia is not null and numnode(v_amplia) > 0 then
+      select exists (
+        select 1 from public.faqs f where f.activa and f.busqueda @@ v_amplia
+        union all
+        select 1
+          from public.fragmentos fr
+          join public.documentos d on d.id = fr.documento_id
+         where d.activo and d.estado = 'listo' and fr.busqueda @@ v_amplia
+      ) into v_hay_resultados;
+
+      if v_hay_resultados then
+        v_consulta := v_amplia;
+      end if;
+    end if;
+  end if;
 
   if not v_hay_resultados then
     -- Respaldo difuso: probablemente el vecino escribió con errores de tipeo o
@@ -1422,7 +1474,7 @@ begin
 end $$;
 
 comment on function public.buscar_conocimiento is
-  'Busca en FAQs y fragmentos con ranking unificado. Las FAQs pesan más porque las escribió un humano del área. Si el texto completo no encuentra nada, cae a similitud trigram para tolerar errores de tipeo.';
+  'Busca en FAQs y fragmentos con ranking unificado, en tres niveles: AND (precisión), OR con términos expandidos (recall) y similitud trigram (tolerancia a errores de tipeo). Las FAQs pesan más porque las escribió un humano del área.';
 
 -- ---------------------------------------------------------------------------
 -- Contadores de uso

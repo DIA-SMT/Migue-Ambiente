@@ -321,8 +321,49 @@ begin
   update public.faqs set activa = true where pregunta like '%recorrido del camión%';
 
   -- 10 · Respeta el limite pedido
-  select count(*) into n from public.buscar_conocimiento('recoleccion', 1);
+  select count(*) into n from public.buscar_conocimiento('recoleccion', null, 1);
   if n > 1 then raise exception 'devolvio % filas con limite 1', n; end if;
+
+  -- 11 · NIVEL 2 (OR con terminos expandidos)
+  --
+  -- Esta prueba cubre un bug de diseno que costo una vuelta completa:
+  -- websearch_to_tsquery une los terminos con AND, asi que concatenar los
+  -- terminos expandidos a la consulta hacia la busqueda MAS restrictiva en vez
+  -- de mas amplia. La expansion lograba exactamente lo contrario de su
+  -- proposito, y el sintoma era un bot que no encontraba material que si
+  -- estaba en la base.
+  --
+  -- El nivel OR tambien opera SIN expansion: arma la consulta OR con las
+  -- palabras de la consulta original. Eso ya recupera casos que el AND pierde.
+  --
+  -- Para probar que el parametro de terminos expandidos aporta algo, hace falta
+  -- una consulta cuyas palabras NO aparezcan en ningun material: "levantan la
+  -- basura" es como habla un vecino, y los documentos dicen "recoleccion" y
+  -- "compactadores". Sin expansion no hay con que encontrarlo.
+  select count(*) into n from public.buscar_conocimiento('levantan la basura');
+  if n <> 0 then
+    raise exception 'sin expansion no deberia encontrar nada, devolvio %', n;
+  end if;
+
+  -- Con los terminos institucionales, si.
+  select count(*) into n from public.buscar_conocimiento(
+    'levantan la basura', 'recoleccion domiciliaria compactadores monitoreo');
+  if n = 0 then
+    raise exception 'el nivel OR con terminos expandidos no encontro nada';
+  end if;
+
+  -- Y lo que devuelve el nivel OR NO es difuso: son coincidencias reales de
+  -- texto completo, no parecidos ortograficos. La distincion importa porque
+  -- esMaterialSuficiente() rechaza lo difuso y aceptaria esto.
+  select count(*) into n from public.buscar_conocimiento(
+    'levantan la basura', 'recoleccion domiciliaria compactadores monitoreo') where difuso;
+  if n <> 0 then raise exception 'el nivel OR marco % filas como difusas', n; end if;
+
+  -- 12 · Terminos con signos raros no rompen to_tsquery. Los escribe un modelo
+  -- de lenguaje, asi que pueden venir con parentesis, ampersands o porcentajes.
+  select count(*) into n from public.buscar_conocimiento(
+    'zzzzinexistente', 'recoleccion (GPS) & camiones | 50 por ciento');
+  if n is null then raise exception 'terminos con signos rompieron la funcion'; end if;
 end $$;
 \echo '   OK: rankea, cita, tolera tipeos y respeta bajas'
 

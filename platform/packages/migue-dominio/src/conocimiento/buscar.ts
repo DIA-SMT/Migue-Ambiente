@@ -98,6 +98,14 @@ function coincide(texto: string, fija: RespuestaFija): boolean {
 // ---------------------------------------------------------------------------
 
 export interface OpcionesBusqueda {
+  /**
+   * Términos de la expansión, separados por espacios.
+   *
+   * Van por separado y NO concatenados a la consulta: `websearch_to_tsquery`
+   * une con AND, así que pegarlos haría la búsqueda más restrictiva en vez de
+   * más amplia. La función los usa para armar una consulta OR aparte.
+   */
+  readonly terminos?: string | null;
   readonly limite?: number;
   readonly impulsoFaq?: number;
   readonly umbralDifuso?: number;
@@ -119,6 +127,7 @@ export async function buscarEnConocimiento(
 
   const { data, error } = await obtenerCliente().rpc("buscar_conocimiento", {
     p_consulta: consulta,
+    p_terminos: opciones.terminos ?? null,
     p_limite: opciones.limite ?? 8,
     ...(opciones.impulsoFaq !== undefined ? { p_impulso_faq: opciones.impulsoFaq } : {}),
     ...(opciones.umbralDifuso !== undefined ? { p_umbral_difuso: opciones.umbralDifuso } : {}),

@@ -88,7 +88,7 @@ const TRAZA_VACIA: TrazaRespuesta = {
 async function expandirConsulta(
   consulta: string,
   modelo: string,
-): Promise<{ terminos: string; traza: Partial<TrazaRespuesta> }> {
+): Promise<{ terminos: string | null; traza: Partial<TrazaRespuesta> }> {
   try {
     const r = await chat({
       modelo,
@@ -119,7 +119,7 @@ async function expandirConsulta(
     const terminos = parseado?.terminos?.trim();
 
     return {
-      terminos: terminos && terminos.length >= 3 ? `${consulta} ${terminos}` : consulta,
+      terminos: terminos && terminos.length >= 3 ? terminos : null,
       traza: {
         tokensEntrada: r.tokensEntrada,
         tokensSalida: r.tokensSalida,
@@ -131,7 +131,7 @@ async function expandirConsulta(
   } catch {
     // Falla de red, timeout o clave inválida: se busca con lo que dijo el
     // vecino. Peor recall, pero el bot sigue respondiendo.
-    return { terminos: consulta, traza: {} };
+    return { terminos: null, traza: {} };
   }
 }
 
@@ -171,17 +171,20 @@ export async function responderConsulta(
   let traza: TrazaRespuesta = { ...TRAZA_VACIA };
 
   // 2 · Expansión de consulta, si está habilitada desde el panel.
-  let consultaBusqueda = consulta;
+  let terminosExpandidos: string | null = null;
   if (expansionActiva) {
     const { terminos, traza: trazaExp } = await expandirConsulta(consulta, modeloRouter);
-    consultaBusqueda = terminos;
+    terminosExpandidos = terminos;
     traza = { ...traza, ...trazaExp };
   }
 
   // 3 · Búsqueda en FAQs y fragmentos.
   let coincidencias: Coincidencia[];
   try {
-    coincidencias = await buscarEnConocimiento(consultaBusqueda, { limite: maxFragmentos });
+    coincidencias = await buscarEnConocimiento(consulta, {
+      terminos: terminosExpandidos,
+      limite: maxFragmentos,
+    });
   } catch {
     // Si la base no responde, el bot no puede inventar. Se admite el límite.
     return sinRespuesta(catalogo, "sin_coincidencia", traza);
