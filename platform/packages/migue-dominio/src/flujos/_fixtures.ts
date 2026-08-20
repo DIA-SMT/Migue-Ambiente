@@ -7,7 +7,12 @@
  * El catálogo replica lo que siembran las migraciones 008 y 010, así que un
  * test que pasa acá describe el comportamiento con los datos reales.
  */
-import type { Catalogo, PuntoVerde, ZonaRecoleccion } from "../datos/catalogo.ts";
+import type {
+  Catalogo,
+  PuntoVerde,
+  RespuestaFija,
+  ZonaRecoleccion,
+} from "../datos/catalogo.ts";
 import type { ReglaExclusion } from "../reglas/exclusiones.ts";
 import type { LimiteVolumen } from "../reglas/volumen.ts";
 import type { MensajeEntrante, MediaEntrante } from "../mensajeria.ts";
@@ -103,6 +108,31 @@ const TEXTOS = new Map<string, string>([
   ],
 ]);
 
+/**
+ * Respuestas fijas: se envían TEXTUALES, sin pasar por el modelo.
+ * Para redacción institucional que no se puede parafrasear.
+ */
+const FIJAS: RespuestaFija[] = [
+  {
+    id: "f1",
+    nombre: "Neumáticos suspendido",
+    disparadores: ["neumatico", "cubierta", "llanta"],
+    modo: "contiene",
+    respuesta:
+      "El retiro de neumáticos a domicilio está suspendido. Podés dejarlos en cualquier Punto Verde de contenedor, que funcionan las 24 hs.",
+    prioridad: 10,
+  },
+  {
+    id: "f2",
+    nombre: "Horario SEPARÁ",
+    disparadores: ["separa", "reciclables"],
+    modo: "contiene",
+    respuesta:
+      "El servicio SEPARÁ pasa los Miércoles y Sábados de 09 a 12 hs dentro de las 4 avenidas.",
+    prioridad: 50,
+  },
+];
+
 const CONFIG = new Map<string, unknown>([
   ["sla_horas_habiles", 72],
   ["sla_modo", "dias_habiles"],
@@ -119,6 +149,7 @@ export function catalogoPrueba(sobreescribir: Partial<Catalogo> = {}): Catalogo 
     limitesVolumen: LIMITES_PRUEBA,
     puntosVerdes: PUNTOS,
     zonas: ZONAS,
+    respuestasFijas: FIJAS,
     ...sobreescribir,
   };
 }

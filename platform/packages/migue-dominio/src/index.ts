@@ -13,3 +13,5 @@ export * from "./reglas/index.ts";
 export * from "./datos/index.ts";
 export * from "./flujos/index.ts";
 export * from "./mensajeria.ts";
+export * from "./ia/index.ts";
+export * from "./conocimiento/index.ts";

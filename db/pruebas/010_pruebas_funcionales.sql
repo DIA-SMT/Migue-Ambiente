@@ -16,7 +16,8 @@ delete from public.conversaciones where canal_usuario_id = '123456';
 delete from public.faqs where pregunta in (
   '¿Dónde puedo llevar mis neumáticos?',
   '¿Cómo separo los residuos reciclables?');
-delete from public.documentos where ruta_storage = 'docs/prueba-separa.pdf';
+delete from public.documentos where ruta_storage in ('docs/prueba-separa.pdf','docs/prueba-controla.pdf');
+delete from public.faqs where pregunta like '%recorrido del camión%';
 
 -- ---------------------------------------------------------------------------
 -- A · Las semillas no se duplicaron tras varias corridas
@@ -240,6 +241,103 @@ begin
 
 end $$;
 \echo '   OK: agrupa las parecidas, separa las distintas, sin filas duplicadas'
+
+-- ---------------------------------------------------------------------------
+-- H · Búsqueda de conocimiento
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== H · busqueda de conocimiento =='
+
+-- Un documento con dos fragmentos y dos FAQs, para probar el ranking mezclado.
+insert into public.documentos (titulo, nombre_archivo, formato, ruta_storage, bytes, estado)
+values ('Programa CONTROLA', 'controla.pdf', 'pdf', 'docs/prueba-controla.pdf', 2000, 'listo')
+on conflict (ruta_storage) do nothing;
+
+insert into public.fragmentos (documento_id, orden, texto, titulo_seccion, pagina)
+select d.id, 1,
+       'El control y monitoreo de camiones compactadores se realiza por sistema de GPS para verificar la recoleccion domiciliaria en todos los sectores.',
+       'Recoleccion domiciliaria', 12
+  from public.documentos d where d.ruta_storage = 'docs/prueba-controla.pdf'
+on conflict (documento_id, orden) do nothing;
+
+insert into public.faqs (pregunta, respuesta, etiquetas) values
+  ('¿Cómo verifico el recorrido del camión?',
+   'Podés consultar el mapa oficial de recolección por turno en la web del municipio.',
+   array['recoleccion'])
+on conflict do nothing;
+
+do $$
+declare n int; primero record; r record;
+begin
+  -- 1 · Encuentra en las dos tablas
+  select count(*) into n from public.buscar_conocimiento('recoleccion domiciliaria camiones');
+  if n < 1 then raise exception 'no encontro el fragmento de recoleccion'; end if;
+
+  -- 2 · La FAQ le gana al fragmento cuando las dos coinciden
+  select * into primero from public.buscar_conocimiento('recorrido del camion recoleccion') limit 1;
+  if primero.origen <> 'faq' then
+    raise exception 'gano un % en vez de la faq; el impulso no se aplico', primero.origen;
+  end if;
+
+  -- 3 · Los fragmentos traen la referencia para poder citar
+  select * into r from public.buscar_conocimiento('monitoreo GPS compactadores')
+   where origen = 'fragmento' limit 1;
+  if r.documento_titulo is null then raise exception 'el fragmento no trae el titulo del documento'; end if;
+  if r.pagina is null then raise exception 'el fragmento no trae la pagina para citar'; end if;
+
+  -- 4 · Sin acentos igual encuentra
+  select count(*) into n from public.buscar_conocimiento('recoleccion domiciliaria');
+  if n < 1 then raise exception 'la busqueda sin acentos no encontro nada'; end if;
+
+  -- 5 · Con errores de tipeo cae al respaldo difuso
+  select count(*) into n from public.buscar_conocimiento('recoridro del camoin')
+   where difuso;
+  if n < 1 then raise exception 'el respaldo difuso no se activo con errores de tipeo'; end if;
+
+  -- 6 · Una consulta vacia o sin palabras utiles no devuelve nada
+  select count(*) into n from public.buscar_conocimiento('');
+  if n <> 0 then raise exception 'una consulta vacia devolvio % filas', n; end if;
+  select count(*) into n from public.buscar_conocimiento('???');
+  if n <> 0 then raise exception 'una consulta sin palabras devolvio % filas', n; end if;
+
+  -- 7 · Un documento dado de baja deja de citarse
+  update public.documentos set activo = false where ruta_storage = 'docs/prueba-controla.pdf';
+  select count(*) into n from public.buscar_conocimiento('monitoreo GPS compactadores')
+   where origen = 'fragmento';
+  if n <> 0 then raise exception 'un documento inactivo sigue apareciendo'; end if;
+  update public.documentos set activo = true where ruta_storage = 'docs/prueba-controla.pdf';
+
+  -- 8 · Un documento que todavia se esta procesando tampoco se cita
+  update public.documentos set estado = 'procesando' where ruta_storage = 'docs/prueba-controla.pdf';
+  select count(*) into n from public.buscar_conocimiento('monitoreo GPS compactadores')
+   where origen = 'fragmento';
+  if n <> 0 then raise exception 'un documento en proceso sigue apareciendo'; end if;
+  update public.documentos set estado = 'listo' where ruta_storage = 'docs/prueba-controla.pdf';
+
+  -- 9 · Una FAQ desactivada deja de responder
+  update public.faqs set activa = false where pregunta like '%recorrido del camión%';
+  select count(*) into n from public.buscar_conocimiento('recorrido del camion') where origen = 'faq';
+  if n <> 0 then raise exception 'una faq inactiva sigue respondiendo'; end if;
+  update public.faqs set activa = true where pregunta like '%recorrido del camión%';
+
+  -- 10 · Respeta el limite pedido
+  select count(*) into n from public.buscar_conocimiento('recoleccion', 1);
+  if n > 1 then raise exception 'devolvio % filas con limite 1', n; end if;
+end $$;
+\echo '   OK: rankea, cita, tolera tipeos y respeta bajas'
+
+-- Contadores de uso
+do $$
+declare v_id uuid; n int;
+begin
+  select id into v_id from public.faqs limit 1;
+  select veces_usada into n from public.faqs where id = v_id;
+  perform public.registrar_uso_faq(array[v_id]);
+  if (select veces_usada from public.faqs where id = v_id) <> n + 1 then
+    raise exception 'el contador de uso de la faq no se incremento';
+  end if;
+end $$;
+\echo '   OK: los contadores de uso se incrementan'
 
 \echo ''
 \echo '=============================================='

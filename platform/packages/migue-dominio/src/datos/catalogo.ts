@@ -35,6 +35,15 @@ export interface ZonaRecoleccion {
   readonly observaciones: string | null;
 }
 
+export interface RespuestaFija {
+  readonly id: string;
+  readonly nombre: string;
+  readonly disparadores: readonly string[];
+  readonly modo: "exacto" | "contiene" | "regex";
+  readonly respuesta: string;
+  readonly prioridad: number;
+}
+
 export interface Catalogo {
   readonly configuracion: ReadonlyMap<string, unknown>;
   readonly textos: ReadonlyMap<string, string>;
@@ -42,6 +51,7 @@ export interface Catalogo {
   readonly limitesVolumen: readonly LimiteVolumen[];
   readonly puntosVerdes: readonly PuntoVerde[];
   readonly zonas: readonly ZonaRecoleccion[];
+  readonly respuestasFijas: readonly RespuestaFija[];
 }
 
 export class ErrorDeCatalogo extends Error {
@@ -60,7 +70,7 @@ async function cargarCatalogo(): Promise<Catalogo> {
 
   // En paralelo: son seis consultas independientes contra un endpoint que está
   // a 3 ms de la VPS. Secuenciarlas no aportaría nada.
-  const [config, textos, exclusiones, limites, puntos, zonas] = await Promise.all([
+  const [config, textos, exclusiones, limites, puntos, zonas, fijas] = await Promise.all([
     db.from("configuracion").select("clave, valor"),
     db.from("textos_bot").select("clave, texto"),
     db
@@ -84,6 +94,11 @@ async function cargarCatalogo(): Promise<Catalogo> {
       .select("id, nombre, dias, hora_sacar, observaciones")
       .eq("activo", true)
       .order("nombre"),
+    db
+      .from("respuestas_fijas")
+      .select("id, nombre, disparadores, modo, respuesta, prioridad")
+      .eq("activa", true)
+      .order("prioridad"),
   ]);
 
   if (config.error) throw new ErrorDeCatalogo("configuracion", config.error);
@@ -92,6 +107,7 @@ async function cargarCatalogo(): Promise<Catalogo> {
   if (limites.error) throw new ErrorDeCatalogo("limites_volumen", limites.error);
   if (puntos.error) throw new ErrorDeCatalogo("puntos_verdes", puntos.error);
   if (zonas.error) throw new ErrorDeCatalogo("zonas_recoleccion", zonas.error);
+  if (fijas.error) throw new ErrorDeCatalogo("respuestas_fijas", fijas.error);
 
   return {
     configuracion: new Map((config.data ?? []).map((f) => [f.clave as string, f.valor])),
@@ -134,6 +150,16 @@ async function cargarCatalogo(): Promise<Catalogo> {
         materiales: (f.materiales ?? []) as string[],
         observaciones: (f.observaciones ?? null) as string | null,
         orden: f.orden as number,
+      }),
+    ),
+    respuestasFijas: (fijas.data ?? []).map(
+      (f): RespuestaFija => ({
+        id: f.id as string,
+        nombre: f.nombre as string,
+        disparadores: (f.disparadores ?? []) as string[],
+        modo: f.modo as RespuestaFija["modo"],
+        respuesta: f.respuesta as string,
+        prioridad: f.prioridad as number,
       }),
     ),
     zonas: (zonas.data ?? []).map(
