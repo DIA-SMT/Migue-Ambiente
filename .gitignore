@@ -1,0 +1,58 @@
+# ===========================================================================
+# Secretos — lo más importante de este archivo
+# ===========================================================================
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+.secrets/
+.db-credentials
+
+# Claves SSH, por si alguna termina acá por accidente
+*.pem
+id_*
+!id_*.pub
+
+# ===========================================================================
+# Dependencias y artefactos
+# ===========================================================================
+node_modules/
+dist/
+build/
+.next/
+.vercel/
+*.tsbuildinfo
+
+# ===========================================================================
+# Logs y estado de ejecución
+# ===========================================================================
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.pm2/
+
+# Sesiones de clientes de bots (WhatsApp/Baileys). Son credenciales.
+auth_info*/
+session*/
+*.session
+
+# ===========================================================================
+# Corpus de documentos
+# ===========================================================================
+# Los PDFs institucionales son 16 MB y su lugar es Supabase Storage, no git.
+# Se conservan localmente para trabajar, pero no se versionan: git no maneja
+# bien binarios grandes y el panel es la fuente de verdad de los documentos.
+corpus/
+
+# ===========================================================================
+# Sistema operativo y editores
+# ===========================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,208 @@
+/**
+ * Catálogo: todo lo que un operador puede editar desde el panel, cargado junto
+ * y cacheado como una unidad.
+ *
+ * Se carga entero en vez de repositorio por repositorio porque el bot necesita
+ * casi todo en el mismo mensaje: para responder «tengo 8 bolsas de escombros»
+ * hacen falta las reglas de exclusión, los límites, los textos y la
+ * configuración. Seis consultas cacheadas juntas cuestan un viaje cada minuto;
+ * seis cachés independientes vencen en momentos distintos y pueden dejar al bot
+ * decidiendo con una mezcla de datos viejos y nuevos.
+ */
+import type { PostgrestError } from "@supabase/supabase-js";
+import { obtenerCliente } from "./cliente.ts";
+import { CacheConVencimiento, TTL_REGLAS_MS } from "./cache.ts";
+import type { ReglaExclusion } from "../reglas/exclusiones.ts";
+import type { LimiteVolumen } from "../reglas/volumen.ts";
+import { CONFIG_SLA_POR_DEFECTO, type ConfigSla, type ModoSla } from "../reglas/sla.ts";
+
+export interface PuntoVerde {
+  readonly id: string;
+  readonly nombre: string;
+  readonly direccion: string;
+  readonly tipo: "contenedor" | "asistido" | "movil";
+  readonly horario: string;
+  readonly materiales: readonly string[];
+  readonly observaciones: string | null;
+  readonly orden: number;
+}
+
+export interface ZonaRecoleccion {
+  readonly id: string;
+  readonly nombre: string;
+  readonly dias: readonly string[];
+  readonly horaSacar: string | null;
+  readonly observaciones: string | null;
+}
+
+export interface Catalogo {
+  readonly configuracion: ReadonlyMap<string, unknown>;
+  readonly textos: ReadonlyMap<string, string>;
+  readonly reglasExclusion: readonly ReglaExclusion[];
+  readonly limitesVolumen: readonly LimiteVolumen[];
+  readonly puntosVerdes: readonly PuntoVerde[];
+  readonly zonas: readonly ZonaRecoleccion[];
+}
+
+export class ErrorDeCatalogo extends Error {
+  constructor(tabla: string, error: PostgrestError) {
+    super(`No pude leer ${tabla}: ${error.message} (${error.code ?? "sin código"})`);
+    this.name = "ErrorDeCatalogo";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Carga
+// ---------------------------------------------------------------------------
+
+async function cargarCatalogo(): Promise<Catalogo> {
+  const db = obtenerCliente();
+
+  // En paralelo: son seis consultas independientes contra un endpoint que está
+  // a 3 ms de la VPS. Secuenciarlas no aportaría nada.
+  const [config, textos, exclusiones, limites, puntos, zonas] = await Promise.all([
+    db.from("configuracion").select("clave, valor"),
+    db.from("textos_bot").select("clave, texto"),
+    db
+      .from("reglas_exclusion")
+      .select("id, nombre, palabras, organismo, respuesta, accion, prioridad, activa")
+      .eq("activa", true)
+      .order("prioridad"),
+    db
+      .from("limites_volumen")
+      .select(
+        "categoria, etiqueta, limite_valor, limite_unidad, peso_max_bolsa_kg, accion_al_exceder, texto_exceso, activo",
+      )
+      .eq("activo", true),
+    db
+      .from("puntos_verdes")
+      .select("id, nombre, direccion, tipo, horario, materiales, observaciones, orden")
+      .eq("activo", true)
+      .order("orden"),
+    db
+      .from("zonas_recoleccion")
+      .select("id, nombre, dias, hora_sacar, observaciones")
+      .eq("activo", true)
+      .order("nombre"),
+  ]);
+
+  if (config.error) throw new ErrorDeCatalogo("configuracion", config.error);
+  if (textos.error) throw new ErrorDeCatalogo("textos_bot", textos.error);
+  if (exclusiones.error) throw new ErrorDeCatalogo("reglas_exclusion", exclusiones.error);
+  if (limites.error) throw new ErrorDeCatalogo("limites_volumen", limites.error);
+  if (puntos.error) throw new ErrorDeCatalogo("puntos_verdes", puntos.error);
+  if (zonas.error) throw new ErrorDeCatalogo("zonas_recoleccion", zonas.error);
+
+  return {
+    configuracion: new Map((config.data ?? []).map((f) => [f.clave as string, f.valor])),
+    textos: new Map((textos.data ?? []).map((f) => [f.clave as string, f.texto as string])),
+    reglasExclusion: (exclusiones.data ?? []).map(
+      (f): ReglaExclusion => ({
+        id: f.id as string,
+        nombre: f.nombre as string,
+        palabras: (f.palabras ?? []) as string[],
+        organismo: (f.organismo ?? null) as string | null,
+        respuesta: f.respuesta as string,
+        accion: f.accion as ReglaExclusion["accion"],
+        prioridad: f.prioridad as number,
+        activa: f.activa as boolean,
+      }),
+    ),
+    limitesVolumen: (limites.data ?? []).map(
+      (f): LimiteVolumen => ({
+        categoria: f.categoria as LimiteVolumen["categoria"],
+        etiqueta: f.etiqueta as string,
+        // Postgres devuelve `numeric` como string para no perder precisión.
+        // Sin este Number() las comparaciones de límite serían entre strings, y
+        // "10" < "5" es verdadero en orden lexicográfico.
+        limiteValor: Number(f.limite_valor),
+        limiteUnidad: f.limite_unidad as LimiteVolumen["limiteUnidad"],
+        pesoMaxBolsaKg: f.peso_max_bolsa_kg === null ? null : Number(f.peso_max_bolsa_kg),
+        accionAlExceder: f.accion_al_exceder as LimiteVolumen["accionAlExceder"],
+        textoExceso: (f.texto_exceso ?? null) as string | null,
+        activo: f.activo as boolean,
+      }),
+    ),
+    puntosVerdes: (puntos.data ?? []).map(
+      (f): PuntoVerde => ({
+        id: f.id as string,
+        nombre: f.nombre as string,
+        direccion: f.direccion as string,
+        tipo: f.tipo as PuntoVerde["tipo"],
+        horario: f.horario as string,
+        materiales: (f.materiales ?? []) as string[],
+        observaciones: (f.observaciones ?? null) as string | null,
+        orden: f.orden as number,
+      }),
+    ),
+    zonas: (zonas.data ?? []).map(
+      (f): ZonaRecoleccion => ({
+        id: f.id as string,
+        nombre: f.nombre as string,
+        dias: (f.dias ?? []) as string[],
+        horaSacar: (f.hora_sacar ?? null) as string | null,
+        observaciones: (f.observaciones ?? null) as string | null,
+      }),
+    ),
+  };
+}
+
+const cache = new CacheConVencimiento(cargarCatalogo, { ttlMs: TTL_REGLAS_MS });
+
+/** Catálogo vigente. Cacheado 60 s: una edición del panel se ve sin reiniciar. */
+export function obtenerCatalogo(): Promise<Catalogo> {
+  return cache.obtener();
+}
+
+/** Fuerza la recarga en el próximo acceso. */
+export function invalidarCatalogo(): void {
+  cache.invalidar();
+}
+
+// ---------------------------------------------------------------------------
+// Accesores tipados
+// ---------------------------------------------------------------------------
+
+/**
+ * Lee un valor de configuración con respaldo.
+ *
+ * El respaldo no es pereza: si un operador borra una fila de `configuracion`,
+ * el bot tiene que seguir funcionando con un valor sensato en lugar de romper
+ * a mitad de una conversación.
+ */
+export function leerConfig<T>(catalogo: Catalogo, clave: string, respaldo: T): T {
+  const valor = catalogo.configuracion.get(clave);
+  return valor === undefined || valor === null ? respaldo : (valor as T);
+}
+
+/**
+ * Texto del bot por clave.
+ *
+ * Si falta, devuelve un marcador visible en lugar de una cadena vacía. Un
+ * mensaje vacío al vecino es un error silencioso; `[falta texto: x]` se ve en
+ * la primera prueba y se corrige desde el panel.
+ */
+export function leerTexto(catalogo: Catalogo, clave: string): string {
+  return catalogo.textos.get(clave) ?? `[falta texto: ${clave}]`;
+}
+
+/** Arma la configuración de plazos a partir de lo cargado en la base. */
+export function configSla(catalogo: Catalogo): ConfigSla {
+  return {
+    modo: leerConfig<ModoSla>(catalogo, "sla_modo", CONFIG_SLA_POR_DEFECTO.modo),
+    horas: Number(leerConfig(catalogo, "sla_horas_habiles", CONFIG_SLA_POR_DEFECTO.horas)),
+    sabadoEsHabil: leerConfig(catalogo, "sla_sabado_habil", CONFIG_SLA_POR_DEFECTO.sabadoEsHabil),
+    jornadaDesde: Number(leerConfig(catalogo, "sla_jornada_desde", CONFIG_SLA_POR_DEFECTO.jornadaDesde)),
+    jornadaHasta: Number(leerConfig(catalogo, "sla_jornada_hasta", CONFIG_SLA_POR_DEFECTO.jornadaHasta)),
+    feriados: leerConfig<readonly string[]>(catalogo, "feriados", CONFIG_SLA_POR_DEFECTO.feriados),
+  };
+}
+
+/** Los Puntos Verdes formateados para mostrarle al vecino. */
+export function describirPuntosVerdes(catalogo: Catalogo, maximo = 5): string {
+  const puntos = catalogo.puntosVerdes.slice(0, maximo);
+  if (puntos.length === 0) return "No tengo Puntos Verdes cargados en este momento.";
+  return puntos
+    .map((p) => `• ${p.direccion} — ${p.horario}${p.observaciones ? ` (${p.observaciones})` : ""}`)
+    .join("\n");
+}

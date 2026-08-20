@@ -1,0 +1,30 @@
+# Secretos: los .env viven solo en la VPS, nunca en el repo
+.env
+.env.*
+!.env.example
+.db-credentials
+
+# Dependencias y build
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Logs (PM2 escribe acá; los rota pm2-logrotate)
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Estado local de PM2
+.pm2/
+
+# Sesiones de clientes de bots (WhatsApp/Baileys, etc.) — son credenciales
+auth_info*/
+session*/
+*.session
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini

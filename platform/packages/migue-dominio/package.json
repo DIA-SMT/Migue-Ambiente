@@ -1,0 +1,23 @@
+{
+  "name": "@migue/dominio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Logica de negocio de Migue Ambiente: reglas, flujos y acceso a datos. Sin dependencias de canal.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./reglas": "./src/reglas/index.ts"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "Registro unico de bots. Es la fuente de verdad: ecosystem.config.cjs lo lee",
+    "y genera la config de PM2 a partir de esto. Para agregar un bot:",
+    "  pnpm bot:new <nombre>     (crea la carpeta y lo registra acá)",
+    "Campos por bot:",
+    "  name       identificador en PM2 (unico)",
+    "  dir        carpeta relativa dentro de bots/",
+    "  entry      archivo de entrada relativo a dir",
+    "  enabled    si false, PM2 lo ignora",
+    "  instances  1 = fork. >1 o 'max' = cluster (solo si el bot es stateless)",
+    "  port       puerto local si expone webhook/health (null si no expone)",
+    "  maxMemory  reinicio automatico si supera esta memoria",
+    "  env        variables extra (los secretos van en el .env de cada bot)"
+  ],
+  "bots": [
+    {
+      "name": "template",
+      "dir": "_template",
+      "entry": "src/index.js",
+      "enabled": false,
+      "instances": 1,
+      "port": null,
+      "maxMemory": "300M",
+      "env": {}
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "multibot-platform",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runtime multibot en Node.js: cada bot aislado, core compartido, PM2 como orquestador",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "bots:list": "node scripts/botctl.mjs list",
+    "bots:start": "pm2 start ecosystem.config.cjs",
+    "bots:stop": "pm2 stop ecosystem.config.cjs",
+    "bots:reload": "pm2 reload ecosystem.config.cjs --update-env",
+    "bots:status": "pm2 status",
+    "bots:logs": "pm2 logs",
+    "bots:save": "pm2 save",
+    "bot:new": "node scripts/botctl.mjs new",
+    "doctor": "node scripts/botctl.mjs doctor"
+  }
+}

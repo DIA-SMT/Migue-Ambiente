@@ -1,0 +1,52 @@
+# ===========================================================================
+# Finales de línea
+# ===========================================================================
+# Sin esto, git en Windows convierte LF a CRLF al hacer checkout, y un
+# `provision.sh` con finales de línea de Windows falla en la VPS con
+# `bad interpreter: /usr/bin/env bash^M`. Silencioso y molesto de diagnosticar.
+#
+# Todo lo que se ejecuta en Linux o lo consume Postgres queda forzado a LF.
+# ===========================================================================
+
+# Por defecto: git normaliza a LF en el repositorio
+* text=auto eol=lf
+
+# Se ejecutan en la VPS: LF obligatorio, sin excepción
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# Los consume psql. Un CRLF dentro de un dollar-quoted block de plpgsql
+# sobrevive al parseo y se mete en el cuerpo de la función.
+*.sql   text eol=lf
+
+# Código y configuración
+*.ts    text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+
+# Sin finales de línea que tocar
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.pdf   binary
+*.docx  binary
+*.zip   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+
+# ===========================================================================
+# Diffs
+# ===========================================================================
+# El lockfile es generado: marcarlo así lo colapsa en las revisiones de PR.
+pnpm-lock.yaml  -diff linguist-generated=true
+
+# Generado por generar_aplicar_todo.sh a partir de db/migraciones/*.sql
+db/aplicar_todo.sql  linguist-generated=true
