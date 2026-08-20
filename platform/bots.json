@@ -15,6 +15,26 @@
   ],
   "bots": [
     {
+      "name": "migue-ambiente",
+      "dir": "migue-ambiente",
+      "entry": "src/index.ts",
+      "enabled": true,
+      "instances": 1,
+      "port": null,
+      "maxMemory": "400M",
+      "env": {}
+    },
+    {
+      "name": "migue-worker",
+      "dir": "migue-ambiente",
+      "entry": "src/worker/index.ts",
+      "enabled": true,
+      "instances": 1,
+      "port": null,
+      "maxMemory": "600M",
+      "env": {}
+    },
+    {
       "name": "template",
       "dir": "_template",
       "entry": "src/index.js",

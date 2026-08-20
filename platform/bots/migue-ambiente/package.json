@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Bot Migue Ambiente. Adaptador de canal y arranque; toda la logica vive en @migue/dominio.",
+  "description": "Bot Migue Ambiente y worker de ingesta. Dos puntos de entrada, misma logica compartida en @migue/dominio.",
   "main": "src/index.ts",
   "scripts": {
     "start": "node --env-file=.env src/index.ts",
     "dev": "node --env-file=.env --watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:worker": "node --env-file=.env src/worker/index.ts",
+    "dev:worker": "node --env-file=.env --watch src/worker/index.ts"
   },
   "dependencies": {
     "@bots/core": "workspace:*",

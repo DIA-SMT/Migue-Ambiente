@@ -122,11 +122,66 @@ end $$;
 -- ---------------------------------------------------------------------------
 \echo ''
 \echo '== D · tolerancia a errores de tipeo (trigram) =='
-select left(pregunta, 45) as pregunta,
-       round(similarity(pregunta, 'donde llevo los numaticos')::numeric, 3) as similitud
-  from public.faqs
- order by similarity(pregunta, 'donde llevo los numaticos') desc
- limit 2;
+-- Este bloque trae su propio fixture a proposito. El umbral difuso de
+-- `buscar_conocimiento` se calibro contra esta FAQ, y si el test dependiera de
+-- las FAQs que insertan otros bloques, la calibracion quedaria atada al orden
+-- del archivo: la primera version de este bloque medio 0.261 contra una FAQ
+-- distinta y parecia que el umbral estaba mal puesto.
+insert into public.faqs (pregunta, respuesta, etiquetas) values
+  ('¿Cómo verifico el recorrido del camión?',
+   'Podés consultar el recorrido en la web del municipio.',
+   array['recoleccion'])
+on conflict do nothing;
+
+do $$
+declare
+  v_umbral   real := 0.35;   -- el mismo default que usa buscar_conocimiento
+  v_correcta real;
+  v_ruido    real;
+  v_pregunta text;
+begin
+  -- La consulta tiene dos palabras mal escritas: «recoridro» y «camoin».
+  select pregunta, word_similarity('recoridro del camoin', pregunta)
+    into v_pregunta, v_correcta
+    from public.faqs
+   where activa
+   order by word_similarity('recoridro del camoin', pregunta) desc
+   limit 1;
+
+  if v_pregunta not ilike '%recorrido del camión%' then
+    raise exception 'con el tipeo, la FAQ mejor rankeada fue: %', v_pregunta;
+  end if;
+
+  if v_correcta < v_umbral then
+    raise exception 'la coincidencia correcta da % y el umbral es %', v_correcta, v_umbral;
+  end if;
+
+  -- El ruido tiene que quedar por debajo del umbral. Se mide contra el umbral y
+  -- no contra la correcta: lo que importa es que el umbral SEPARE.
+  select coalesce(max(word_similarity('recoridro del camoin', pregunta)), 0)
+    into v_ruido
+    from public.faqs
+   where activa and pregunta not ilike '%recorrido del camión%';
+
+  if v_ruido >= v_umbral then
+    raise exception 'una FAQ sin relacion da % y pasa el umbral %', v_ruido, v_umbral;
+  end if;
+
+  -- `similarity` es lo que NO sirve acá, y conviene que el test lo demuestre en
+  -- vez de dejarlo escrito en un comentario: penaliza que la pregunta sea mas
+  -- larga que la consulta, y la coincidencia correcta queda al borde del umbral.
+  if similarity('recoridro del camoin', v_pregunta) >= v_correcta then
+    raise exception 'similarity (%) ya no es peor que word_similarity (%): revisar la eleccion',
+      similarity('recoridro del camoin', v_pregunta), v_correcta;
+  end if;
+
+  -- El margen queda a la vista: si un cambio futuro lo achica, se ve en la
+  -- salida antes de que el test empiece a fallar de forma intermitente.
+  raise notice 'umbral difuso: correcta %, ruido %, umbral % (similarity daria %)',
+    round(v_correcta::numeric, 3), round(v_ruido::numeric, 3), v_umbral,
+    round(similarity('recoridro del camoin', v_pregunta)::numeric, 3);
+end $$;
+\echo '   OK: el tipeo encuentra la FAQ correcta y el umbral la separa del ruido'
 
 -- ---------------------------------------------------------------------------
 -- E · Cola de trabajos: toma atomica y recuperacion de colgados
@@ -381,6 +436,195 @@ end $$;
 \echo '   OK: los contadores de uso se incrementan'
 
 \echo ''
+-- ---------------------------------------------------------------------------
+-- BLOQUE I - Ingesta: reemplazo de fragmentos y cierre de trabajos (016)
+-- ---------------------------------------------------------------------------
+\echo ' I. Ingesta: reemplazar_fragmentos / terminar_trabajo / encolar_reindexado'
+
+do $$
+declare
+  v_doc  uuid;
+  v_trab uuid;
+  v_fila public.trabajos;
+  v_activos int;
+  n int;
+begin
+  insert into public.documentos
+    (titulo, nombre_archivo, formato, ruta_storage, bytes, estado)
+  values ('Prueba de ingesta', 'prueba.pdf', 'pdf', 'documentos/prueba-ingesta.pdf', 1234, 'procesando')
+  returning id into v_doc;
+
+  -- 1 - Inserta los fragmentos y deja el documento listo.
+  select public.reemplazar_fragmentos(
+    v_doc,
+    '[{"orden":1,"texto":"los contenedores son 46 en total","pagina":13,"titulo_seccion":"4. Contenedores","tokens_aprox":9},
+      {"orden":2,"texto":"el retiro de poda se coordina con turno previo","pagina":14,"titulo_seccion":"4. Contenedores","tokens_aprox":12}]'::jsonb,
+    24, 'abc123'
+  ) into n;
+  if n <> 2 then raise exception 'reemplazar_fragmentos devolvio % en vez de 2', n; end if;
+
+  select cantidad_fragmentos into n from public.documentos where id = v_doc;
+  if n <> 2 then raise exception 'cantidad_fragmentos quedo en % y no en 2', n; end if;
+  if (select estado from public.documentos where id = v_doc) <> 'listo' then
+    raise exception 'el documento no quedo listo';
+  end if;
+  if (select paginas from public.documentos where id = v_doc) <> 24 then
+    raise exception 'no guardo la cantidad de paginas';
+  end if;
+  if (select hash_sha256 from public.documentos where id = v_doc) <> 'abc123' then
+    raise exception 'no guardo el hash';
+  end if;
+
+  -- 2 - La columna generada de busqueda se llena, incluyendo el titulo de
+  --     seccion. Es lo que hace que un fragmento sea encontrable por el nombre
+  --     de su seccion y no solo por su texto.
+  select count(*) into n from public.fragmentos
+   where documento_id = v_doc
+     and busqueda @@ to_tsquery('public.es_sin_acentos', 'contenedores');
+  if n < 1 then raise exception 'el fragmento no es buscable por su titulo de seccion'; end if;
+
+  -- 3 - Reemplazar de verdad reemplaza: no acumula.
+  select public.reemplazar_fragmentos(
+    v_doc, '[{"orden":1,"texto":"texto nuevo unico","pagina":null,"titulo_seccion":null,"tokens_aprox":4}]'::jsonb
+  ) into n;
+  if n <> 1 then raise exception 'tras reemplazar quedaron % fragmentos y no 1', n; end if;
+  select count(*) into n from public.fragmentos
+   where documento_id = v_doc and texto like '%46 en total%';
+  if n <> 0 then raise exception 'los fragmentos viejos sobrevivieron al reemplazo'; end if;
+
+  -- Y un reemplazo sin p_paginas no borra las paginas ya guardadas.
+  if (select paginas from public.documentos where id = v_doc) <> 24 then
+    raise exception 'un reemplazo sin p_paginas borro las paginas anteriores';
+  end if;
+
+  -- 4 - Cero fragmentos es un error del documento, no un exito silencioso. Un
+  --     PDF escaneado sin capa de texto entra por aca, y si quedara en 'listo'
+  --     el panel mostraria un documento cargado que no responde nada.
+  select public.reemplazar_fragmentos(v_doc, '[]'::jsonb) into n;
+  if n <> 0 then raise exception 'devolvio % con lista vacia', n; end if;
+  if (select estado from public.documentos where id = v_doc) <> 'error' then
+    raise exception 'un documento sin fragmentos no quedo en error';
+  end if;
+  if (select error_detalle from public.documentos where id = v_doc) is null then
+    raise exception 'no explico por que quedo en error';
+  end if;
+
+  -- 5 - Un documento que no existe falla fuerte, en vez de crear fragmentos
+  --     huerfanos que nadie va a encontrar ni borrar.
+  begin
+    perform public.reemplazar_fragmentos(gen_random_uuid(), '[]'::jsonb);
+    raise exception 'acepto un documento inexistente';
+  exception when others then
+    if sqlerrm not like 'no existe el documento%' then raise; end if;
+  end;
+
+  -- 6 - terminar_trabajo: exito.
+  insert into public.trabajos (tipo, payload, max_intentos)
+  values ('ingestar_documento', jsonb_build_object('documento_id', v_doc), 3)
+  returning id into v_trab;
+
+  select * into v_fila from public.tomar_trabajo('prueba-worker');
+  if v_fila.id is null then raise exception 'tomar_trabajo no devolvio nada'; end if;
+
+  select * into v_fila from public.terminar_trabajo(v_fila.id);
+  if v_fila.estado <> 'listo' then
+    raise exception 'un trabajo sin error quedo en % y no en listo', v_fila.estado;
+  end if;
+  if v_fila.finalizado_en is null then raise exception 'no marco finalizado_en'; end if;
+
+  -- 7 - Con error y con intentos disponibles vuelve a la cola liberada.
+  insert into public.trabajos (tipo, payload, max_intentos)
+  values ('reindexar_documento', jsonb_build_object('documento_id', v_doc), 3)
+  returning id into v_trab;
+
+  select * into v_fila from public.tomar_trabajo('prueba-worker');
+  select * into v_fila from public.terminar_trabajo(v_fila.id, 'se cayo la red');
+  if v_fila.estado <> 'pendiente' then
+    raise exception 'con intentos disponibles quedo en % y no en pendiente', v_fila.estado;
+  end if;
+  if v_fila.tomado_por is not null or v_fila.tomado_en is not null then
+    raise exception 'volvio a la cola sin liberar el dueno';
+  end if;
+  if v_fila.finalizado_en is not null then
+    raise exception 'marco finalizado_en un trabajo que todavia va a reintentarse';
+  end if;
+
+  -- 8 - Agotados los intentos queda en error. `tomar_trabajo` es lo que
+  --     incrementa `intentos`, asi que hay que tomarlo y fallarlo hasta el tope.
+  --     El bucle tiene salida por fila nula para no colgarse si algo cambia.
+  loop
+    select * into v_fila from public.tomar_trabajo('prueba-worker');
+    exit when v_fila.id is null;
+    select * into v_fila from public.terminar_trabajo(v_fila.id, 'sigue fallando');
+    exit when v_fila.estado = 'error';
+  end loop;
+  if v_fila.estado <> 'error' then
+    raise exception 'nunca llego a error: quedo en %', coalesce(v_fila.estado, '(sin fila)');
+  end if;
+  if v_fila.intentos <> v_fila.max_intentos then
+    raise exception 'llego a error con % intentos de %', v_fila.intentos, v_fila.max_intentos;
+  end if;
+
+  -- 8bis - p_definitivo corta los reintentos de una vez, sin importar cuantos
+  --        intentos quedaran. Es el caso del PDF escaneado: reintentarlo tres
+  --        veces es bajar y procesar el mismo archivo tres veces para llegar al
+  --        mismo lugar.
+  insert into public.trabajos (tipo, payload, max_intentos)
+  values ('ingestar_documento', jsonb_build_object('documento_id', v_doc), 5)
+  returning id into v_trab;
+
+  select * into v_fila from public.tomar_trabajo('prueba-worker');
+  select * into v_fila from public.terminar_trabajo(v_fila.id, 'es un escaneo sin texto', true);
+  if v_fila.estado <> 'error' then
+    raise exception 'p_definitivo no corto los reintentos: quedo en %', v_fila.estado;
+  end if;
+  if v_fila.intentos >= v_fila.max_intentos then
+    raise exception 'el test no probo nada: ya no quedaban intentos (% de %)',
+      v_fila.intentos, v_fila.max_intentos;
+  end if;
+  if v_fila.finalizado_en is null then
+    raise exception 'un cierre definitivo no marco finalizado_en';
+  end if;
+  if v_fila.tomado_por is null then
+    raise exception 'un cierre definitivo libero el dueno y ya no se puede auditar';
+  end if;
+
+  -- 9 - Un trabajo inexistente falla en vez de devolver una fila vacia, que el
+  --     worker interpretaria como cierre exitoso.
+  begin
+    perform public.terminar_trabajo(gen_random_uuid());
+    raise exception 'acepto un trabajo inexistente';
+  exception when others then
+    if sqlerrm not like 'no existe el trabajo%' then raise; end if;
+  end;
+
+  -- Limpieza de la cola antes de medir el encolado masivo.
+  delete from public.trabajos;
+
+  -- 10 - encolar_reindexado: uno por documento activo, ni uno mas.
+  select count(*) into v_activos from public.documentos where activo;
+  select public.encolar_reindexado() into n;
+  if n <> v_activos then
+    raise exception 'encolo % trabajos para % documentos activos', n, v_activos;
+  end if;
+  select count(*) into n from public.trabajos
+   where tipo = 'reindexar_documento' and estado = 'pendiente';
+  if n <> v_activos then
+    raise exception 'quedaron % pendientes para % documentos activos', n, v_activos;
+  end if;
+
+  -- 11 - Llamarlo de nuevo no duplica: en el panel esto va a ser un boton que
+  --      alguien aprieta tres veces sin esperar.
+  if public.encolar_reindexado() <> 0 then
+    raise exception 'encolar_reindexado duplico trabajos ya pendientes';
+  end if;
+
+  -- Limpieza: la cola y el documento de prueba con su cascada de fragmentos.
+  delete from public.trabajos;
+  delete from public.documentos where id = v_doc;
+end $$;
+\echo '   OK: reemplazo atomico, reintentos acotados y encolado sin duplicar'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='

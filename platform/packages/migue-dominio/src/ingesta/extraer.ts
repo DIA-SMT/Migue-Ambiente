@@ -1,0 +1,121 @@
+/**
+ * Punto único de extracción: recibe bytes y un nombre de archivo, devuelve
+ * fragmentos indexables.
+ *
+ * Existe para que el worker no tenga que saber qué extractor corresponde a cada
+ * formato. Toda la decisión vive acá.
+ */
+import { createHash } from "node:crypto";
+import { extraerDocx } from "./docx.ts";
+import { extraerPdf, type DocumentoExtraido } from "./pdf.ts";
+import { fragmentar, type FragmentoIndexable } from "./fragmentar.ts";
+import { limpiar } from "./texto.ts";
+
+/** Formatos que acepta la tabla `documentos`. */
+export type Formato = "pdf" | "docx" | "txt" | "md";
+
+export interface ResultadoExtraccion {
+  readonly fragmentos: readonly FragmentoIndexable[];
+  readonly cantidadPaginas: number;
+  readonly hash: string;
+  /** Caracteres de texto útil. Sirve para detectar un PDF escaneado. */
+  readonly caracteres: number;
+}
+
+export class FormatoNoSoportadoError extends Error {
+  constructor(nombreArchivo: string) {
+    super(
+      `No se puede leer «${nombreArchivo}»: sólo se admiten PDF, DOCX, TXT y MD. ` +
+        `Si es un documento escaneado, hay que pasarlo por un OCR antes de subirlo.`,
+    );
+    this.name = "FormatoNoSoportadoError";
+  }
+}
+
+export class SinTextoError extends Error {
+  constructor(nombreArchivo: string) {
+    super(
+      `«${nombreArchivo}» no tiene texto que se pueda leer. ` +
+        `Lo más común es que sea un PDF escaneado: son imágenes de páginas, sin ` +
+        `capa de texto, y hay que pasarlos por un OCR antes de subirlos.`,
+    );
+    this.name = "SinTextoError";
+  }
+}
+
+/** Deduce el formato por la extensión del nombre de archivo. */
+export function formatoDe(nombreArchivo: string): Formato {
+  const extension = nombreArchivo.toLowerCase().split(".").pop() ?? "";
+  if (extension === "pdf") return "pdf";
+  if (extension === "docx") return "docx";
+  if (extension === "txt") return "txt";
+  if (extension === "md" || extension === "markdown") return "md";
+  throw new FormatoNoSoportadoError(nombreArchivo);
+}
+
+/**
+ * Un TXT o MD no tiene páginas ni estilos, así que sólo se limpia y se pasa al
+ * fragmentador, que va a etiquetar las secciones con la heurística de texto.
+ */
+function extraerPlano(datos: Uint8Array): DocumentoExtraido {
+  const texto = new TextDecoder("utf-8").decode(datos);
+  return { paginas: limpiar([texto]), cantidadPaginas: 1 };
+}
+
+/**
+ * Hash del CONTENIDO, no del nombre.
+ *
+ * Es lo que permite detectar que el mismo archivo se subió dos veces con
+ * nombres distintos, que es exactamente lo que pasa cuando alguien renombra un
+ * documento y lo vuelve a subir. La columna `documentos.hash_sha256` tiene un
+ * índice único parcial.
+ */
+export function hashDe(datos: Uint8Array): string {
+  return createHash("sha256").update(datos).digest("hex");
+}
+
+/**
+ * Cuánto texto tiene que salir para creer que el documento se leyó bien.
+ *
+ * 200 caracteres es menos que un párrafo. Por debajo de eso no es un documento
+ * corto: es un PDF escaneado, y conviene decirlo con un mensaje claro en vez de
+ * indexar cero fragmentos y dejar al administrador adivinando.
+ */
+const MINIMO_DE_TEXTO = 200;
+
+export async function extraer(
+  datos: Uint8Array,
+  nombreArchivo: string,
+  formato: Formato = formatoDe(nombreArchivo),
+): Promise<ResultadoExtraccion> {
+  let extraido: DocumentoExtraido;
+
+  switch (formato) {
+    case "pdf":
+      extraido = await extraerPdf(datos);
+      break;
+    case "docx":
+      extraido = extraerDocx(datos);
+      break;
+    case "txt":
+    case "md":
+      extraido = extraerPlano(datos);
+      break;
+    default: {
+      // Si alguien agrega un formato a la tabla y se olvida de agregarlo acá,
+      // TypeScript marca el error en esta línea.
+      const nunca: never = formato;
+      throw new FormatoNoSoportadoError(String(nunca));
+    }
+  }
+
+  const caracteres = extraido.paginas.join("").replace(/\s/g, "").length;
+  if (caracteres < MINIMO_DE_TEXTO) throw new SinTextoError(nombreArchivo);
+
+  return {
+    fragmentos: fragmentar(extraido.paginas),
+    cantidadPaginas: extraido.cantidadPaginas,
+    hash: hashDe(datos),
+    caracteres,
+  };
+}

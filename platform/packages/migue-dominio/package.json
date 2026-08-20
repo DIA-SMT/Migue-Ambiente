@@ -7,7 +7,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./reglas": "./src/reglas/index.ts"
+    "./reglas": "./src/reglas/index.ts",
+    "./ingesta": "./src/ingesta/index.ts"
   },
   "scripts": {
     "test": "node --test",
@@ -18,6 +19,8 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.3"
+    "@supabase/supabase-js": "^2.112.3",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^4.10.38"
   }
 }
