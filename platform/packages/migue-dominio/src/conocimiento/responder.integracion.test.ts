@@ -118,12 +118,26 @@ describe(
       assert.equal(frag!.pagina, 14);
     });
 
-    it("tolera errores de tipeo cayendo al respaldo difuso", async () => {
+  it("con algunas palabras bien escritas resuelve por OR, no por similitud", async () => {
+      // Los tres niveles de búsqueda hacen que un tipeo parcial NO caiga al
+      // respaldo difuso: «turnos» y «pasa» están bien escritas, así que el
+      // nivel OR encuentra coincidencias reales de texto completo.
+      //
+      // Importa la distinción: una coincidencia real alcanza para responder, un
+      // parecido ortográfico no.
       const r = await buscarEnConocimiento("en ke turnos pasa el camoin de basra");
+      assert.ok(r.length > 0, "el nivel OR no encontró nada");
+      assert.equal(r.some((c) => !c.difuso), true, "debería haber coincidencias reales");
+      assert.equal(esMaterialSuficiente(r), true, "y alcanzan para responder");
+    });
+
+    it("con todo mal escrito cae al respaldo por similitud", async () => {
+      const r = await buscarEnConocimiento("turnso del camoin de basra");
       assert.ok(r.length > 0, "el respaldo difuso no encontró nada");
       assert.equal(r.every((c) => c.difuso), true, "debería venir todo del respaldo");
       // Y por eso mismo no alcanza para responder: es un parecido ortográfico,
-      // no una coincidencia de contenido.
+      // no una coincidencia de contenido. Con eso conviene registrar la
+      // pregunta antes que arriesgar un dato municipal equivocado.
       assert.equal(esMaterialSuficiente(r), false);
     });
 
