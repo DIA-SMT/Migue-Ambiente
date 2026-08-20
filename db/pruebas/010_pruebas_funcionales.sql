@@ -10,6 +10,7 @@
 -- NO toca las semillas: el bloque A justamente verifica que no se dupliquen.
 -- ---------------------------------------------------------------------------
 delete from public.trabajos;
+delete from public.sin_respuesta;
 delete from public.mensajes;
 delete from public.conversaciones where canal_usuario_id = '123456';
 delete from public.faqs where pregunta in (
@@ -191,6 +192,35 @@ begin
   if n <> 2 then raise exception 'el contador deberia ser 2, es %', n; end if;
 end $$;
 \echo '   OK: el trigger mantiene el contador'
+
+-- ---------------------------------------------------------------------------
+-- G · Agrupación de preguntas sin responder
+--
+-- Esta prueba existe porque su ausencia dejó pasar un error a producción: la
+-- función tenía un `insert ... returning` sin envolver, que en plpgsql falla
+-- con «query has no destination for result data». El esquema se aplicó sin
+-- quejarse y el fallo apareció recién al llamarla desde el bot.
+-- ---------------------------------------------------------------------------
+\echo ''
+\echo '== G · agrupacion de preguntas sin responder =='
+
+do $$
+declare r1 record; r2 record; r3 record; n int;
+begin
+  select * into r1 from public.agrupar_sin_respuesta('donde tiro el aceite de cocina usado', 'sin_coincidencia');
+  if r1.agrupada then raise exception 'la primera no deberia agruparse'; end if;
+
+  select * into r2 from public.agrupar_sin_respuesta('donde tiro el aceite de cocina usado?', 'sin_coincidencia');
+  if not r2.agrupada then raise exception 'una pregunta identica deberia agruparse'; end if;
+  if r2.id <> r1.id then raise exception 'se agrupo en una fila distinta'; end if;
+
+  select veces_repetida into n from public.sin_respuesta where id = r1.id;
+  if n <> 2 then raise exception 'el contador deberia ser 2, es %', n; end if;
+
+  select * into r3 from public.agrupar_sin_respuesta('cuanto sale el permiso de poda de arbol', 'sin_coincidencia');
+  if r3.agrupada then raise exception 'una pregunta distinta no deberia agruparse'; end if;
+end $$;
+\echo '   OK: agrupa las parecidas y separa las distintas'
 
 \echo ''
 \echo '=============================================='

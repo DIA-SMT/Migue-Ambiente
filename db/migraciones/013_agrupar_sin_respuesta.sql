@@ -53,11 +53,19 @@ begin
     return query select v_existente, true;
   end if;
 
-  insert into public.sin_respuesta
-    (pregunta, motivo, conversacion_id, mensaje_id, confianza)
-  values
-    (p_pregunta, p_motivo, p_conversacion_id, p_mensaje_id, p_confianza)
-  returning public.sin_respuesta.id, false;
+  -- El INSERT va dentro de un WITH porque en plpgsql un `insert ... returning`
+  -- no puede devolver filas por sí mismo dentro de una función `returns table`
+  -- (falla con «query has no destination for result data»). Envolverlo hace
+  -- que la sentencia externa sea un SELECT, que sí puede.
+  return query
+    with nueva as (
+      insert into public.sin_respuesta
+        (pregunta, motivo, conversacion_id, mensaje_id, confianza)
+      values
+        (p_pregunta, p_motivo, p_conversacion_id, p_mensaje_id, p_confianza)
+      returning public.sin_respuesta.id
+    )
+    select nueva.id, false from nueva;
 end $$;
 
 comment on function public.agrupar_sin_respuesta is
