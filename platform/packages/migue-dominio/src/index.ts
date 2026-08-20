@@ -15,3 +15,4 @@ export * from "./flujos/index.ts";
 export * from "./mensajeria.ts";
 export * from "./ia/index.ts";
 export * from "./conocimiento/index.ts";
+export * from "./nucleo/index.ts";

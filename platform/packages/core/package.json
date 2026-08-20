@@ -5,8 +5,12 @@
   "type": "module",
   "description": "Base compartida por todos los bots: logging, env, shutdown ordenado, Redis, Postgres, health server",
   "main": "./src/index.js",
+  "types": "./index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.js"
+    }
   },
   "dependencies": {
     "ioredis": "^5.4.2",

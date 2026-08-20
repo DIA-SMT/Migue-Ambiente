@@ -22,3 +22,20 @@ insert into public.configuracion (clave, valor, descripcion, categoria) values
    'Confianza mínima para arrancar un flujo transaccional. Por debajo, el bot intenta responder la consulta en vez de imponer un cuestionario. Más alto que umbral_confianza porque equivocarse de flujo es más molesto para el vecino que no responder.',
    'ia')
 on conflict (clave) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Interrupción de flujos por exclusiones
+-- ---------------------------------------------------------------------------
+-- Las reglas de exclusión corren ANTES del flujo activo: si un vecino escribe
+-- «hay olor a gas» mientras carga un pedido de escombros, corresponde
+-- derivarlo ya, no terminar de preguntarle cuántas bolsas tiene. Por eso la
+-- regla de gas tiene la prioridad más alta de la tabla.
+--
+-- Es configurable porque tiene un costo: una palabra demasiado genérica
+-- cargada desde el panel podría interrumpir flujos legítimos. Si eso llega a
+-- molestar, la salida es apagar esta clave y no esperar un deploy.
+insert into public.configuracion (clave, valor, descripcion, categoria) values
+  ('exclusiones_durante_flujo', 'true'::jsonb,
+   'Si las reglas de exclusión pueden interrumpir un flujo en curso. Verdadero por defecto: un olor a gas no puede esperar a que el vecino termine de cargar un pedido de escombros.',
+   'negocio')
+on conflict (clave) do nothing;

@@ -1,0 +1,22 @@
+{
+  "name": "@bots/migue-ambiente",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bot Migue Ambiente. Adaptador de canal y arranque; toda la logica vive en @migue/dominio.",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --env-file=.env src/index.ts",
+    "dev": "node --env-file=.env --watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bots/core": "workspace:*",
+    "@migue/dominio": "workspace:*",
+    "grammy": "^1.32.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

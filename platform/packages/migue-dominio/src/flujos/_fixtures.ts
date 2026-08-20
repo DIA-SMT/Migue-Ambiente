@@ -72,7 +72,8 @@ const REGLAS: ReglaExclusion[] = [
     nombre: "Fuga de gas",
     palabras: ["gas", "olor a gas"],
     organismo: "Naturgy / Gasnor",
-    respuesta: "Si sentís olor a gas, alejate y llamá a la distribuidora.",
+    respuesta:
+      "Si sentís olor a gas, alejate del lugar y no acciones interruptores. Este tipo de reclamo no corresponde a la competencia municipal: comunicate de inmediato con Naturgy o Gasnor.",
     accion: "derivar",
     prioridad: 10,
     activa: true,
@@ -81,6 +82,27 @@ const REGLAS: ReglaExclusion[] = [
 
 /** Textos como los siembra la migración 008, con marcadores donde corresponde. */
 const TEXTOS = new Map<string, string>([
+  // Textuales de la migración 008. El fixture espeja producción: si divergen,
+  // un test verde no dice nada sobre lo que va a recibir el vecino.
+  [
+    "bienvenida",
+    "Hola, soy Migue Ambiente 🌱 de la Municipalidad de San Miguel de Tucumán.\n\n" +
+      "Puedo ayudarte con retiro de residuos especiales, reclamos de recolección, " +
+      "programas ambientales y Puntos Verdes.\n\nContame qué necesitás.",
+  ],
+  [
+    "menu_principal",
+    "Decime cuál de estas opciones te sirve:\n\n" +
+      "1. Retiro de residuos especiales (poda, escombros, muebles)\n" +
+      "2. El camión no pasó\n" +
+      "3. Programas ambientales (SEPARÁ, EDUCÁ, TRANSFORMÁ, Puntos Verdes)\n" +
+      "4. Otra consulta\n\nO escribime directamente tu consulta.",
+  ],
+  [
+    "sin_respuesta",
+    "No tengo esa información con la certeza suficiente para respondértela. Ya la registré para que el equipo de Ambiente la revise.",
+  ],
+  ["fuera_de_alcance", "Te informamos que ese tipo de reclamo no corresponde a la competencia municipal."],
   [
     "retiro_requisitos",
     "Para gestionar este pedido especial necesito una foto y tu dirección exacta.\n\n⚠️ Regla de Oro: NO saques los residuos a la vereda todavía.",
