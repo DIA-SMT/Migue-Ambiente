@@ -1211,7 +1211,19 @@ alter table public.trabajos
 --      sí y crean dos filas. Acá es una sola sentencia atómica.
 -- ===========================================================================
 
-create or replace function public.agrupar_sin_respuesta(
+-- Se borran las sobrecargas antes de crear: `create or replace` con una firma
+-- distinta no reemplaza, crea otra función con el mismo nombre. Es regla del
+-- proyecto para toda función RPC de este esquema.
+do $$
+declare f record;
+begin
+  for f in select oid::regprocedure as firma from pg_proc
+            where pronamespace = 'public'::regnamespace
+              and proname = 'agrupar_sin_respuesta'
+  loop execute format('drop function %s', f.firma); end loop;
+end $$;
+
+create function public.agrupar_sin_respuesta(
   p_pregunta        text,
   p_motivo          text,
   p_conversacion_id uuid    default null,
@@ -1267,7 +1279,7 @@ begin
     select nueva.id, false from nueva;
 end $$;
 
-comment on function public.agrupar_sin_respuesta is
+comment on function public.agrupar_sin_respuesta(text, text, uuid, uuid, numeric, real) is
   'Registra una pregunta sin responder agrupándola con una pendiente parecida (trigram). Atómica: evita filas duplicadas por mensajes simultáneos.';
 
 -- El índice trigram que hace rápida la búsqueda ya existe desde la migración
@@ -1296,7 +1308,33 @@ create index if not exists sin_respuesta_pendientes_repetidas_idx
 --      serían dos veces la latencia mientras alguien espera respuesta.
 -- ===========================================================================
 
-create or replace function public.buscar_conocimiento(
+-- ---------------------------------------------------------------------------
+-- Se borran TODAS las sobrecargas antes de crear.
+--
+-- `create or replace function` con una firma distinta no reemplaza: crea una
+-- sobrecarga nueva y deja la vieja viva. Esta migración cambió de firma al
+-- agregar `p_terminos`, y el resultado fue dos funciones con el mismo nombre —
+-- que además hace fallar cualquier `comment on function` sin lista de
+-- argumentos, con «function name is not unique».
+--
+-- El arnés de validación local no puede detectar esto: crea una base nueva en
+-- cada corrida, así que nunca hay una versión anterior con la que chocar. Por
+-- eso conviene que TODA función de este esquema se borre antes de crearse.
+-- ---------------------------------------------------------------------------
+do $$
+declare f record;
+begin
+  for f in
+    select oid::regprocedure as firma
+      from pg_proc
+     where pronamespace = 'public'::regnamespace
+       and proname = 'buscar_conocimiento'
+  loop
+    execute format('drop function %s', f.firma);
+  end loop;
+end $$;
+
+create function public.buscar_conocimiento(
   p_consulta   text,
   -- Términos de la expansión, separados por espacios. Opcional.
   --
@@ -1473,7 +1511,7 @@ begin
     limit p_limite;
 end $$;
 
-comment on function public.buscar_conocimiento is
+comment on function public.buscar_conocimiento(text, text, int, real, real) is
   'Busca en FAQs y fragmentos con ranking unificado, en tres niveles: AND (precisión), OR con términos expandidos (recall) y similitud trigram (tolerancia a errores de tipeo). Las FAQs pesan más porque las escribió un humano del área.';
 
 -- ---------------------------------------------------------------------------
@@ -1481,7 +1519,8 @@ comment on function public.buscar_conocimiento is
 -- ---------------------------------------------------------------------------
 -- El panel necesita saber qué FAQ se usa y cuál no: una FAQ que nunca se usa
 -- puede estar mal redactada, o puede ser que nadie pregunte eso.
-create or replace function public.registrar_uso_faq(p_ids uuid[])
+drop function if exists public.registrar_uso_faq(uuid[]);
+create function public.registrar_uso_faq(p_ids uuid[])
 returns void
 language sql
 security definer
@@ -1492,7 +1531,8 @@ as $$
    where id = any(p_ids);
 $$;
 
-create or replace function public.registrar_uso_respuesta_fija(p_id uuid)
+drop function if exists public.registrar_uso_respuesta_fija(uuid);
+create function public.registrar_uso_respuesta_fija(p_id uuid)
 returns void
 language sql
 security definer

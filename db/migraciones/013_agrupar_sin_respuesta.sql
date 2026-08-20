@@ -16,7 +16,19 @@
 --      sí y crean dos filas. Acá es una sola sentencia atómica.
 -- ===========================================================================
 
-create or replace function public.agrupar_sin_respuesta(
+-- Se borran las sobrecargas antes de crear: `create or replace` con una firma
+-- distinta no reemplaza, crea otra función con el mismo nombre. Es regla del
+-- proyecto para toda función RPC de este esquema.
+do $$
+declare f record;
+begin
+  for f in select oid::regprocedure as firma from pg_proc
+            where pronamespace = 'public'::regnamespace
+              and proname = 'agrupar_sin_respuesta'
+  loop execute format('drop function %s', f.firma); end loop;
+end $$;
+
+create function public.agrupar_sin_respuesta(
   p_pregunta        text,
   p_motivo          text,
   p_conversacion_id uuid    default null,
@@ -72,7 +84,7 @@ begin
     select nueva.id, false from nueva;
 end $$;
 
-comment on function public.agrupar_sin_respuesta is
+comment on function public.agrupar_sin_respuesta(text, text, uuid, uuid, numeric, real) is
   'Registra una pregunta sin responder agrupándola con una pendiente parecida (trigram). Atómica: evita filas duplicadas por mensajes simultáneos.';
 
 -- El índice trigram que hace rápida la búsqueda ya existe desde la migración
