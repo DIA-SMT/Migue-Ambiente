@@ -205,22 +205,41 @@ end $$;
 \echo '== G · agrupacion de preguntas sin responder =='
 
 do $$
-declare r1 record; r2 record; r3 record; n int;
+declare r1 record; r3 record; n int; filas int;
 begin
   select * into r1 from public.agrupar_sin_respuesta('donde tiro el aceite de cocina usado', 'sin_coincidencia');
   if r1.agrupada then raise exception 'la primera no deberia agruparse'; end if;
 
-  select * into r2 from public.agrupar_sin_respuesta('donde tiro el aceite de cocina usado?', 'sin_coincidencia');
-  if not r2.agrupada then raise exception 'una pregunta identica deberia agruparse'; end if;
-  if r2.id <> r1.id then raise exception 'se agrupo en una fila distinta'; end if;
+  -- Contar las FILAS que devuelve la función, no sólo mirar la primera.
+  --
+  -- Esta verificación es la que faltaba y dejó pasar un bug a producción:
+  -- `return query` en plpgsql no termina la función, acumula. La rama de
+  -- agrupación devolvía su fila y después caía en el INSERT, insertando un
+  -- duplicado y devolviendo DOS filas. Un `select * into` toma la primera en
+  -- silencio, así que el test pasaba igual.
+  select count(*) into filas
+    from public.agrupar_sin_respuesta('donde tiro el aceite de cocina usado?', 'sin_coincidencia');
+  if filas <> 1 then raise exception 'la funcion devolvio % filas, deberia devolver 1', filas; end if;
 
-  select veces_repetida into n from public.sin_respuesta where id = r1.id;
+  select veces_repetida into n from public.sin_respuesta
+   where pregunta = 'donde tiro el aceite de cocina usado';
   if n <> 2 then raise exception 'el contador deberia ser 2, es %', n; end if;
 
+  -- Y que no haya insertado filas de más al agrupar.
+  select count(*) into filas from public.sin_respuesta
+   where pregunta ilike '%aceite de cocina%';
+  if filas <> 1 then raise exception 'quedaron % filas de aceite, deberia haber 1', filas; end if;
+
+  -- Una pregunta distinta sí crea fila propia.
   select * into r3 from public.agrupar_sin_respuesta('cuanto sale el permiso de poda de arbol', 'sin_coincidencia');
   if r3.agrupada then raise exception 'una pregunta distinta no deberia agruparse'; end if;
+
+  -- Y la de arriba fue una sola fila, no dos.
+  select count(*) into filas from public.sin_respuesta;
+  if filas <> 2 then raise exception 'deberian haber 2 filas en total, hay %', filas; end if;
+
 end $$;
-\echo '   OK: agrupa las parecidas y separa las distintas'
+\echo '   OK: agrupa las parecidas, separa las distintas, sin filas duplicadas'
 
 \echo ''
 \echo '=============================================='

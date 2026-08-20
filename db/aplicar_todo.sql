@@ -1246,6 +1246,10 @@ begin
            actualizado_en = now()
      where public.sin_respuesta.id = v_existente;
     return query select v_existente, true;
+    -- `return query` NO termina la función: acumula filas y sigue. Sin este
+    -- `return`, la ejecución caía en el INSERT de abajo, insertaba una fila
+    -- duplicada además de incrementar el contador, y devolvía DOS filas.
+    return;
   end if;
 
   -- El INSERT va dentro de un WITH porque en plpgsql un `insert ... returning`
