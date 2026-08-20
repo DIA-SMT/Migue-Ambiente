@@ -1,4 +1,4 @@
-/** Cliente de OpenRouter. Único punto del sistema que habla con un modelo. */
+/** Cliente de OpenRouter y router de intención. */
 export {
   chat,
   parsearJson,
@@ -7,3 +7,12 @@ export {
   type OpcionesChat,
   type RespuestaChat,
 } from "./cliente.ts";
+
+export {
+  clasificar,
+  decidir,
+  flujosDelRouter,
+  type Intencion,
+  type Clasificacion,
+  type Decision,
+} from "./router.ts";
