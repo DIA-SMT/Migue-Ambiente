@@ -207,3 +207,16 @@ export function describirPuntosVerdes(catalogo: Catalogo, maximo = 5): string {
     .map((p) => `• ${p.direccion} — ${p.horario}${p.observaciones ? ` (${p.observaciones})` : ""}`)
     .join("\n");
 }
+
+/**
+ * ¿Existe este texto cargado?
+ *
+ * `leerTexto` devuelve un marcador visible cuando falta, que sirve para
+ * detectar el olvido en una prueba. Pero hay mensajes OPCIONALES —el enlace al
+ * mapa de recorridos, por ejemplo, que Ambiente todavía no nos pasó— donde
+ * mandar «[falta texto: x]» a un vecino sería peor que no mandar nada.
+ */
+export function tieneTexto(catalogo: Catalogo, clave: string): boolean {
+  const texto = catalogo.textos.get(clave);
+  return typeof texto === "string" && texto.trim() !== "";
+}

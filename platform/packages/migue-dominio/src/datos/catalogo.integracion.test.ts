@@ -183,3 +183,48 @@ describe("catálogo contra Supabase real", { skip: !hayCredenciales ? "sin crede
     assert.equal(primera, segunda);
   });
 });
+
+/**
+ * Guarda contra la deriva entre el fixture de pruebas y la base real.
+ *
+ * Es el error que se cometió al escribir el flujo B: el fixture tenía un texto
+ * de confirmación sin `{empresa}` mientras la migración 011 lo había agregado.
+ * El test de flujo pasaba en verde y no describía lo que iba a recibir el
+ * vecino. Un fixture que no espeja producción es peor que no tener fixture.
+ */
+describe("el fixture de pruebas espeja la base real", { skip: !hayCredenciales ? "sin credenciales" : false }, () => {
+  it("los textos usados por los flujos tienen los MISMOS marcadores", async () => {
+    const { catalogoPrueba } = await import("../flujos/_fixtures.ts");
+    const real = await obtenerCatalogo();
+    const fixture = catalogoPrueba();
+
+    const marcadores = (t: string) => [...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+
+    for (const clave of ["retiro_confirmacion", "reclamo_confirmacion"]) {
+      assert.deepEqual(
+        marcadores(leerTexto(fixture, clave)),
+        marcadores(leerTexto(real, clave)),
+        `el fixture y la base difieren en los marcadores de "${clave}"`,
+      );
+    }
+  });
+
+  it("las categorías de límites del fixture existen en la base", async () => {
+    const { LIMITES_PRUEBA } = await import("../flujos/_fixtures.ts");
+    const real = await obtenerCatalogo();
+    const categoriasReales = new Set(real.limitesVolumen.map((l) => l.categoria));
+    for (const l of LIMITES_PRUEBA) {
+      assert.ok(categoriasReales.has(l.categoria), `falta la categoría ${l.categoria} en la base`);
+    }
+  });
+
+  it("los límites del fixture coinciden con los de la base", async () => {
+    const { LIMITES_PRUEBA } = await import("../flujos/_fixtures.ts");
+    const real = await obtenerCatalogo();
+    for (const esperado of LIMITES_PRUEBA) {
+      const actual = real.limitesVolumen.find((l) => l.categoria === esperado.categoria)!;
+      assert.equal(actual.limiteValor, esperado.limiteValor, `límite de ${esperado.categoria}`);
+      assert.equal(actual.limiteUnidad, esperado.limiteUnidad, `unidad de ${esperado.categoria}`);
+    }
+  });
+})

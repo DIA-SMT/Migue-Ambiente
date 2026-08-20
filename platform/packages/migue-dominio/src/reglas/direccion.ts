@@ -67,22 +67,80 @@ function separarEntreCalles(texto: string): { principal: string; entre: string |
   };
 }
 
-/** Separa una referencia final («, barrio X», «casi Y», «frente a la plaza»). */
+/**
+ * Marcas de que la dirección ya terminó y lo que sigue es otra cosa.
+ *
+ * Hacen falta porque en el flujo B el vecino escribe todo junto: «Lavalle 500,
+ * hace 3 días que no pasan». Sin cortar acá, la búsqueda de la altura se
+ * quedaba con el 3 de los días y la dirección terminaba siendo
+ * «Lavalle 500 hace 3».
+ */
+/** Cortan la dirección y lo que sigue SE CONSERVA como referencia útil. */
+const FIN_CON_REFERENCIA = [",", ";", "("];
+
+/**
+ * Cortan la dirección y lo que sigue SE DESCARTA.
+ *
+ * Son cláusulas temporales o causales del reclamo, no datos del domicilio.
+ * Conservarlas como «referencia» hacía que el ticket guardara
+ * «Lavalle 500, hace 3 dias que no pasan» en el campo dirección.
+ */
+const FIN_A_DESCARTAR = [" hace ", " desde ", " porque ", " y no ", " que no ", " ya que "];
+
+/**
+ * Palabras que nunca aparecen en el nombre de una calle.
+ *
+ * Sin este filtro, «no pasa el camion hace 3 dias» se leía como calle
+ * «no pasa el camion hace» y altura 3 — y generaba un ticket con una dirección
+ * a la que no se puede mandar una cuadrilla.
+ */
+const NO_ES_CALLE = new Set([
+  "no", "pasa", "pasan", "paso", "pasaron", "tengo", "tenemos", "necesito",
+  "quiero", "hay", "esta", "estan", "camion", "basura", "residuos", "bolsa",
+  "bolsas", "recolector", "reclamo", "queja", "servicio", "vino", "vienen",
+]);
+
+/**
+ * Corta el texto donde la dirección deja de ser dirección.
+ *
+ * La coma sólo corta si lo que quedó ANTES ya tiene un número. Así
+ * «Lavalle 500, hace 3 días» corta bien, y «Lavalle, 500» —donde la coma
+ * separa la calle de la altura— no se parte por la mitad.
+ */
 function separarReferencia(texto: string): { principal: string; referencia: string | null } {
-  for (const marca of MARCAS_REFERENCIA) {
-    if (marca === "entre" || marca === "e/") continue;
-    const idx = normalizar(texto).indexOf(normalizar(marca));
-    if (idx > 0) {
-      const idxReal = texto.toLowerCase().indexOf(marca.toLowerCase());
-      if (idxReal > 0) {
-        return {
-          principal: texto.slice(0, idxReal).trim().replace(/[,;]$/, ""),
-          referencia: texto.slice(idxReal).trim() || null,
-        };
+  let corte = -1;
+  let conservar = false;
+
+  const evaluar = (marcas: readonly string[], seConserva: boolean) => {
+    for (const marca of marcas) {
+      const idx = texto.toLowerCase().indexOf(marca);
+      if (idx <= 0) continue;
+      // Sin altura todavía, cortar destruiría la dirección: «Lavalle, 500».
+      if (!/\d/.test(texto.slice(0, idx))) continue;
+      if (corte === -1 || idx < corte) {
+        corte = idx;
+        conservar = seConserva;
       }
     }
-  }
-  return { principal: texto, referencia: null };
+  };
+
+  evaluar(FIN_CON_REFERENCIA, true);
+  evaluar(FIN_A_DESCARTAR, false);
+
+  if (corte === -1) return { principal: texto, referencia: null };
+
+  const cola = texto.slice(corte).replace(/^[,;\s]+/, "").trim();
+
+  // Aunque el corte lo haya hecho una coma, la cola se descarta si ES una
+  // cláusula del reclamo: en «Lavalle 500, hace 3 días que no pasan» la coma
+  // aparece antes del «hace», así que sin este chequeo la cola se conservaba
+  // como referencia y terminaba dentro del campo dirección del ticket.
+  const colaEsClausula = FIN_A_DESCARTAR.some((m) => normalizar(cola).startsWith(m.trim()));
+
+  return {
+    principal: texto.slice(0, corte).trim().replace(/[,;]$/, ""),
+    referencia: conservar && !colaEsClausula && cola !== "" ? cola : null,
+  };
 }
 
 /**
@@ -149,13 +207,21 @@ export function interpretarDireccion(texto: string): DireccionInterpretada {
 
   const calle = tokensCalle.join(" ").replace(/[,;.]$/, "").trim() || null;
 
-  // Una calle tiene que tener al menos una palabra que no sea sólo un prefijo
-  // de vía: «Av. 500» no es una dirección, «Av. Sarmiento 500» sí.
+  // Tres condiciones para aceptar algo como nombre de calle:
+  //
+  // 1. Al menos una palabra que no sea sólo prefijo de vía: «Av. 500» no es
+  //    una dirección, «Av. Sarmiento 500» sí.
+  // 2. Ninguna palabra del vocabulario del reclamo: sin esto, «no pasa el
+  //    camion hace 3 dias» generaba un ticket con calle «no pasa el camion
+  //    hace» y altura 3, y una cuadrilla no puede salir a eso.
+  // 3. Un techo de palabras. Los nombres largos existen («Av. Presidente
+  //    Roque Sáenz Peña» son cinco), pero una frase entera nunca es una calle.
+  const palabrasCalle = calle === null ? [] : calle.split(/\s+/).map((p) => normalizar(p));
   const calleUtil =
     calle !== null &&
-    calle
-      .split(/\s+/)
-      .some((p) => !PREFIJOS_VIA.has(normalizar(p)) && normalizar(p).length >= 3);
+    palabrasCalle.length <= 5 &&
+    palabrasCalle.some((p) => !PREFIJOS_VIA.has(p) && p.length >= 3) &&
+    !palabrasCalle.some((p) => NO_ES_CALLE.has(p));
 
   return {
     calle: calleUtil ? calle : null,

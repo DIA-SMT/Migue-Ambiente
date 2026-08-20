@@ -197,3 +197,13 @@ function detectarVaguedad(normalizado: string): TerminoVago | null {
 export function esUtilizable(cantidad: CantidadDeclarada): boolean {
   return cantidad.valor !== null && cantidad.unidad !== null;
 }
+
+/**
+ * Convierte una palabra-número en número, o null.
+ *
+ * Se exporta porque el flujo B necesita la misma tabla para leer «hace tres
+ * días». Duplicarla sería garantizar que las dos versiones se desincronicen.
+ */
+export function palabraANumero(token: string): number | null {
+  return aNumero(normalizar(token));
+}

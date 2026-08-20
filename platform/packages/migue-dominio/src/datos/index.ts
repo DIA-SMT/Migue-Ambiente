@@ -13,6 +13,7 @@ export {
   invalidarCatalogo,
   leerConfig,
   leerTexto,
+  tieneTexto,
   configSla,
   describirPuntosVerdes,
   ErrorDeCatalogo,

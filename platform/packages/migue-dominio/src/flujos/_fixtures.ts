@@ -89,7 +89,12 @@ const TEXTOS = new Map<string, string>([
     "✅ Solicitud registrada. {empresa} tiene un plazo de hasta {plazo} (vence el {vencimiento}).\n\nNo saques los residuos hasta que te confirmemos.",
   ],
   ["reclamo_diagnostico", "Para verificar el recorrido necesito tu dirección exacta y desde cuándo no pasa."],
-  ["reclamo_confirmacion", "Reclamo generado. Verificaremos el GPS del interno. Plazo: {plazo}."],
+  // Textual de la migración 011. El fixture tiene que espejar producción: si
+  // divergen, un test verde no dice nada sobre lo que va a recibir el vecino.
+  [
+    "reclamo_confirmacion",
+    "Reclamo generado. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.",
+  ],
   ["educa_requisitos", "Necesito nombre de la institución, dirección, responsable y cantidad de alumnos."],
   ["transforma_requisitos", "Necesito la dirección exacta y fotos de la zona."],
 ]);
