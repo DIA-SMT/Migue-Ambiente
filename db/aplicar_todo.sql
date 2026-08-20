@@ -1045,3 +1045,85 @@ insert into public.configuracion (clave, valor, descripcion, categoria) values
    'Feriados en formato YYYY-MM-DD que corren el vencimiento del plazo. Cargar los nacionales y provinciales de Tucumán.',
    'negocio')
 on conflict (clave) do nothing;
+
+-- >>>>>>>>>>>>>>>>>>>> 010_palabras_categoria.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 010 · Palabras clave por categoría de residuo
+-- ===========================================================================
+-- El flujo A tiene que decidir si «tengo unos ladrillos y revoque» es
+-- escombros, poda o voluminosos, para saber contra qué límite compararlo.
+--
+-- Las palabras van en la tabla y no en el código por el mismo motivo que todo
+-- lo demás: el vocabulario real de los vecinos es local y cambia. Alguien de
+-- Ambiente va a querer agregar «changuito», «carretilla» o el nombre de un
+-- material que acá no figura, sin esperar un deploy.
+-- ===========================================================================
+
+alter table public.limites_volumen
+  add column if not exists palabras text[] not null default '{}';
+
+comment on column public.limites_volumen.palabras is
+  'Palabras que identifican la categoría en el texto del vecino. Se comparan normalizadas (sin acentos, minúsculas) y por palabra completa.';
+
+-- Se usa `where palabras = '{}'` para no pisar el vocabulario que Ambiente
+-- haya ampliado desde el panel.
+update public.limites_volumen set palabras = array[
+  'escombro','escombros','material de construccion','ladrillo','ladrillos',
+  'cemento','arena','cascote','cascotes','revoque','mamposteria','obra',
+  'demolicion','baldosa','baldosas','mortero','hormigon'
+] where categoria = 'escombros' and palabras = '{}';
+
+update public.limites_volumen set palabras = array[
+  'poda','rama','ramas','pasto','cesped','hoja','hojas','arbusto','arbustos',
+  'planta','plantas','yuyo','yuyos','maleza','follaje','ligustro','enredadera'
+] where categoria = 'poda' and palabras = '{}';
+
+update public.limites_volumen set palabras = array[
+  'mueble','muebles','sillon','sillones','silla','sillas','colchon','colchones',
+  'heladera','ropero','placard','mesa','mesas','chatarra','electrodomestico',
+  'electrodomesticos','tarima','tarimas','voluminoso','voluminosos','somier',
+  'lavarropas','televisor','estufa','cocina','bacha','inodoro'
+] where categoria = 'voluminosos' and palabras = '{}';
+
+-- >>>>>>>>>>>>>>>>>>>> 011_textos_con_marcadores.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 011 · Marcadores en los textos que mencionan el plazo
+-- ===========================================================================
+-- La migración 008 sembró los textos TEXTUALES de la spec, y ahí el plazo está
+-- escrito a mano: «La empresa tiene un plazo de hasta 72 hs hábiles».
+--
+-- Pero desde la migración 009 el plazo es configurable, con tres modos que dan
+-- resultados separados por diez días. Con el texto fijo, un operador que
+-- cambie `sla_modo` deja al bot prometiendo «72 hs hábiles» mientras el ticket
+-- vence en otra fecha. El vecino recibe una promesa que el sistema no registró.
+--
+-- Los marcadores lo resuelven: el texto se escribe una vez y siempre dice lo
+-- mismo que el ticket. Disponibles: {plazo}, {vencimiento}, {empresa},
+-- {direccion}.
+--
+-- Las condiciones sobre el valor viejo son deliberadas: si Comunicación ya
+-- reescribió el mensaje, esta migración no le pisa la redacción.
+-- ===========================================================================
+
+update public.textos_bot
+   set texto = E'✅ Solicitud registrada. {empresa} tiene un plazo de hasta {plazo} (vence el {vencimiento}).\n\nZona Norte: recolección Lun, Mar, Vie.\nZona Sur: recolección Mar, Jue, Sáb.\n\nPodrás sacar los residuos a las 14:30 hs del día que corresponda a tu zona una vez que te confirmemos.',
+       descripcion = 'Flujo A, paso A5. Usa marcadores {empresa}, {plazo} y {vencimiento} para no contradecir el plazo configurado.'
+ where clave = 'retiro_confirmacion'
+   and texto like '%72 hs hábiles%';
+
+update public.textos_bot
+   set texto = 'Reclamo generado. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.',
+       descripcion = 'Flujo B, paso B3. Usa marcadores {empresa} y {plazo}.'
+ where clave = 'reclamo_confirmacion'
+   and texto like '%72 hs hábiles%';
+
+-- Documentar los marcadores disponibles, para que quien edite desde el panel
+-- sepa que existen en lugar de escribir el dato a mano otra vez.
+insert into public.configuracion (clave, valor, descripcion, categoria) values
+  ('marcadores_disponibles',
+   '["{plazo}","{vencimiento}","{empresa}","{direccion}"]'::jsonb,
+   'Marcadores que se pueden usar en los textos del bot. Se reemplazan al enviar. Un marcador mal escrito queda visible en el mensaje, así se detecta en la primera prueba.',
+   'referencia')
+on conflict (clave) do nothing;

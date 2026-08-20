@@ -98,3 +98,26 @@ export function recortar(texto: string, maximo = 280): string {
   const limpio = texto.trim();
   return limpio.length <= maximo ? limpio : `${limpio.slice(0, maximo - 1)}…`;
 }
+
+/**
+ * Reemplaza marcadores `{clave}` por valores.
+ *
+ * Existe para que los textos editables no tengan que repetir datos que el
+ * sistema ya calcula. El texto sembrado de confirmación decía literalmente
+ * «72 hs hábiles», pero el plazo es configurable: si un operador cambiaba el
+ * modo, el mensaje al vecino quedaba contradiciendo el vencimiento real del
+ * ticket. Con marcadores, el texto se escribe una vez y siempre dice la verdad.
+ *
+ * Un marcador sin valor se deja tal cual, a propósito: así se ve en la primera
+ * prueba que falta pasarlo, en lugar de aparecer un hueco en blanco frente al
+ * vecino.
+ */
+export function interpolar(
+  texto: string,
+  valores: Readonly<Record<string, string | number>>,
+): string {
+  return texto.replace(/\{(\w+)\}/g, (completo, clave: string) => {
+    const valor = valores[clave];
+    return valor === undefined ? completo : String(valor);
+  });
+}

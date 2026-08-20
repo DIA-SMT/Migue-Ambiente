@@ -71,7 +71,7 @@ async function cargarCatalogo(): Promise<Catalogo> {
     db
       .from("limites_volumen")
       .select(
-        "categoria, etiqueta, limite_valor, limite_unidad, peso_max_bolsa_kg, accion_al_exceder, texto_exceso, activo",
+        "categoria, etiqueta, limite_valor, limite_unidad, peso_max_bolsa_kg, accion_al_exceder, texto_exceso, palabras, activo",
       )
       .eq("activo", true),
     db
@@ -120,6 +120,7 @@ async function cargarCatalogo(): Promise<Catalogo> {
         pesoMaxBolsaKg: f.peso_max_bolsa_kg === null ? null : Number(f.peso_max_bolsa_kg),
         accionAlExceder: f.accion_al_exceder as LimiteVolumen["accionAlExceder"],
         textoExceso: (f.texto_exceso ?? null) as string | null,
+        palabras: (f.palabras ?? []) as string[],
         activo: f.activo as boolean,
       }),
     ),

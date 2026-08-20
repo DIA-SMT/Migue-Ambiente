@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { interpretarCantidad } from "./cantidad.ts";
-import { limiteDe, preguntaParaPrecisar, validarVolumen, type LimiteVolumen } from "./volumen.ts";
+import {
+  detectarCategoria,
+  limiteDe,
+  preguntaParaPrecisar,
+  validarVolumen,
+  type LimiteVolumen,
+} from "./volumen.ts";
 
 /** Los límites tal como los siembra la migración 008, desde la spec. */
 const LIMITES: LimiteVolumen[] = [
@@ -13,6 +19,7 @@ const LIMITES: LimiteVolumen[] = [
     pesoMaxBolsaKg: 15,
     accionAlExceder: "parcial_con_ticket",
     textoExceso: "Excede el límite. Retiramos hasta el máximo permitido.",
+    palabras: ["escombro","escombros","ladrillo","cascote","cemento"],
     activo: true,
   },
   {
@@ -23,6 +30,7 @@ const LIMITES: LimiteVolumen[] = [
     pesoMaxBolsaKg: null,
     accionAlExceder: "parcial_con_ticket",
     textoExceso: null,
+    palabras: ["poda","rama","ramas","pasto","hojas"],
     activo: true,
   },
   {
@@ -33,6 +41,7 @@ const LIMITES: LimiteVolumen[] = [
     pesoMaxBolsaKg: null,
     accionAlExceder: "parcial_con_ticket",
     textoExceso: null,
+    palabras: ["mueble","sillon","colchon","heladera","tarima"],
     activo: true,
   },
 ];
@@ -206,5 +215,45 @@ describe("limiteDe", () => {
   it("ignora los límites desactivados", () => {
     const apagados = LIMITES.map((l) => ({ ...l, activo: false }));
     assert.equal(limiteDe("poda", apagados), null);
+  });
+});
+
+describe("detectarCategoria", () => {
+  it("reconoce cada categoría por su vocabulario", () => {
+    assert.equal(detectarCategoria("tengo unos escombros de la obra", LIMITES), "escombros");
+    assert.equal(detectarCategoria("junte ramas y hojas", LIMITES), "poda");
+    assert.equal(detectarCategoria("quiero tirar un colchon", LIMITES), "voluminosos");
+  });
+
+  it("gana la categoría con MÁS coincidencias, no la primera", () => {
+    // Mensaje mixto real: menciona un mueble pero el volumen es de obra.
+    // Si se quedara con la primera coincidencia elegiría el límite equivocado.
+    const texto = "saque un mueble y quedaron ladrillos, cascotes y cemento de la obra";
+    assert.equal(detectarCategoria(texto, LIMITES), "escombros");
+  });
+
+  it("ante un empate NO adivina: devuelve null para que el flujo pregunte", () => {
+    // Una palabra de cada lado. Elegir un límite al azar seria peor que preguntar.
+    assert.equal(detectarCategoria("tengo un colchon y unos ladrillos", LIMITES), null);
+  });
+
+  it("devuelve null si no reconoce nada", () => {
+    assert.equal(detectarCategoria("necesito que retiren esto", LIMITES), null);
+    assert.equal(detectarCategoria("", LIMITES), null);
+  });
+
+  it("es insensible a acentos y plurales", () => {
+    assert.equal(detectarCategoria("hay que sacar la PODA del fondo", LIMITES), "poda");
+    assert.equal(detectarCategoria("tengo cascotes", LIMITES), "escombros");
+  });
+
+  it("ignora los límites desactivados", () => {
+    const soloEscombros = LIMITES.map((l) => ({ ...l, activo: l.categoria === "escombros" }));
+    assert.equal(detectarCategoria("junte ramas y hojas", soloEscombros), null);
+  });
+
+  it("no confunde palabras que contienen el término", () => {
+    // "rama" no debe coincidir con "programa" ni "dramatico".
+    assert.equal(detectarCategoria("consulta sobre el programa separa", LIMITES), null);
   });
 });

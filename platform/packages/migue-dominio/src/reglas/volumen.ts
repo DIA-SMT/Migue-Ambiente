@@ -12,6 +12,7 @@
  * los contradice, así que nada de esto está en el código.
  */
 import type { CantidadDeclarada, Unidad } from "./cantidad.ts";
+import { contienePalabra } from "../texto.ts";
 
 export type Categoria = "escombros" | "poda" | "voluminosos";
 export type AccionExceso = "parcial_con_ticket" | "derivar_sin_ticket";
@@ -24,6 +25,11 @@ export interface LimiteVolumen {
   readonly pesoMaxBolsaKg: number | null;
   readonly accionAlExceder: AccionExceso;
   readonly textoExceso: string | null;
+  /**
+   * Palabras que identifican la categoría en el texto del vecino.
+   * Editables desde el panel: el vocabulario real es local y cambia.
+   */
+  readonly palabras: readonly string[];
   readonly activo: boolean;
 }
 
@@ -232,4 +238,35 @@ export function limiteDe(
   limites: readonly LimiteVolumen[],
 ): LimiteVolumen | null {
   return limites.find((l) => l.categoria === categoria && l.activo) ?? null;
+}
+
+/**
+ * Deduce la categoría de residuo a partir del texto del vecino.
+ *
+ * Cuenta coincidencias por categoría y devuelve la que más tenga, en vez de
+ * quedarse con la primera. Importa para mensajes mixtos: «saqué los muebles y
+ * quedaron unos ladrillos y cascotes de la obra» tiene una palabra de
+ * voluminosos y tres de escombros — gana escombros, que es lo correcto para
+ * elegir el límite.
+ *
+ * Devuelve null si hay empate o si no reconoce nada: en ese caso el flujo
+ * pregunta, que es mejor que elegir un límite al azar.
+ */
+export function detectarCategoria(
+  texto: string,
+  limites: readonly LimiteVolumen[],
+): Categoria | null {
+  const conteos = limites
+    .filter((l) => l.activo)
+    .map((l) => ({
+      categoria: l.categoria,
+      coincidencias: l.palabras.filter((p) => contienePalabra(texto, p)).length,
+    }))
+    .filter((c) => c.coincidencias > 0)
+    .sort((a, b) => b.coincidencias - a.coincidencias);
+
+  if (conteos.length === 0) return null;
+  // Empate: no adivinar, preguntar.
+  if (conteos.length > 1 && conteos[0]!.coincidencias === conteos[1]!.coincidencias) return null;
+  return conteos[0]!.categoria;
 }
