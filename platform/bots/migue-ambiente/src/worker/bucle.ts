@@ -63,11 +63,23 @@ const ESPERA_VACIA = 3_000;
  */
 const INTERVALO_RECUPERACION = 5 * 60_000;
 
+/**
+ * La espera entre consultas a la cola.
+ *
+ * OJO con `unref()`: la primera versión lo llamaba sobre este temporizador,
+ * pensando en que el proceso pudiera terminar sin esperar. El efecto real es el
+ * opuesto de lo que se busca: un temporizador sin referencia no mantiene vivo
+ * el bucle de eventos, así que con la cola VACÍA este `setTimeout` era lo único
+ * pendiente, Node se quedaba sin trabajo y el proceso salía con código 0. PM2
+ * lo reiniciaba, quedaba en bucle, y en los logs no había ni un error: sólo
+ * «escuchando la cola» una y otra vez.
+ *
+ * El apagado rápido no lo da `unref`, lo da `cortarEspera`, que resuelve esta
+ * promesa en el momento en que se pide el corte.
+ */
 const esperar = (ms: number): Promise<void> =>
   new Promise((resolver) => {
-    const temporizador = setTimeout(resolver, ms);
-    // Sin esto, el proceso no puede terminar mientras haya una espera pendiente.
-    temporizador.unref?.();
+    setTimeout(resolver, ms);
   });
 
 export interface Bucle {

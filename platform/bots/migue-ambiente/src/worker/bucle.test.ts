@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { PuertosIngesta, Trabajo } from "@migue/dominio/ingesta";
 import { crearBucle, type Cola } from "./bucle.ts";
 
@@ -232,5 +234,56 @@ describe("crearBucle", () => {
     // Sin la guarda de «ya terminó», esto espera un aviso que nunca llega y el
     // cierre se cuelga hasta agotar el presupuesto de 2500 ms.
     await bucle.detener();
+  });
+});
+
+describe("el proceso del worker sigue vivo con la cola vacía", () => {
+  it("no se muere solo cuando no hay trabajo", async () => {
+    // EL BUG: `esperar()` llamaba a `temporizador.unref()`. Un temporizador sin
+    // referencia no mantiene vivo el bucle de eventos de Node, así que con la
+    // cola vacía ese setTimeout era lo único pendiente, Node se quedaba sin
+    // trabajo y el proceso salía con código 0. PM2 lo reiniciaba y quedaba en
+    // bucle, sin un solo error en los logs.
+    //
+    // Se prueba en un proceso APARTE porque dentro de `node --test` el runner
+    // mantiene vivo el bucle de eventos por su cuenta: el temporizador sin
+    // referencia igual dispara y el bug se vuelve invisible.
+    // `fileURLToPath` y no `.pathname`: la ruta de este proyecto tiene un acento
+    // y un espacio, y `.pathname` los deja percent-encodeados
+    // («Mat%C3%ADas%20Lujan»), así que Node no encuentra el archivo.
+    const sonda = fileURLToPath(new URL("./_sonda-vida.mjs", import.meta.url));
+    const hijo = spawn(process.execPath, [sonda], { stdio: ["ignore", "pipe", "pipe"] });
+
+    let latidos = 0;
+    let salida = "";
+    hijo.stdout.on("data", (d: Buffer) => {
+      latidos += d.toString().split("vivo").length - 1;
+    });
+    hijo.stderr.on("data", (d: Buffer) => {
+      salida += d.toString();
+    });
+
+    const codigo = await new Promise<number | null>((resolver) => {
+      let terminado = false;
+      hijo.on("exit", (c) => {
+        terminado = true;
+        resolver(c);
+      });
+      // Con esperaVacia en 100 ms, en un segundo tiene que haber consultado la
+      // cola varias veces y seguir vivo.
+      setTimeout(() => {
+        if (!terminado) {
+          hijo.kill();
+          resolver(null);
+        }
+      }, 1_200);
+    });
+
+    assert.equal(
+      codigo,
+      null,
+      `el worker se murió solo (código ${codigo}) con la cola vacía. stderr: ${salida.slice(0, 300)}`,
+    );
+    assert.ok(latidos >= 3, `consultó la cola sólo ${latidos} veces en 1,2 s`);
   });
 });
