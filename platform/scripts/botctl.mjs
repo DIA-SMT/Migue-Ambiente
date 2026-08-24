@@ -17,6 +17,17 @@ import { execFileSync } from "node:child_process";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REGISTRY = path.join(ROOT, "bots.json");
 const BOTS_DIR = path.join(ROOT, "bots");
+
+/**
+ * Carpeta de un proceso del registro.
+ *
+ * `base` por defecto es "bots", asi que las entradas viejas no cambian. El panel
+ * usa base "." porque vive en platform/panel/ y no es un bot. Sin esto, doctor
+ * reportaba que el entry del panel no existia.
+ */
+function dirDeProceso(bot) {
+  return path.join(ROOT, bot.base ?? "bots", bot.dir ?? "");
+}
 const TEMPLATE = path.join(BOTS_DIR, "_template");
 
 const C = {
@@ -203,7 +214,7 @@ function cmdRm(argv) {
     warn("PM2 no lo tenia corriendo (o no responde)");
   }
 
-  const dir = path.join(BOTS_DIR, registry.bots[indice].dir);
+  const dir = dirDeProceso(registry.bots[indice]);
   registry.bots.splice(indice, 1);
   writeRegistry(registry);
   ok("quitado de bots.json");
@@ -251,7 +262,7 @@ async function cmdDoctor() {
     if (nombres.has(bot.name)) problema(`${etiqueta}: nombre duplicado`);
     nombres.add(bot.name);
 
-    const dir = path.join(BOTS_DIR, bot.dir ?? "");
+    const dir = dirDeProceso(bot);
     if (!fs.existsSync(path.join(dir, bot.entry ?? ""))) {
       problema(`${etiqueta}: no existe el entry ${bot.dir}/${bot.entry}`);
       continue;

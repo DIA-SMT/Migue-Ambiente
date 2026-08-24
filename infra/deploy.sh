@@ -47,6 +47,8 @@ echo "==> Subiendo platform/ -> $APP_ROOT"
 #   bots.json   lo muta botctl EN el servidor. Si lo pisaramos desde local,
 #               cada deploy desregistraria los bots dados de alta allá.
 #   node_modules  se resuelve en la VPS con pnpm (binarios por plataforma)
+#   .next       el build del panel se hace EN la VPS. Subir el local mezclaria
+#               un build hecho en Windows con las dependencias de Linux.
 tar -C "$PLATFORM_DIR" \
     --exclude='node_modules' \
     --exclude='.git' \
@@ -54,6 +56,7 @@ tar -C "$PLATFORM_DIR" \
     --exclude='.env' \
     --exclude='bots.json' \
     --exclude='.pm2' \
+    --exclude='.next' \
     -czf - . \
   | ssh_do "tar -C '$APP_ROOT' -xzf - && echo '    archivos actualizados'"
 
@@ -67,6 +70,19 @@ fi
 if [[ $INSTALL -eq 1 ]]; then
   echo "==> pnpm install en la VPS"
   ssh_do "cd '$APP_ROOT' && pnpm install --frozen-lockfile 2>/dev/null || pnpm install"
+fi
+
+# El panel es lo unico que necesita compilarse. Se hace aca y no en cada
+# arranque: `next start` sin un build previo falla, y PM2 lo reiniciaria en
+# bucle igual que paso con el worker.
+if ssh_do "test -d '$APP_ROOT/panel'"; then
+  echo "==> Construyendo el panel"
+  if ssh_do "cd '$APP_ROOT' && pnpm --filter @migue/panel build 2>&1 | tail -4"; then
+    echo "    build ok"
+  else
+    echo "    FALLO el build del panel. No se recarga nada para no dejarlo caido." >&2
+    exit 1
+  fi
 fi
 
 echo "==> Validando el registro"

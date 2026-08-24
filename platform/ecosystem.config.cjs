@@ -1,6 +1,10 @@
 /**
  * Config de PM2 generada a partir de bots.json.
  *
+ * «bots» es el nombre historico: el registro tambien tiene el worker de ingesta
+ * y el panel administrativo, que no son bots. El campo `base` permite que un
+ * proceso viva fuera de bots/ (el panel esta en platform/panel/).
+ *
  * No editar la lista de apps a mano: agregá/quitá bots en bots.json y PM2
  * lo toma solo. Asi el registro no se desincroniza del proceso real.
  *
@@ -41,7 +45,10 @@ function validate(bot, index) {
       throw new Error(`${where}: falta el campo obligatorio "${field}"`);
     }
   }
-  const cwd = path.join(ROOT, "bots", bot.dir);
+  // `base` por defecto es "bots", asi que las entradas viejas no cambian. El
+  // panel usa base "." porque vive en platform/panel/ y no es un bot.
+  const base = bot.base ?? "bots";
+  const cwd = path.join(ROOT, base, bot.dir);
   if (!fs.existsSync(path.join(cwd, bot.entry))) {
     throw new Error(`${where}: no existe el entry ${path.join(cwd, bot.entry)}`);
   }
@@ -67,6 +74,9 @@ const apps = readRegistry()
       name: bot.name,
       cwd,
       script: bot.entry,
+      // `args` lo necesita el panel: su entry es el binario de Next y hay que
+      // decirle `start -p 3001 -H 127.0.0.1`. Los bots no lo usan.
+      ...(bot.args ? { args: bot.args } : {}),
       interpreter: "node",
       // --env-file hace que cada bot lea SU propio .env, sin pisar a los demas
       node_args: fs.existsSync(path.join(cwd, ".env"))

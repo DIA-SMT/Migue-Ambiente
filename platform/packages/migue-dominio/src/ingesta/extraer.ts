@@ -9,10 +9,12 @@ import { createHash } from "node:crypto";
 import { extraerDocx } from "./docx.ts";
 import { extraerPdf, type DocumentoExtraido } from "./pdf.ts";
 import { fragmentar, type FragmentoIndexable } from "./fragmentar.ts";
+import { formatoDe, mimeDe, FormatoNoSoportadoError, type Formato } from "./formato.ts";
 import { limpiar } from "./texto.ts";
 
-/** Formatos que acepta la tabla `documentos`. */
-export type Formato = "pdf" | "docx" | "txt" | "md";
+// Se reexportan para no romper a quien los importaba de acá. La definición vive
+// en `formato.ts`, que no depende de nada y por eso lo puede usar el panel.
+export { formatoDe, mimeDe, FormatoNoSoportadoError, type Formato };
 
 export interface ResultadoExtraccion {
   readonly fragmentos: readonly FragmentoIndexable[];
@@ -22,16 +24,13 @@ export interface ResultadoExtraccion {
   readonly caracteres: number;
 }
 
-export class FormatoNoSoportadoError extends Error {
-  constructor(nombreArchivo: string) {
-    super(
-      `No se puede leer «${nombreArchivo}»: sólo se admiten PDF, DOCX, TXT y MD. ` +
-        `Si es un documento escaneado, hay que pasarlo por un OCR antes de subirlo.`,
-    );
-    this.name = "FormatoNoSoportadoError";
-  }
-}
-
+/**
+ * Un documento del que no se pudo sacar texto.
+ *
+ * Casi siempre es un PDF escaneado: son imágenes de páginas sin capa de texto.
+ * El mensaje lo lee un administrador en el panel, no un programador, así que
+ * dice qué hacer.
+ */
 export class SinTextoError extends Error {
   constructor(nombreArchivo: string) {
     super(
@@ -41,16 +40,6 @@ export class SinTextoError extends Error {
     );
     this.name = "SinTextoError";
   }
-}
-
-/** Deduce el formato por la extensión del nombre de archivo. */
-export function formatoDe(nombreArchivo: string): Formato {
-  const extension = nombreArchivo.toLowerCase().split(".").pop() ?? "";
-  if (extension === "pdf") return "pdf";
-  if (extension === "docx") return "docx";
-  if (extension === "txt") return "txt";
-  if (extension === "md" || extension === "markdown") return "md";
-  throw new FormatoNoSoportadoError(nombreArchivo);
 }
 
 /**

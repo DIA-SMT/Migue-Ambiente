@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./reglas": "./src/reglas/index.ts",
-    "./ingesta": "./src/ingesta/index.ts"
+    "./ingesta": "./src/ingesta/index.ts",
+    "./compartido": "./src/compartido.ts"
   },
   "scripts": {
     "test": "node --test",
