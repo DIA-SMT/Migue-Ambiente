@@ -743,7 +743,219 @@ begin
   delete from auth.users where id = v_uid;
   perform set_config('request.jwt.claim.sub', '', true);
 end $$;
+-- El agujero original, probado de verdad y no por definicion de politica.
+--
+-- Los bloques anteriores verifican que las politicas MENCIONEN es_personal_panel().
+-- Eso no alcanza: hay que comprobar que efectivamente bloqueen. Y para eso hay
+-- que asumir el rol `authenticated`, porque el arnes corre como `postgres`, que
+-- saltea RLS. Un test sin `set local role` mira la definicion, no el efecto.
+do $$
+declare
+  v_intruso uuid := '55555555-5555-5555-5555-555555555555';
+  v_del_padron uuid := '66666666-6666-6666-6666-666666666666';
+  n int;
+begin
+  insert into auth.users (id, email, email_confirmed_at) values
+    (v_intruso,    'cualquiera@gmail.com',  now()),
+    (v_del_padron, 'del.area@smt.gob.ar',   now())
+  on conflict (id) do nothing;
+
+  -- El del padron si, el intruso NO. Es exactamente el escenario que estaba
+  -- abierto: una cuenta valida en auth.users, sin habilitacion.
+  insert into public.personal_panel (usuario_id, correo, nombre, rol)
+  values (v_del_padron, 'del.area@smt.gob.ar', 'Del Area', 'operador')
+  on conflict (usuario_id) do update set activo = true;
+
+  -- Hace falta que haya algo para leer, o el test pasaria con la tabla vacia.
+  insert into public.tickets (ticket_type, status, address, chat_id, user_name, sla_deadline)
+  values ('Pedido No Habitual', 'En Proceso', 'Direccion de prueba K', '999', 'Vecino Prueba',
+          now() + interval '3 days');
+
+  -- 1 - El INTRUSO no ve ni un ticket.
+  perform set_config('request.jwt.claim.sub', v_intruso::text, true);
+  set local role authenticated;
+  select count(*) into n from public.tickets;
+  reset role;
+  if n <> 0 then
+    raise exception 'una cuenta fuera del padron leyo % tickets con datos de vecinos', n;
+  end if;
+
+  -- 2 - Ni puede escribirlos.
+  perform set_config('request.jwt.claim.sub', v_intruso::text, true);
+  set local role authenticated;
+  begin
+    update public.tickets set status = 'Resuelto' where address = 'Direccion de prueba K';
+    if found then
+      reset role;
+      raise exception 'una cuenta fuera del padron pudo MODIFICAR un ticket';
+    end if;
+  exception when insufficient_privilege then
+    null;
+  end;
+  reset role;
+
+  -- 3 - Ni puede reescribir lo que el bot le dice a un vecino.
+  perform set_config('request.jwt.claim.sub', v_intruso::text, true);
+  set local role authenticated;
+  begin
+    update public.textos_bot set texto = 'texto suplantado' where clave = 'bienvenida';
+    if found then
+      reset role;
+      raise exception 'una cuenta fuera del padron pudo reescribir textos_bot';
+    end if;
+  exception when insufficient_privilege then
+    null;
+  end;
+  reset role;
+
+  -- 4 - Y el del padron SI ve. Sin esto, un RLS que niega todo pasaria el test
+  --     y el panel no funcionaria.
+  perform set_config('request.jwt.claim.sub', v_del_padron::text, true);
+  set local role authenticated;
+  select count(*) into n from public.tickets;
+  reset role;
+  if n < 1 then
+    raise exception 'el personal habilitado no puede leer tickets (%)', n;
+  end if;
+
+  -- 5 - anon, con o sin sesion, no ve nada. Es la barrera que puso la 007.
+  perform set_config('request.jwt.claim.sub', '', true);
+  set local role anon;
+  select count(*) into n from public.tickets;
+  reset role;
+  if n <> 0 then raise exception 'anon leyo % tickets', n; end if;
+
+  delete from public.tickets where address = 'Direccion de prueba K';
+  delete from public.personal_panel where usuario_id = v_del_padron;
+  delete from auth.users where id in (v_intruso, v_del_padron);
+end $$;
+\echo '   OK: fuera del padron no se lee ni se escribe NADA (probado, no deducido)'
+
 \echo '   OK: el padron habilita, la baja quita el acceso y el rol se respeta'
+
+-- ---------------------------------------------------------------------------
+-- BLOQUE K - Lo que la 018 le abre al panel, y lo que NO
+-- ---------------------------------------------------------------------------
+\echo ' K. Panel: storage, probar_conocimiento y nombres sin correo'
+
+do $$
+declare
+  v_a uuid := '22222222-2222-2222-2222-222222222222';
+  v_b uuid := '33333333-3333-3333-3333-333333333333';
+  n int;
+begin
+  insert into auth.users (id, email, email_confirmed_at) values
+    (v_a, 'operador.a@smt.gob.ar', now()),
+    (v_b, 'operador.b@smt.gob.ar', now())
+  on conflict (id) do nothing;
+  insert into public.personal_panel (usuario_id, correo, nombre, rol) values
+    (v_a, 'operador.a@smt.gob.ar', 'Operador A', 'operador'),
+    (v_b, 'operador.b@smt.gob.ar', 'Operador B', 'operador')
+  on conflict (usuario_id) do update set activo = true;
+
+  perform set_config('request.jwt.claim.sub', v_a::text, true);
+
+  -- 1 - personal_nombres devuelve a TODO el padron activo, con nombre y rol.
+  select count(*) into n from public.personal_nombres();
+  if n < 2 then
+    raise exception 'personal_nombres devolvio % filas, esperaba al menos 2', n;
+  end if;
+
+  -- 2 - Y NO devuelve el correo. Es lo que la funcion viene a proteger: para
+  --     mostrar «lo resolvio X» alcanza el nombre, la lista de direcciones del
+  --     personal municipal no hace falta.
+  --     La primera version de la 018 usaba una vista mas una politica que
+  --     abria la fila; RLS es por FILA y no por columna, asi que eso exponia el
+  --     correo de todos. Este test es el que lo caza.
+  select count(*) into n
+    from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'personal_nombres'
+     and column_name = 'correo';
+  if n > 0 then raise exception 'personal_nombres expone el correo'; end if;
+
+  -- 3 - Un operador NO puede leer la fila de otro directamente en la tabla.
+  --
+  --     Hay que asumir el rol `authenticated` para probarlo: el arnes corre como
+  --     `postgres`, que es superusuario y SALTEA RLS. Sin este `set local role`,
+  --     la consulta devuelve la fila siempre y el test no prueba nada — fue
+  --     justamente lo que paso la primera vez que se escribio.
+  set local role authenticated;
+  select count(*) into n from public.personal_panel where usuario_id = v_b;
+  reset role;
+  if n <> 0 then
+    raise exception 'un operador puede leer la fila de otro en personal_panel (%)', n;
+  end if;
+
+  -- 3bis - Y con el rol puesto, la funcion SI le da los nombres. Es la
+  --        diferencia entre «no ve la tabla» y «no ve nada»: el panel necesita
+  --        resolver un uuid a un nombre sin poder leer los correos.
+  set local role authenticated;
+  select count(*) into n from public.personal_nombres();
+  reset role;
+  if n < 2 then
+    raise exception 'con rol authenticated, personal_nombres devolvio %', n;
+  end if;
+
+  -- 4 - Sin padron, personal_nombres rechaza en vez de devolver vacio. La
+  --     diferencia importa: vacio se confunde con «no hay nadie cargado».
+  perform set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', true);
+  begin
+    perform public.personal_nombres();
+    raise exception 'personal_nombres atendio a alguien fuera del padron';
+  exception when insufficient_privilege then
+    null;
+  end;
+
+  begin
+    perform public.probar_conocimiento('prueba');
+    raise exception 'probar_conocimiento atendio a alguien fuera del padron';
+  exception when insufficient_privilege then
+    null;
+  end;
+
+  -- 5 - Con padron, probar_conocimiento responde lo MISMO que buscar_conocimiento.
+  --     Si divergieran, el panel probaria una cosa y el vecino recibiria otra.
+  perform set_config('request.jwt.claim.sub', v_a::text, true);
+  select count(*) into n from public.probar_conocimiento('recoleccion domiciliaria');
+  if n <> (select count(*) from public.buscar_conocimiento('recoleccion domiciliaria')) then
+    raise exception 'probar_conocimiento devuelve algo distinto que buscar_conocimiento';
+  end if;
+
+  -- 6 - Las politicas del bucket existen y ninguna es permisiva.
+  select count(*) into n from pg_policies
+   where schemaname = 'storage' and tablename = 'objects'
+     and policyname like 'panel_documentos_%';
+  if n <> 3 then
+    raise exception 'esperaba 3 politicas del bucket documentos, hay %', n;
+  end if;
+  select count(*) into n from pg_policies
+   where schemaname = 'storage' and tablename = 'objects'
+     and policyname like 'panel_documentos_%'
+     and (coalesce(qual,'') || coalesce(with_check,'')) not like '%es_personal_panel%';
+  if n > 0 then
+    raise exception '% politicas del bucket no exigen el padron', n;
+  end if;
+
+  -- 7 - Y no hay politica de DELETE: el borrado pasa por la cola del worker.
+  select count(*) into n from pg_policies
+   where schemaname = 'storage' and tablename = 'objects' and cmd = 'DELETE';
+  if n > 0 then
+    raise exception 'hay % politicas de DELETE en storage.objects', n;
+  end if;
+
+  -- 8 - Las dos claves que el codigo lee tienen fila.
+  select count(*) into n from public.configuracion
+   where clave in ('umbral_confianza_router','exclusiones_durante_flujo');
+  if n <> 2 then
+    raise exception 'faltan claves de configuracion que el codigo lee: hay % de 2', n;
+  end if;
+
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.personal_panel where usuario_id in (v_a, v_b);
+  delete from auth.users where id in (v_a, v_b);
+end $$;
+\echo '   OK: el panel puede subir y probar, y no ve correos ajenos'
 
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'

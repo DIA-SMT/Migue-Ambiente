@@ -69,3 +69,60 @@ $$;
 
 grant usage on schema auth to anon, authenticated, service_role;
 grant select on auth.users to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Esquema `storage`, que en Supabase viene dado.
+--
+-- Hace falta desde la 018: el panel sube documentos al bucket y sus políticas
+-- viven en storage.objects. Sin el stub, la 018 saltea ese bloque y las
+-- políticas nunca se validan — o sea, el arnés diría OK sobre algo que no
+-- probó.
+--
+-- Sólo las columnas que las políticas realmente usan.
+-- ---------------------------------------------------------------------------
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id     text primary key,
+  name   text not null,
+  public boolean not null default false
+);
+
+create table if not exists storage.objects (
+  id         uuid primary key default gen_random_uuid(),
+  bucket_id  text references storage.buckets(id),
+  name       text,
+  owner      uuid,
+  created_at timestamptz not null default now()
+);
+
+alter table storage.objects enable row level security;
+
+insert into storage.buckets (id, name, public)
+values ('documentos', 'documentos', false)
+on conflict (id) do nothing;
+
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.objects to authenticated, service_role;
+grant select on storage.buckets to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Privilegios de tabla, como los da Supabase.
+--
+-- En Supabase los roles `anon` y `authenticated` TIENEN privilegios de tabla
+-- sobre todo el esquema public. Lo único que los limita es Row Level Security.
+-- Es un detalle central del modelo y el arnés tiene que reproducirlo: si acá
+-- `anon` no tuviera GRANT, un test podría «pasar» por falta de privilegio y no
+-- porque la política funcione, y en producción la política es lo único que hay.
+--
+-- Se usan default privileges porque las tablas todavía no existen: las crean
+-- las migraciones después de este archivo.
+-- ---------------------------------------------------------------------------
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to anon, authenticated, service_role;
+
+alter default privileges in schema public
+  grant usage, select on sequences to anon, authenticated, service_role;
+
+alter default privileges in schema public
+  grant execute on functions to service_role;

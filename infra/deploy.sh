@@ -72,6 +72,20 @@ if [[ $INSTALL -eq 1 ]]; then
   ssh_do "cd '$APP_ROOT' && pnpm install --frozen-lockfile 2>/dev/null || pnpm install"
 fi
 
+# El .env del panel tiene que existir ANTES del build: las variables
+# NEXT_PUBLIC_* se incrustan en el bundle que se sirve al navegador durante
+# `next build`, no se leen al arrancar. Sin esto el panel compila igual pero el
+# bundle queda con `undefined` donde va la URL de Supabase, y el login falla en
+# el navegador con un error que no dice qué falta.
+if ssh_do "test -d '$APP_ROOT/panel' && test ! -e '$APP_ROOT/panel/.env'"; then
+  if ssh_do "test -f '$APP_ROOT/.secrets/panel.env'"; then
+    echo "==> Enlazando panel/.env -> .secrets/panel.env"
+    ssh_do "ln -s '$APP_ROOT/.secrets/panel.env' '$APP_ROOT/panel/.env' && echo '    enlazado'"
+  else
+    echo "    OJO: no existe $APP_ROOT/.secrets/panel.env; el panel va a compilar sin configuracion" >&2
+  fi
+fi
+
 # El panel es lo unico que necesita compilarse. Se hace aca y no en cada
 # arranque: `next start` sin un build previo falla, y PM2 lo reiniciaria en
 # bucle igual que paso con el worker.
