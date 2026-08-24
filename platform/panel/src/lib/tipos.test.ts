@@ -42,6 +42,13 @@ describe("estadoVisible", () => {
     assert.equal(estadoVisible(doc({ cantidad_fragmentos: 33 }), AHORA).etiqueta, "33 fragmentos");
   });
 
+  it("concuerda el singular", () => {
+    // Se ve poco pero se ve, y en este corpus hay un documento con un solo
+    // fragmento: decía «1 fragmentos».
+    assert.equal(estadoVisible(doc({ cantidad_fragmentos: 1 }), AHORA).etiqueta, "1 fragmento");
+    assert.equal(estadoVisible(doc({ cantidad_fragmentos: 2 }), AHORA).etiqueta, "2 fragmentos");
+  });
+
   it("«listo» con CERO fragmentos no está listo", () => {
     // El caso del PDF escaneado. Mostrarlo en verde sería mentir.
     const e = estadoVisible(doc({ estado: "listo", cantidad_fragmentos: 0 }), AHORA);

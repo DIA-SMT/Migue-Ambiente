@@ -117,7 +117,9 @@ export function estadoVisible(d: Documento, ahora = Date.now()): EstadoVisible {
     case "listo":
       return d.cantidad_fragmentos > 0
         ? {
-            etiqueta: `${d.cantidad_fragmentos} fragmentos`,
+            // Singular cuando corresponde. Se ve poco pero se ve: un documento
+            // con un solo fragmento decía «1 fragmentos».
+            etiqueta: `${d.cantidad_fragmentos} ${d.cantidad_fragmentos === 1 ? "fragmento" : "fragmentos"}`,
             tono: "ok",
             reintentable: false,
             detalle: null,
