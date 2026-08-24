@@ -22,6 +22,7 @@ export { fragmentar, type FragmentoIndexable, type OpcionesFragmentar } from "./
 export {
   procesarTrabajo,
   PayloadInvalidoError,
+  TIPOS_TRABAJO,
   type DocumentoARindexar,
   type PuertosIngesta,
   type ResultadoTrabajo,

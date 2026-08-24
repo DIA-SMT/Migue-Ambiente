@@ -2263,3 +2263,43 @@ grant execute on function public.personal_nombres() to authenticated, service_ro
 
 comment on function public.personal_nombres() is
   'uuid -> nombre y rol del personal activo, sin el correo. Verifica el padron adentro.';
+
+-- ---------------------------------------------------------------------------
+-- 5 · Storage: el bucket «media» (fotos de vecinos)
+--
+-- Separado del de documentos y con menos permisos, porque es otra cosa: los
+-- documentos son información pública que el bot cita, las fotos son de la
+-- propiedad de un vecino.
+--
+--   select  el panel muestra la foto adjunta al abrir un caso. Con URL firmada,
+--           porque el bucket es privado.
+--   insert  NO para `authenticated`. Las fotos las sube el WORKER con
+--           service_role, bajándolas del canal. El panel no sube fotos de
+--           vecinos: no tiene de dónde.
+--   delete  NO. El borrado, cuando haya política de retención, lo hará un
+--           proceso con service_role y por lote.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from pg_namespace where nspname = 'storage') then
+    raise notice 'sin esquema storage: se saltea la politica del bucket media';
+    return;
+  end if;
+
+  drop policy if exists panel_media_select on storage.objects;
+  create policy panel_media_select on storage.objects
+    for select to authenticated
+    using (bucket_id = 'media' and public.es_personal_panel());
+end $$;
+
+-- `photo_url` guarda la RUTA en el bucket, no una URL pública.
+--
+-- La 012 la había documentado como «URL pública en Supabase Storage», que
+-- suponía un bucket público. Un bucket público es una URL que se puede
+-- enumerar, y acá hay fotos de la propiedad de vecinos: el bucket es privado y
+-- el panel pide una URL firmada cuando tiene que mostrarla. Se corrige el
+-- comentario para que la próxima persona no lo interprete al revés.
+comment on column public.tickets.photo_url is
+  'Ruta del archivo DENTRO del bucket privado «media». No es una URL publica: el panel pide una URL firmada. Null mientras el worker no la haya bajado del canal.';
+comment on column public.program_requests.photo_url is
+  'Ruta del archivo DENTRO del bucket privado «media». No es una URL publica: el panel pide una URL firmada. Null mientras el worker no la haya bajado del canal.';

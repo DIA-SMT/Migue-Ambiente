@@ -10,11 +10,27 @@
 import { extraer, type Formato } from "./extraer.ts";
 import type { FragmentoIndexable } from "./fragmentar.ts";
 
-export type TipoTrabajo =
-  | "ingestar_documento"
-  | "reindexar_documento"
-  | "borrar_documento"
-  | "reindexar_todo";
+/**
+ * Los tipos de trabajo, como VALOR y no sólo como tipo.
+ *
+ * El tipo se deriva de este array, y no al revés, porque el worker necesita la
+ * lista en tiempo de ejecución para descartar un tipo que no conoce. Cuando
+ * eran dos cosas separadas se desincronizaron: se agregó `descargar_media` al
+ * check de la tabla y al bot, y la lista del worker quedó sin él — así que las
+ * fotos de los vecinos se encolaban y el worker las descartaba como tipo
+ * desconocido.
+ *
+ * Tiene que coincidir con el check de `trabajos.tipo` (migración 012).
+ */
+export const TIPOS_TRABAJO = [
+  "ingestar_documento",
+  "reindexar_documento",
+  "borrar_documento",
+  "reindexar_todo",
+  "descargar_media",
+] as const;
+
+export type TipoTrabajo = (typeof TIPOS_TRABAJO)[number];
 
 export interface Trabajo {
   readonly id: string;
@@ -52,6 +68,33 @@ export interface PuertosIngesta {
   borrarDocumento(id: string, rutaStorage: string | null): Promise<void>;
   /** Encola un reindexado por documento activo. Devuelve cuántos encoló. */
   encolarReindexado(): Promise<number>;
+
+  /**
+   * Baja un archivo del canal por el que llegó.
+   *
+   * Lo implementa el paquete del bot, que es el único que sabe que Telegram
+   * existe y tiene su token. El dominio sólo orquesta: recibe una referencia
+   * opaca y no le importa si atrás hay un `getFile` o una URL firmada de
+   * WhatsApp. Es lo mismo que permite cambiar de canal sin tocar esto.
+   *
+   * Devuelve null si el canal ya no tiene el archivo.
+   */
+  descargarDeCanal(
+    canal: string,
+    referencia: string,
+  ): Promise<{ datos: Uint8Array; mime: string; nombre: string } | null>;
+
+  /** Guarda el archivo en el Storage y devuelve su ruta. */
+  guardarMedia(ruta: string, datos: Uint8Array, mime: string): Promise<void>;
+
+  /**
+   * Anota en el ticket o la solicitud que la foto ya está guardada.
+   *
+   * Devuelve cuántas filas quedaron actualizadas. Cero no es un error: el
+   * vecino pudo mandar una foto y abandonar el flujo antes de generar el
+   * ticket, y la foto se guarda igual.
+   */
+  registrarMediaGuardada(referencia: string, ruta: string): Promise<number>;
   registrar(nivel: "info" | "aviso" | "error", mensaje: string): void;
 }
 
@@ -186,6 +229,59 @@ async function reindexarTodo(puertos: PuertosIngesta): Promise<ResultadoTrabajo>
   return { ok: true, detalle: `${encolados} documentos encolados` };
 }
 
+/**
+ * Descarga de una foto que mandó un vecino.
+ *
+ * Va por la cola y no en línea a propósito: un vecino no tiene que esperar a
+ * que bajen 5 MB de una foto antes de recibir la confirmación de su pedido.
+ *
+ * El contrato lo fijó la migración 012: `photo_ref` guarda la referencia del
+ * canal y `photo_url` queda en null hasta que el worker resuelve la descarga.
+ * Hay un índice parcial —`tickets_foto_pendiente_idx`— justamente sobre las
+ * filas con referencia y sin ruta.
+ */
+async function descargarMedia(
+  trabajo: Trabajo,
+  puertos: PuertosIngesta,
+): Promise<ResultadoTrabajo> {
+  const referencia = trabajo.payload["referencia"];
+  const canal = trabajo.payload["canal"];
+  const proposito = trabajo.payload["proposito"];
+
+  if (typeof referencia !== "string" || referencia === "") {
+    throw new PayloadInvalidoError(trabajo.tipo, "referencia");
+  }
+  if (typeof canal !== "string" || canal === "") {
+    throw new PayloadInvalidoError(trabajo.tipo, "canal");
+  }
+
+  const archivo = await puertos.descargarDeCanal(canal, referencia);
+  if (archivo === null) {
+    // No se reintenta: los canales vencen sus archivos y no vuelven. El ticket
+    // conserva `photo_ref`, así que queda registro de que hubo una foto.
+    const detalle = `El canal ${canal} ya no tiene el archivo ${referencia.slice(0, 24)}`;
+    puertos.registrar("aviso", detalle);
+    return { ok: false, error: detalle, reintentable: false };
+  }
+
+  // La ruta lleva el propósito adelante para que el bucket se pueda leer a ojo
+  // y para poder borrar por lote cuando haya una política de retención. La
+  // referencia del canal es única, así que sirve de nombre.
+  const seguro = referencia.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80);
+  const carpeta = typeof proposito === "string" && proposito !== "" ? proposito : "sin-proposito";
+  const ruta = `${carpeta}/${seguro}-${archivo.nombre}`;
+
+  await puertos.guardarMedia(ruta, archivo.datos, archivo.mime);
+  const filas = await puertos.registrarMediaGuardada(referencia, ruta);
+
+  puertos.registrar(
+    "info",
+    `foto guardada en ${ruta} (${Math.round(archivo.datos.length / 1024)} KB), ${filas} fila(s) actualizadas`,
+  );
+
+  return { ok: true, detalle: `guardada en ${ruta}` };
+}
+
 export async function procesarTrabajo(
   trabajo: Trabajo,
   puertos: PuertosIngesta,
@@ -197,6 +293,8 @@ export async function procesarTrabajo(
         return await indexar(trabajo, puertos);
       case "borrar_documento":
         return await borrar(trabajo, puertos);
+      case "descargar_media":
+        return await descargarMedia(trabajo, puertos);
       case "reindexar_todo":
         return await reindexarTodo(puertos);
       default: {

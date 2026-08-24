@@ -73,6 +73,13 @@ function puertosFalsos(sobre: Partial<PuertosIngesta> = {}): PuertosIngesta {
     async encolarReindexado() {
       return 3;
     },
+    async descargarDeCanal() {
+      return null;
+    },
+    async guardarMedia() {},
+    async registrarMediaGuardada() {
+      return 0;
+    },
     registrar() {},
     ...sobre,
   };

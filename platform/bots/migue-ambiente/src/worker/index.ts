@@ -23,6 +23,16 @@ async function main(): Promise<void> {
   // por una credencial que no usa.
   requireEnv(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]);
 
+  // El token NO es obligatorio: sin él el worker indexa documentos igual. Pero
+  // los trabajos de tipo `descargar_media` fallarían y se reintentarían para
+  // siempre, así que se avisa fuerte al arrancar en vez de descubrirlo cuando
+  // un vecino ya mandó una foto.
+  if (!process.env["TELEGRAM_BOT_TOKEN"]?.trim()) {
+    log.warn(
+      "sin TELEGRAM_BOT_TOKEN: no voy a poder bajar las fotos que manden los vecinos",
+    );
+  }
+
   if (!(await verificarConexion())) {
     throw new Error("no pude conectarme a Supabase; reviso credenciales y salgo");
   }

@@ -5,6 +5,7 @@
  * trabajo vive en `@migue/dominio/ingesta` y no sabe que Supabase existe.
  */
 import { createLogger } from "@bots/core";
+import { descargarDeTelegram, MediaVencidaError } from "../canal/telegram/descargar.ts";
 import { obtenerCliente } from "@migue/dominio";
 import {
   formatoDe,
@@ -23,6 +24,17 @@ const log = createLogger("worker:datos");
  * suba archivos.
  */
 const BUCKET = process.env["SUPABASE_BUCKET_DOCUMENTOS"]?.trim() || "documentos";
+
+/**
+ * Bucket de las fotos que mandan los vecinos.
+ *
+ * SEPARADO del de documentos, y no por orden: son cosas distintas. Los
+ * documentos son información pública que el bot cita; las fotos son de la
+ * propiedad de un vecino, tienen otra sensibilidad y en algún momento van a
+ * necesitar una política de retención propia. Mezclarlos haría imposible
+ * borrar unas sin tocar las otras.
+ */
+const BUCKET_MEDIA = process.env["SUPABASE_BUCKET_MEDIA"]?.trim() || "media";
 
 /** Fila de `documentos` tal como la devuelve PostgREST. */
 interface FilaDocumento {
@@ -144,6 +156,65 @@ export function crearPuertos(): PuertosIngesta {
       const { data, error } = await supabase.rpc("encolar_reindexado");
       if (error) throw new Error(`no pude encolar el reindexado: ${error.message}`);
       return typeof data === "number" ? data : 0;
+    },
+
+    async descargarDeCanal(canal: string, referencia: string) {
+      if (canal !== "telegram") {
+        // No se lanza: un canal desconocido no es un error transitorio. El
+        // dominio lo trata como archivo ausente y no lo reintenta.
+        log.warn({ canal }, "no sé bajar archivos de este canal");
+        return null;
+      }
+
+      const token = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
+      if (!token) {
+        // Esto SÍ es un error del worker, no del archivo: falta configuración.
+        // Lanzando, el trabajo se reintenta cuando se corrija.
+        throw new Error("falta TELEGRAM_BOT_TOKEN para bajar archivos del canal");
+      }
+
+      try {
+        return await descargarDeTelegram(referencia, token);
+      } catch (error) {
+        // Un archivo vencido devuelve null para que no se reintente; el resto
+        // se propaga y sí se reintenta.
+        if (error instanceof MediaVencidaError) {
+          log.warn({ err: error.message }, "el canal ya no tiene el archivo");
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async guardarMedia(ruta: string, datos: Uint8Array, mime: string): Promise<void> {
+      const { error } = await supabase.storage.from(BUCKET_MEDIA).upload(ruta, datos, {
+        contentType: mime,
+        // Idempotente: la ruta lleva la referencia del canal, que es única, así
+        // que reintentar sobreescribe el mismo archivo en vez de duplicarlo.
+        upsert: true,
+      });
+      if (error) throw new Error(`no pude guardar la foto en ${ruta}: ${error.message}`);
+    },
+
+    async registrarMediaGuardada(referencia: string, ruta: string): Promise<number> {
+      // La foto puede corresponder a un ticket o a una solicitud de programa: la
+      // 012 agregó photo_ref/photo_url a las dos tablas. Se actualizan ambas y
+      // se suman las filas afectadas.
+      let total = 0;
+
+      for (const tabla of ["tickets", "program_requests"] as const) {
+        const { data, error } = await supabase
+          .from(tabla)
+          .update({ photo_url: ruta })
+          .eq("photo_ref", referencia)
+          .is("photo_url", null)
+          .select("id");
+
+        if (error) throw new Error(`no pude anotar la foto en ${tabla}: ${error.message}`);
+        total += data?.length ?? 0;
+      }
+
+      return total;
     },
 
     registrar(nivel, mensaje) {

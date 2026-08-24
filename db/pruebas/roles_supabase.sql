@@ -98,8 +98,9 @@ create table if not exists storage.objects (
 
 alter table storage.objects enable row level security;
 
-insert into storage.buckets (id, name, public)
-values ('documentos', 'documentos', false)
+insert into storage.buckets (id, name, public) values
+  ('documentos', 'documentos', false),
+  ('media',      'media',      false)
 on conflict (id) do nothing;
 
 grant usage on schema storage to anon, authenticated, service_role;

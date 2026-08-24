@@ -45,6 +45,13 @@ const puertosInertes = {
   async encolarReindexado() {
     return 0;
   },
+  async descargarDeCanal() {
+    return null;
+  },
+  async guardarMedia() {},
+  async registrarMediaGuardada() {
+    return 0;
+  },
   registrar() {},
 };
 

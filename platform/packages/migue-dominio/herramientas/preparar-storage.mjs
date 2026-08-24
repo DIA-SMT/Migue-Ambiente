@@ -109,6 +109,33 @@ if (!existe && aplicar) {
 }
 
 // ---------------------------------------------------------------------------
+// 1bis · El bucket de las fotos de vecinos
+//
+// Separado del de documentos a propósito: otra sensibilidad y, en algún momento,
+// otra política de retención. Mezclarlos haría imposible borrar unas sin tocar
+// las otras.
+// ---------------------------------------------------------------------------
+const BUCKET_MEDIA = process.env.SUPABASE_BUCKET_MEDIA?.trim() || "media";
+const existeMedia = buckets.some((b) => b.name === BUCKET_MEDIA);
+console.log(`bucket «${BUCKET_MEDIA}»: ${existeMedia ? "ya existe" : "hay que crearlo"}`);
+
+if (!existeMedia && aplicar) {
+  const { error } = await supabase.storage.createBucket(BUCKET_MEDIA, {
+    // PRIVADO, y acá no es discutible: son fotos de la propiedad de un vecino.
+    public: false,
+    allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/heic", "video/mp4", "audio/ogg"],
+    // 20 MB es el tope que la API de bots de Telegram permite descargar, así
+    // que más que un límite propio es el límite real del canal.
+    fileSizeLimit: 20 * 1024 * 1024,
+  });
+  if (error) {
+    console.error("No pude crear el bucket de media:", error.message);
+    process.exit(1);
+  }
+  console.log(`bucket «${BUCKET_MEDIA}» creado (privado, 20 MB por archivo)`);
+}
+
+// ---------------------------------------------------------------------------
 // 2 · Los documentos
 // ---------------------------------------------------------------------------
 const archivos = buscar(CORPUS);

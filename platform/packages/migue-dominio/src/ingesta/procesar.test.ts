@@ -89,6 +89,17 @@ function espiar(sobreescribir: Partial<PuertosIngesta> = {}): Espia {
       espia.llamadas.push("encolarReindexado()");
       return 8;
     },
+    async descargarDeCanal(canal, referencia) {
+      espia.llamadas.push(`descargarDeCanal(${canal}, ${referencia})`);
+      return { datos: strToU8("bytes de la foto"), mime: "image/jpeg", nombre: "foto.jpg" };
+    },
+    async guardarMedia(ruta) {
+      espia.llamadas.push(`guardarMedia(${ruta})`);
+    },
+    async registrarMediaGuardada(referencia, ruta) {
+      espia.llamadas.push(`registrarMediaGuardada(${referencia} -> ${ruta})`);
+      return 1;
+    },
     registrar() {},
     ...sobreescribir,
   };
@@ -430,5 +441,85 @@ describe("procesarTrabajo · el documento nunca queda en «procesando»", () => 
       const marco = espia.llamadas.includes("marcarError(doc-1)");
       assert.equal(marco, deberiaMarcar, `«${nombre}»: ${espia.llamadas.join(" -> ")}`);
     }
+  });
+});
+
+describe("procesarTrabajo · foto de un vecino", () => {
+  function trabajoFoto(payload: Record<string, unknown> = {}): Trabajo {
+    return trabajo({
+      tipo: "descargar_media",
+      payload: {
+        clase: "media_de_canal",
+        referencia: "AgACAgEAAxkBAAIBY2Vm",
+        proposito: "retiro_no_habitual",
+        canal: "telegram",
+        conversacion_id: "conv-1",
+        ...payload,
+      },
+    });
+  }
+
+  it("baja la foto, la guarda y la anota en el ticket", async () => {
+    // Va por la cola porque el vecino no tiene que esperar a que bajen 5 MB
+    // antes de recibir la confirmación de su pedido.
+    const espia = espiar();
+    const resultado = await procesarTrabajo(trabajoFoto(), espia.puertos);
+
+    assert.equal(resultado.ok, true);
+    const orden = espia.llamadas.join(" -> ");
+    assert.match(orden, /descargarDeCanal\(telegram,/);
+    assert.match(orden, /guardarMedia\(retiro_no_habitual\//, orden);
+    assert.match(orden, /registrarMediaGuardada\(/, orden);
+  });
+
+  it("agrupa por propósito y sanea la referencia en la ruta", async () => {
+    // La referencia de Telegram trae caracteres que Storage rechaza, el mismo
+    // problema que ya apareció con los nombres de documento.
+    const espia = espiar();
+    await procesarTrabajo(
+      trabajoFoto({ referencia: "AgAC/Ag+EAA=xkB", proposito: "reclamo" }),
+      espia.puertos,
+    );
+    const guardado = espia.llamadas.find((l) => l.startsWith("guardarMedia("))!;
+    assert.ok(guardado.startsWith("guardarMedia(reclamo/"), guardado);
+    assert.doesNotMatch(guardado.slice("guardarMedia(".length), /[^A-Za-z0-9._\-/()]/, guardado);
+  });
+
+  it("si el canal ya no tiene el archivo, NO se reintenta", async () => {
+    // Telegram y WhatsApp vencen sus archivos. Reintentar tres veces es gastar
+    // turnos de cola para llegar al mismo lugar.
+    const espia = espiar({ descargarDeCanal: async () => null });
+    const resultado = await procesarTrabajo(trabajoFoto(), espia.puertos);
+
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.ok === false && resultado.reintentable, false);
+    assert.ok(!espia.llamadas.some((l) => l.startsWith("guardarMedia")), "guardó igual");
+  });
+
+  it("cero filas actualizadas NO es un error", async () => {
+    // El vecino pudo mandar la foto y abandonar antes de generar el ticket. La
+    // foto se guarda igual; perderla sería peor.
+    const espia = espiar({ registrarMediaGuardada: async () => 0 });
+    const resultado = await procesarTrabajo(trabajoFoto(), espia.puertos);
+    assert.equal(resultado.ok, true);
+  });
+
+  it("un payload sin referencia o sin canal no se reintenta", async () => {
+    for (const roto of [{ referencia: "" }, { canal: "" }]) {
+      const espia = espiar();
+      const resultado = await procesarTrabajo(trabajoFoto(roto), espia.puertos);
+      assert.equal(resultado.ok, false, JSON.stringify(roto));
+      assert.equal(resultado.ok === false && resultado.reintentable, false);
+    }
+  });
+
+  it("un fallo de red al bajar SÍ se reintenta", async () => {
+    const espia = espiar({
+      descargarDeCanal: async () => {
+        throw new Error("socket hang up");
+      },
+    });
+    const resultado = await procesarTrabajo(trabajoFoto(), espia.puertos);
+    assert.equal(resultado.ok === false && resultado.reintentable, true);
   });
 });

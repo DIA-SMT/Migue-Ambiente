@@ -7,7 +7,7 @@
  */
 import { createLogger } from "@bots/core";
 import { obtenerCliente } from "@migue/dominio";
-import type { TipoTrabajo, Trabajo } from "@migue/dominio/ingesta";
+import { TIPOS_TRABAJO, type TipoTrabajo, type Trabajo } from "@migue/dominio/ingesta";
 import type { Cola } from "./bucle.ts";
 
 const log = createLogger("worker:cola");
@@ -22,15 +22,16 @@ interface FilaTrabajo {
   estado: string;
 }
 
-const TIPOS: readonly TipoTrabajo[] = [
-  "ingestar_documento",
-  "reindexar_documento",
-  "borrar_documento",
-  "reindexar_todo",
-];
 
+/**
+ * La lista viene del dominio, no se repite acá.
+ *
+ * Antes era un array propio y se desincronizó: `descargar_media` estaba en el
+ * check de la tabla y en el bot, pero no en esta lista, así que el worker
+ * descartaba las fotos de los vecinos como «tipo desconocido».
+ */
 function esTipoConocido(tipo: string): tipo is TipoTrabajo {
-  return (TIPOS as readonly string[]).includes(tipo);
+  return (TIPOS_TRABAJO as readonly string[]).includes(tipo);
 }
 
 export function crearCola(): Cola {
