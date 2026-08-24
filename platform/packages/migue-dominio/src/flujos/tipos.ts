@@ -13,18 +13,29 @@
 import type { Catalogo } from "../datos/catalogo.ts";
 import type { MensajeEntrante, MensajeSaliente } from "../mensajeria.ts";
 
-export type NombreFlujo =
-  | "retiro_no_habitual"
-  | "reclamo_recoleccion"
-  | "programa_educa"
-  | "programa_transforma"
-  /**
-   * SEPARÁ no está como flujo en la spec —figura como información— pero el
-   * documento de QA agrega un caso que sí requiere capturar datos: los
-   * domicilios FUERA de las 4 avenidas, donde el recorrido no llega y hay que
-   * coordinar el retiro con el equipo.
-   */
-  | "programa_separa";
+/**
+ * Los flujos que existen, como VALOR y no solo como tipo.
+ *
+ * El tipo se deriva de este array porque hay codigo que necesita la lista en
+ * tiempo de ejecucion —las opciones del menu tienen que corresponderse con
+ * flujos reales— y un array separado del tipo se desincroniza. Ya paso: el menu
+ * ofrecia una opcion «programas» que no era ningun flujo, y elegirla hacia que
+ * `iniciarFlujo` recibiera undefined.
+ *
+ * SEPARA no esta como flujo en la spec —figura como informacion— pero el
+ * documento de QA agrega un caso que si requiere capturar datos: los domicilios
+ * FUERA de las 4 avenidas, donde el recorrido no llega y hay que coordinar el
+ * retiro con el equipo.
+ */
+export const NOMBRES_FLUJO = [
+  "retiro_no_habitual",
+  "reclamo_recoleccion",
+  "programa_educa",
+  "programa_transforma",
+  "programa_separa",
+] as const;
+
+export type NombreFlujo = (typeof NOMBRES_FLUJO)[number];
 
 /** Datos que el flujo fue capturando. Serializable: vive en Redis. */
 export type DatosFlujo = Readonly<Record<string, unknown>>;
@@ -36,6 +47,16 @@ export interface EstadoFlujo {
   /** Veces que se repitió el paso actual. Corta los bucles infinitos. */
   readonly intentos: number;
   readonly iniciadoEn: string;
+  /**
+   * Las opciones que el último mensaje le ofreció al vecino.
+   *
+   * Se guardan para poder entender una respuesta escrita: si el vecino contesta
+   * «1» en vez de tocar el botón, hay que saber cuál era la primera opción.
+   * Antes de esto, escribir el número no hacía nada y el bot repreguntaba.
+   */
+  readonly opcionesOfrecidas?:
+    | readonly { readonly id: string; readonly etiqueta: string }[]
+    | undefined;
 }
 
 // ---------------------------------------------------------------------------

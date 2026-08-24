@@ -19,7 +19,12 @@ import { AHORA, catalogoPrueba } from "../flujos/_fixtures.ts";
 export interface Registro {
   readonly conversacionesAbiertas: number;
   readonly entrantes: number;
-  readonly salientes: Array<{ texto: string; traza: TrazaMensaje }>;
+  readonly salientes: Array<{
+    texto: string;
+    traza: TrazaMensaje;
+    /** Las opciones que se le ofrecieron. Vacío si el mensaje no ofrecía ninguna. */
+    opciones: Array<{ id: string; etiqueta: string }>;
+  }>;
   readonly efectos: Efecto[];
   readonly sinRespuesta: Array<{ pregunta: string; motivo: MotivoSinRespuesta }>;
   readonly cierres: Array<"cerrada" | "derivada" | "abandonada">;
@@ -73,7 +78,11 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
       return `msg-${contadores.entrantes}`;
     },
     async registrarSaliente(_id: string, saliente: MensajeSaliente, traza: TrazaMensaje) {
-      registro.salientes.push({ texto: saliente.texto, traza });
+      registro.salientes.push({
+        texto: saliente.texto,
+        traza,
+        opciones: (saliente.opciones ?? []).map((o) => ({ id: o.id, etiqueta: o.etiqueta })),
+      });
     },
     async actualizarFlujo(_id: string, flujo: string | null, paso: string | null) {
       registro.flujosGuardados.push({ flujo, paso });

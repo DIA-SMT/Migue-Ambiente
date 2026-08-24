@@ -4,6 +4,7 @@ import { procesarMensaje, claveDeEstado } from "./orquestador.ts";
 import { dicho, puertosPrueba, type OpcionesPuertos } from "./_puertos.ts";
 import { AHORA, catalogoPrueba } from "../flujos/_fixtures.ts";
 import type { MensajeEntrante } from "../mensajeria.ts";
+import { OPCIONES_MENU } from "../flujos/opciones.ts";
 
 const USUARIO = "555";
 const CLAVE = claveDeEstado("telegram", USUARIO);
@@ -314,5 +315,107 @@ describe("casos borde", () => {
     await procesarMensaje(msg({ texto: "retiren escombros" }), puertos);
     assert.ok(await puertos.almacen.leer(claveDeEstado("telegram", USUARIO)));
     assert.equal(await puertos.almacen.leer(claveDeEstado("whatsapp", USUARIO)), null);
+  });
+});
+
+describe("elegir del menú escribiendo el número", () => {
+  // Sin intención forzada: estos casos se resuelven sin clasificador, o con el
+  // clasificador de prueba por defecto.
+  const sinForzar: OpcionesPuertos = {};
+  // El caso reportado al probar el bot: Migue muestra el menú numerado, el
+  // vecino contesta «1», y no pasaba nada. El clasificador veía «1», no
+  // entendía, y el bot volvía a mostrar el menú. El vecino repetía el número
+  // creyendo que no llegaba.
+
+  it("el menú se manda CON opciones, no como texto suelto", async () => {
+    // Sin opciones no hay botones en Telegram y no hay nada que resolver cuando
+    // el vecino escribe el número.
+    const { puertos } = await conversar([{ texto: "asdkjhasd" }], {
+      intencion: "no_entendido",
+      confianza: 0.9,
+    });
+    const conOpciones = puertos.registro.salientes.find((s) => s.opciones.length > 0);
+    assert.ok(conOpciones, `el menú salió sin opciones. Dicho: ${dicho(puertos)}`);
+    assert.equal(conOpciones.opciones.length, OPCIONES_MENU.length);
+    // Se comparan contra OPCIONES_MENU y no contra una lista escrita acá: una
+    // lista a mano confirmaría mi suposición en vez de lo que el bot manda.
+    assert.deepEqual(
+      conOpciones.opciones.map((o) => o.id),
+      OPCIONES_MENU.map((o) => o.id),
+    );
+  });
+
+  it("contestar «1» arranca el flujo de retiro", async () => {
+    const { ultimo, puertos } = await conversar([{ texto: "1" }], sinForzar);
+    assert.equal(
+      ultimo.flujoActivo,
+      "retiro_no_habitual",
+      `el «1» no arrancó nada. Dicho: ${dicho(puertos)}`,
+    );
+  });
+
+  it("contestar «2» arranca el flujo de reclamo", async () => {
+    const { ultimo } = await conversar([{ texto: "2" }], sinForzar);
+    assert.equal(ultimo.flujoActivo, "reclamo_recoleccion");
+  });
+
+  it("elegir del menú NO llama al clasificador", async () => {
+    // El vecino ya dijo qué quiere: adivinarlo con el modelo es gastar plata en
+    // algo que está dicho.
+    let llamadas = 0;
+    const base = puertosPrueba(sinForzar);
+    const espiado = {
+      ...base,
+      clasificar: async (t: string, c: Parameters<typeof base.clasificar>[1]) => {
+        llamadas++;
+        return base.clasificar(t, c);
+      },
+    };
+
+    await procesarMensaje(msg({ texto: "3" }), espiado);
+    assert.equal(llamadas, 0, "se llamó al clasificador para un número del menú");
+  });
+
+  it("tocar el botón funciona igual que escribir el número", async () => {
+    const { ultimo } = await conversar([{ seleccion: "reclamo_recoleccion" }], sinForzar);
+    assert.equal(ultimo.flujoActivo, "reclamo_recoleccion");
+  });
+
+  it("una PREGUNTA sobre el camión no arranca el flujo de reclamo", async () => {
+    // La contracara, y es lo que hay que no romper: «camión» aparece en la
+    // etiqueta de la opción 2, pero quien pregunta cuándo pasa quiere una
+    // respuesta, no abrir un reclamo. Eso lo decide el clasificador.
+    let llamadas = 0;
+    const base = puertosPrueba(sinForzar);
+    const espiado = {
+      ...base,
+      clasificar: async (t: string, c: Parameters<typeof base.clasificar>[1]) => {
+        llamadas++;
+        return base.clasificar(t, c);
+      },
+    };
+
+    await procesarMensaje(msg({ texto: "cuando pasa el camion por mi casa?" }), espiado);
+    assert.equal(llamadas, 1, "una pregunta tiene que pasar por el clasificador");
+  });
+
+  it("dentro de un flujo, el número elige la opción de ESE paso", async () => {
+    // El menú ya no está: las opciones vigentes son las del paso. Un «2» acá es
+    // «Restos de poda / ramas», no la opción 2 del menú.
+    const { puertos } = await conversar(
+      [
+        { texto: "necesito un retiro" },
+        { media: { tipo: "imagen", referencia: "foto-1" } },
+        { texto: "2" },
+        { texto: "3 bolsas" },
+        { texto: "Lamadrid 50" },
+      ],
+      { intencion: "retiro_no_habitual", confianza: 0.95 },
+    );
+
+    const ticket = puertos.registro.efectos.find((e) => e.tipo === "crear_ticket");
+    assert.ok(ticket, `no se creó el ticket. Dicho: ${dicho(puertos)}`);
+    if (ticket?.tipo !== "crear_ticket") return;
+    assert.equal(ticket.datos.tipoResiduo, "poda", "el «2» no eligió la segunda categoría");
   });
 });

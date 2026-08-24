@@ -5,6 +5,7 @@
  * así que agregar uno nuevo no implica tocar el motor.
  */
 import { decir, type MensajeEntrante, type MensajeSaliente } from "../mensajeria.ts";
+import { resolverOpcion, type OpcionElegible } from "./opciones.ts";
 import type {
   ContextoFlujo,
   DatosFlujo,
@@ -14,6 +15,50 @@ import type {
 } from "./tipos.ts";
 
 const MAX_INTENTOS_POR_DEFECTO = 3;
+
+/**
+ * Las opciones del último mensaje que las ofreció.
+ *
+ * Se toma el ÚLTIMO y no el primero: un paso puede mandar primero la
+ * información y después la pregunta con opciones —así abre el paso de cobertura
+ * de SEPARÁ— y las opciones vigentes son las de la pregunta.
+ */
+function opcionesDe(salientes: readonly MensajeSaliente[]): readonly OpcionElegible[] | undefined {
+  for (let i = salientes.length - 1; i >= 0; i--) {
+    const o = salientes[i]?.opciones;
+    if (o && o.length > 0) return o.map((x) => ({ id: x.id, etiqueta: x.etiqueta }));
+  }
+  return undefined;
+}
+
+/**
+ * Completa `seleccion` cuando el vecino ESCRIBIÓ su elección en vez de tocar el
+ * botón.
+ *
+ * Los pasos leen `entrante.seleccion` para saber qué eligió. Si el vecino
+ * escribe «1» o «poda», eso llega en `texto` y el paso no lo relaciona con nada:
+ * repregunta, y el vecino repite el número creyendo que no llegó.
+ *
+ * Resolverlo acá y no en cada paso tiene dos ventajas: vale para todos los
+ * flujos sin tocarlos, y va a valer igual para WhatsApp, donde los botones
+ * tienen límites más duros y escribir es todavía más frecuente.
+ *
+ * `texto` se conserva intacto: un paso que necesite interpretarlo —una cantidad,
+ * una dirección— lo sigue teniendo entero.
+ */
+function conSeleccionResuelta(
+  entrante: MensajeEntrante,
+  ofrecidas: readonly OpcionElegible[] | undefined,
+): MensajeEntrante {
+  if (entrante.seleccion || !ofrecidas || ofrecidas.length === 0) return entrante;
+
+  // ESTRICTA a propósito: sólo se traduce si el mensaje ES la elección. Los
+  // pasos leen la elección con `textoEfectivo()`, que devuelve `seleccion ??
+  // texto`, así que completar `seleccion` reemplaza el texto. Con «escombros, 3
+  // bolsas» eso hacía perder la cantidad y el vecino tenía que repetirla.
+  const id = resolverOpcion(entrante.texto, ofrecidas);
+  return id === null ? entrante : { ...entrante, seleccion: id };
+}
 
 export class FlujoDesconocidoError extends Error {
   constructor(nombre: string) {
@@ -40,6 +85,8 @@ export function iniciarFlujo(
   const paso = definicion.pasos[definicion.pasoInicial];
   if (!paso) throw new PasoDesconocidoError(definicion.nombre, definicion.pasoInicial);
 
+  const salientes = paso.abrir?.(ctx, datosIniciales) ?? [];
+
   return {
     estado: {
       flujo: definicion.nombre,
@@ -47,8 +94,9 @@ export function iniciarFlujo(
       datos: datosIniciales,
       intentos: 0,
       iniciadoEn: ctx.ahora.toISOString(),
+      opcionesOfrecidas: opcionesDe(salientes),
     },
-    salientes: paso.abrir?.(ctx, datosIniciales) ?? [],
+    salientes,
     efectos: [],
   };
 }
@@ -72,7 +120,10 @@ export function avanzarFlujo(
   const paso = definicion.pasos[estado.paso];
   if (!paso) throw new PasoDesconocidoError(estado.flujo, estado.paso);
 
-  const transicion = paso.procesar(ctx, estado.datos, entrante);
+  // Si el vecino escribió su elección en vez de tocar el botón, se traduce
+  // ANTES de que el paso la mire. Así ningún paso necesita saber de esto.
+  const resuelto = conSeleccionResuelta(entrante, estado.opcionesOfrecidas);
+  const transicion = paso.procesar(ctx, estado.datos, resuelto);
 
   switch (transicion.tipo) {
     case "avanzar": {
@@ -80,9 +131,16 @@ export function avanzarFlujo(
       if (!destino) throw new PasoDesconocidoError(estado.flujo, transicion.a);
 
       const datos = { ...estado.datos, ...(transicion.datos ?? {}) };
+      const salientes = [...(transicion.mensajes ?? []), ...(destino.abrir?.(ctx, datos) ?? [])];
       return {
-        estado: { ...estado, paso: transicion.a, datos, intentos: 0 },
-        salientes: [...(transicion.mensajes ?? []), ...(destino.abrir?.(ctx, datos) ?? [])],
+        estado: {
+          ...estado,
+          paso: transicion.a,
+          datos,
+          intentos: 0,
+          opcionesOfrecidas: opcionesDe(salientes),
+        },
+        salientes,
         efectos: transicion.efectos ?? [],
       };
     }
@@ -113,7 +171,15 @@ export function avanzarFlujo(
       }
 
       return {
-        estado: { ...estado, datos, intentos },
+        // Las opciones se actualizan con las del mensaje que se acaba de
+        // mandar: si el paso repregunta ofreciendo opciones, son ésas las que
+        // valen para el próximo turno.
+        estado: {
+          ...estado,
+          datos,
+          intentos,
+          opcionesOfrecidas: opcionesDe([transicion.mensaje]) ?? estado.opcionesOfrecidas,
+        },
         salientes: [transicion.mensaje],
         efectos: [],
       };

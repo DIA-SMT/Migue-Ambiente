@@ -31,9 +31,16 @@ import {
   flujoProgramaSepara,
   flujoProgramaTransforma,
 } from "../flujos/programas.ts";
+import { OPCIONES_MENU, resolverOpcion } from "../flujos/opciones.ts";
 import { decidir, type Clasificacion } from "../ia/router.ts";
-import { leerConfig, leerTexto, type Catalogo } from "../datos/catalogo.ts";
-import { decir, textoEfectivo, type MensajeEntrante, type MensajeSaliente } from "../mensajeria.ts";
+import { leerConfig, leerTexto, tieneTexto, type Catalogo } from "../datos/catalogo.ts";
+import {
+  decir,
+  preguntar,
+  textoEfectivo,
+  type MensajeEntrante,
+  type MensajeSaliente,
+} from "../mensajeria.ts";
 import { almacenEnMemoria, claveDeEstado, type AlmacenEstado } from "./almacen.ts";
 import type { DefinicionFlujo, Efecto, EstadoFlujo, NombreFlujo } from "../flujos/tipos.ts";
 import type { Respuesta } from "../conocimiento/responder.ts";
@@ -224,9 +231,45 @@ export async function procesarMensaje(
   }
 
   // -------------------------------------------------------------------------
-  // 4 · Router
+  // 4 · ¿Eligió del menú?
+  //
+  // Si el vecino tocó un botón del menú o escribió su número, ya dijo qué
+  // quiere: llamar al clasificador para que lo adivine sería gastar una llamada
+  // al modelo en algo que está dicho.
+  //
+  // Se hace SÓLO cuando no hay un flujo activo, que es exactamente la situación
+  // en la que el bot muestra el menú. Y sólo con elecciones autocontenidas —un
+  // número, el id de un botón—: buscar palabras sueltas haría que «¿cuándo pasa
+  // el camión?» arrancara el flujo de reclamo, cuando es una consulta. Eso lo
+  // distingue el clasificador y tiene la regla escrita.
+  //
+  // Lo que se asume: que un «1» sin flujo activo se refiere al menú. Puede
+  // fallar si el primer mensaje de alguien es un número suelto sin haber visto
+  // el menú; el costo de equivocarse es que arranca un flujo que se puede
+  // cancelar escribiendo «cancelar», y el beneficio es que deja de haber un
+  // bucle donde el vecino escribe el número y el bot le vuelve a mostrar el
+  // menú.
   // -------------------------------------------------------------------------
-  const clasificacion = await puertos.clasificar(texto, catalogo);
+  const delMenu = resolverOpcion(entrante.seleccion ?? texto, OPCIONES_MENU);
+
+  const clasificacion: Clasificacion =
+    delMenu !== null
+      ? {
+          intencion: delMenu as Clasificacion["intencion"],
+          // Certeza total: no se adivinó nada, el vecino lo eligió.
+          confianza: 1,
+          modelo: "menu",
+          // Es un atajo, igual que los saludos: no pasó por el modelo. Lo que
+          // mide `porAtajo` es cuántos mensajes se resolvieron sin gastar una
+          // llamada, y una elección del menú cuenta.
+          porAtajo: true,
+          tokensEntrada: 0,
+          tokensSalida: 0,
+          costoUsd: 0,
+          latenciaMs: 0,
+        }
+      : await puertos.clasificar(texto, catalogo);
+
   const decision = decidir(clasificacion, catalogo);
 
   const trazaRouter: TrazaMensaje = {
@@ -251,15 +294,20 @@ export async function procesarMensaje(
     case "despedir":
       await puertos.persistencia.cerrarConversacion(conversacion.id, "cerrada");
       return await responderCon(
-        [decir("¡De nada! Si necesitás algo más, escribime.", "nada")],
+        [decir(leerTexto(catalogo, "despedida"), "nada")],
         { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos: [] },
         { ...trazaRouter, origenRespuesta: "flujo" },
         puertos,
       );
 
     case "mostrar_menu":
+      // Con opciones de verdad y no como texto suelto. Dos motivos: en Telegram
+      // aparecen como botones, y si el vecino igual escribe el número, el
+      // resolutor lo entiende. Antes el menú era texto numerado y contestar «1»
+      // no hacía nada: el clasificador no reconocía el número y el bot volvía a
+      // mostrar el menú. El vecino repetía el número creyendo que no llegaba.
       return await responderCon(
-        [decir(leerTexto(catalogo, "menu_principal"), "texto")],
+        [preguntar(leerTexto(catalogo, "menu_principal"), OPCIONES_MENU)],
         { conversacionId: conversacion.id, origenRespuesta: "fallback", flujoActivo: null, efectos: [] },
         { ...trazaRouter, origenRespuesta: "fallback" },
         puertos,
@@ -317,8 +365,23 @@ export async function procesarMensaje(
             ? origenDeSintesis(respuesta)
             : "fallback";
 
+      // Después de responder, preguntar si sirvió. Va como mensaje APARTE y no
+      // pegado a la respuesta: así la respuesta se puede leer, copiar o reenviar
+      // sin arrastrar una pregunta de cortesía.
+      //
+      // Sólo cuando hubo respuesta de verdad. Después de un «no tengo esa
+      // información» un «¿te sirvió?» es sal en la herida, y ese texto ya dice
+      // qué hacer.
+      //
+      // Se lee con `tieneTexto`, así que vaciarlo desde el panel apaga el
+      // seguimiento sin necesidad de un deploy.
+      const cierre: MensajeSaliente[] =
+        respuesta.tipo !== "sin_respuesta" && tieneTexto(catalogo, "seguimiento_tras_responder")
+          ? [decir(leerTexto(catalogo, "seguimiento_tras_responder"), "texto")]
+          : [];
+
       return await responderCon(
-        [decir(respuesta.texto, "texto")],
+        [decir(respuesta.texto, "texto"), ...cierre],
         { conversacionId: conversacion.id, origenRespuesta: origen, flujoActivo: null, efectos: [] },
         {
           intencion: clasificacion.intencion,
