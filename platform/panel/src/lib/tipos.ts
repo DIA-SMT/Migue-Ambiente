@@ -154,3 +154,113 @@ export function fechaLegible(iso: string, conHora = false): string {
   if (!conHora) return fecha;
   return `${fecha} ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
 }
+
+/* ------------------------------------------------------------- respuestas --- */
+
+/**
+ * Una FAQ: la busca el buscador y el modelo redacta con ella.
+ *
+ * `buscar_conocimiento` le da el doble de peso que a un fragmento de PDF
+ * (p_impulso_faq = 2.0): una respuesta escrita por alguien del área ya está
+ * redactada para un vecino y alguien la revisó.
+ */
+export interface Faq {
+  id: string;
+  pregunta: string;
+  respuesta: string;
+  etiquetas: string[];
+  activa: boolean;
+  veces_usada: number;
+  creada_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+/** Modos de coincidencia de una respuesta fija. Check de la migración 002. */
+export type ModoDisparador = "exacto" | "contiene" | "regex";
+
+/**
+ * Una respuesta fija: se envía TEXTUAL, sin pasar por el modelo.
+ *
+ * Es para lo que no admite interpretación —un teléfono, una dirección, una
+ * suspensión de servicio—. La contracara es que si el disparador está mal, el
+ * vecino recibe una respuesta que no tiene nada que ver.
+ */
+export interface RespuestaFija {
+  id: string;
+  nombre: string;
+  disparadores: string[];
+  modo: ModoDisparador;
+  respuesta: string;
+  prioridad: number;
+  activa: boolean;
+  veces_usada: number;
+  notas: string | null;
+  creada_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+/** Lo que devuelve `probar_disparadores`. */
+export interface PruebaDisparadores {
+  coincide_el_texto: boolean;
+  mensajes_mirados: number;
+  mensajes_atrapados: number;
+  ejemplos: string[];
+}
+
+/** Lo que devuelve `probar_conocimiento`, igual que lo que ve el bot. */
+export interface Coincidencia {
+  origen: "faq" | "fragmento" | "respuesta_fija";
+  id: string;
+  titulo: string | null;
+  texto: string;
+  documento_titulo: string | null;
+  pagina: number | null;
+  rank: number;
+  difuso: boolean;
+}
+
+/**
+ * Qué tan riesgoso es un disparador, según cuántos mensajes reales atrapa.
+ *
+ * El umbral en un tercio no es arbitrario: una respuesta fija que se dispara en
+ * más de un tercio de lo que escribe la gente ya no es una respuesta a una
+ * pregunta puntual, es el comportamiento por defecto del bot. Y ese no se
+ * configura desde acá.
+ */
+export function riesgoDelDisparador(p: PruebaDisparadores): {
+  tono: "ok" | "curso" | "alerta";
+  mensaje: string;
+} {
+  if (p.mensajes_mirados === 0) {
+    return {
+      tono: "curso",
+      mensaje: "Todavía no hay mensajes de vecinos con los que comparar.",
+    };
+  }
+  const proporcion = p.mensajes_atrapados / p.mensajes_mirados;
+
+  if (proporcion >= 0.34) {
+    return {
+      tono: "alerta",
+      mensaje:
+        `Atrapa ${p.mensajes_atrapados} de los últimos ${p.mensajes_mirados} mensajes. ` +
+        `Eso es demasiado: dejaría de ser una respuesta puntual y pasaría a ser lo que el bot ` +
+        `contesta casi siempre.`,
+    };
+  }
+  if (p.mensajes_atrapados === 0) {
+    return {
+      tono: "curso",
+      mensaje:
+        `No coincide con ninguno de los últimos ${p.mensajes_mirados} mensajes. ` +
+        `Puede estar bien si es para algo que todavía nadie preguntó, pero conviene revisar ` +
+        `que la palabra sea la que usa la gente.`,
+    };
+  }
+  return {
+    tono: "ok",
+    mensaje: `Atrapa ${p.mensajes_atrapados} de los últimos ${p.mensajes_mirados} mensajes.`,
+  };
+}

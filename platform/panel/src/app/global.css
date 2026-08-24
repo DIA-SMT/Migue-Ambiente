@@ -737,3 +737,82 @@ textarea {
     animation: none !important;
   }
 }
+
+/* ============================================================== pestañas === */
+
+.pestanas {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--linea);
+  margin-bottom: 4px;
+  overflow-x: auto;
+}
+
+.pestanas button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 14px;
+  color: var(--tinta-suave);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.pestanas button:hover {
+  background: none;
+  color: var(--tinta);
+  border-bottom-color: var(--linea);
+}
+.pestanas button.activa {
+  color: var(--verde-profundo);
+  border-bottom-color: var(--verde-vivo);
+}
+
+.pestanas .cuenta {
+  font-variant-numeric: tabular-nums;
+  background: var(--verde-claro);
+  color: var(--verde-profundo);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.8rem;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--verde-claro);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* ================================================== textos del bot === */
+
+/* El texto tal como está guardado. Fondo de papel para que se lea como
+   contenido y no como código, y ancho acotado porque un mensaje de chat que
+   ocupa 140 caracteres de ancho no se parece a lo que ve el vecino. */
+.texto-actual {
+  margin-top: 8px;
+  padding: 11px 14px;
+  background: var(--verde-tenue);
+  border-radius: 9px;
+  white-space: pre-wrap;
+  font-size: 0.93rem;
+  color: var(--tinta);
+  max-width: 62ch;
+}
+
+/* La vista previa imita un globo de chat: es lo que hace evidente que esto lo
+   va a leer una persona en su teléfono y no un administrador en una tabla. */
+.vista-previa {
+  padding: 12px 15px;
+  background: var(--verde-medio);
+  color: #fff;
+  border-radius: 14px 14px 14px 4px;
+  white-space: pre-wrap;
+  font-size: 0.93rem;
+  max-width: 46ch;
+  box-shadow: var(--sombra);
+}

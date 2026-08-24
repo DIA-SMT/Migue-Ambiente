@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { estadoVisible, tamanoLegible, type Documento } from "./tipos.ts";
+import {
+  estadoVisible,
+  riesgoDelDisparador,
+  tamanoLegible,
+  type Documento,
+} from "./tipos.ts";
 
 function doc(parcial: Partial<Documento> = {}): Documento {
   return {
@@ -88,5 +93,57 @@ describe("tamanoLegible", () => {
     assert.equal(tamanoLegible(512), "512 B");
     assert.equal(tamanoLegible(8 * 1024), "8 KB");
     assert.equal(tamanoLegible(7922 * 1024), "7.7 MB");
+  });
+});
+
+describe("riesgoDelDisparador", () => {
+  it("un disparador que atrapa todo es una alerta", () => {
+    // El caso peligroso: un regex «.*» publicado deja al bot respondiendo lo
+    // mismo a cualquier cosa que escriba cualquier vecino.
+    const r = riesgoDelDisparador({
+      coincide_el_texto: true,
+      mensajes_mirados: 200,
+      mensajes_atrapados: 200,
+      ejemplos: [],
+    });
+    assert.equal(r.tono, "alerta");
+    assert.match(r.mensaje, /demasiado/);
+  });
+
+  it("un tercio ya es demasiado", () => {
+    // Más de un tercio deja de ser una respuesta a una pregunta puntual y pasa
+    // a ser el comportamiento por defecto del bot.
+    assert.equal(
+      riesgoDelDisparador({ coincide_el_texto: true, mensajes_mirados: 90, mensajes_atrapados: 31, ejemplos: [] }).tono,
+      "alerta",
+    );
+    assert.equal(
+      riesgoDelDisparador({ coincide_el_texto: true, mensajes_mirados: 90, mensajes_atrapados: 29, ejemplos: [] }).tono,
+      "ok",
+    );
+  });
+
+  it("cero coincidencias avisa pero no alarma", () => {
+    // Puede estar bien —algo que nadie preguntó todavía— pero conviene revisar
+    // que la palabra sea la que usa la gente.
+    const r = riesgoDelDisparador({
+      coincide_el_texto: false,
+      mensajes_mirados: 50,
+      mensajes_atrapados: 0,
+      ejemplos: [],
+    });
+    assert.equal(r.tono, "curso");
+  });
+
+  it("sin mensajes con los que comparar, lo dice", () => {
+    // No inventa una conclusión: es el estado del proyecto hoy, con 2 mensajes.
+    const r = riesgoDelDisparador({
+      coincide_el_texto: false,
+      mensajes_mirados: 0,
+      mensajes_atrapados: 0,
+      ejemplos: [],
+    });
+    assert.equal(r.tono, "curso");
+    assert.match(r.mensaje, /Todavía no hay mensajes/);
   });
 });

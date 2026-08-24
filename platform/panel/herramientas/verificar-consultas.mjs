@@ -108,6 +108,73 @@ if (documentos?.length) {
   else console.log(`URL FIRMADA: se generó (${data.signedUrl.slice(0, 58)}…)`);
 }
 
+
+// --- 6 · Las consultas de la sección Respuestas ---
+console.log();
+for (const tabla of ["faqs", "respuestas_fijas"]) {
+  const { data, error } = await supabase
+    .from(tabla)
+    .select("*")
+    .order("activa", { ascending: true })
+    .order("veces_usada", { ascending: false });
+  if (error) mal(`${tabla}: ${error.message}`);
+  else console.log(`${tabla.toUpperCase()} — ${data.length} filas (${data.filter((f) => f.activa).length} publicadas)`);
+}
+
+const { count: entrantes, error: eMsj } = await supabase
+  .from("mensajes")
+  .select("id", { count: "exact", head: true })
+  .eq("direccion", "entrante");
+if (eMsj) mal(`conteo de mensajes entrantes: ${eMsj.message}`);
+else console.log(`MENSAJES entrantes con los que comparar un disparador: ${entrantes}`);
+
+// `probar_disparadores` con service_role da «no autorizado» porque pide padrón:
+// es lo correcto, pero significa que acá sólo se puede verificar que EXISTE.
+const { error: ePd } = await supabase.rpc("probar_disparadores", {
+  p_disparadores: ["neumatico"], p_modo: "contiene", p_texto: "neumatico",
+});
+if (ePd && ePd.code !== "42501") mal(`probar_disparadores: ${ePd.message}`);
+else console.log("probar_disparadores: existe y exige padrón (no se puede probar más desde acá)");
+
+const { error: ePc } = await supabase.rpc("probar_conocimiento", { p_consulta: "contenedores" });
+if (ePc && ePc.code !== "42501") mal(`probar_conocimiento: ${ePc.message}`);
+else console.log("probar_conocimiento: existe y exige padrón");
+
+
+// --- 7 · La sección Textos del bot ---
+console.log();
+const { data: textos, error: eTxt } = await supabase
+  .from("textos_bot")
+  .select("clave, texto, descripcion, actualizado_en")
+  .order("clave");
+if (eTxt) mal(`textos_bot: ${eTxt.message}`);
+else {
+  console.log(`TEXTOS_BOT — ${textos.length} mensajes`);
+  const vacios = textos.filter((t) => !t.texto || t.texto.trim() === "");
+  if (vacios.length) console.log(`  vacios: ${vacios.map((t) => t.clave).join(", ")}`);
+}
+
+// Los marcadores se leen de la base, no de una constante del panel: duplicarlos
+// haria que el panel ofrezca marcadores que el bot no resuelve.
+const { data: cfg } = await supabase
+  .from("configuracion")
+  .select("clave, valor")
+  .in("clave", ["marcadores_disponibles", "sla_horas_habiles", "empresa_recoleccion"]);
+const porClave = new Map((cfg ?? []).map((c) => [c.clave, c.valor]));
+const marcadores = String(porClave.get("marcadores_disponibles") ?? "")
+  .replace(/"/g, "").split(",").map((m) => m.trim()).filter((m) => m.startsWith("{"));
+console.log(`MARCADORES parseados: ${marcadores.join(" ") || "(ninguno)"}`);
+if (marcadores.length === 0) mal("no pude parsear marcadores_disponibles");
+
+// Que todo marcador usado en un texto sea uno que el bot resuelve. Un {palzo}
+// mal escrito se le envia LITERAL al vecino, con las llaves.
+for (const t of textos ?? []) {
+  const usados = [...String(t.texto).matchAll(/\{[a-zA-Z_]+\}/g)].map((m) => m[0]);
+  const malos = usados.filter((u) => !marcadores.includes(u));
+  if (malos.length) mal(`${t.clave} usa marcadores que el bot no resuelve: ${malos.join(", ")}`);
+}
+console.log("MARCADORES en uso: todos validos");
+
 console.log();
 if (fallas > 0) { console.log(`${fallas} problema(s)`); process.exitCode = 1; }
 else console.log("todas las consultas del panel devuelven lo que las pantallas esperan");

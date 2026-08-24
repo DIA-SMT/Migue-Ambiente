@@ -30,8 +30,8 @@ const GRUPOS = [
     rotulo: "Lo que Migue sabe",
     items: [
       { href: "/documentos", texto: "Documentos", Icono: IconoDocumentos, listo: true },
-      { href: "/faqs", texto: "Respuestas", Icono: IconoRespuestas, listo: false },
-      { href: "/textos", texto: "Textos del bot", Icono: IconoTextos, listo: false },
+      { href: "/faqs", texto: "Respuestas", Icono: IconoRespuestas, listo: true },
+      { href: "/textos", texto: "Textos del bot", Icono: IconoTextos, listo: true },
       { href: "/reglas", texto: "Reglas", Icono: IconoReglas, listo: false },
     ],
   },
