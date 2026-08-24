@@ -1,48 +1,74 @@
 /*
  * Estilos del panel.
  *
- * La paleta es la institucional del municipio, la misma de la hoja de ruta del
- * proyecto. El azul #0066FF es el color de marca; el resto son neutros con un
- * leve sesgo hacia ese azul, para que el gris no se lea como gris de plantilla.
+ * DIRECCIÓN VISUAL
  *
- * Un tema solo, claro, y a propósito: es una herramienta de escritorio para
- * usar en una oficina de lunes a viernes. Un tema oscuro es superficie de
- * mantenimiento a cambio de nada para este caso.
+ * Dos identidades que hay que respetar a la vez: la del municipio, que es azul
+ * (#0066FF, el mismo de toda la comunicación de San Miguel de Tucumán), y la del
+ * área, que es Ambiente. Meter los dos colores al mismo nivel produce una
+ * ensalada, así que cada uno tiene su ZONA:
+ *
+ *   · El verde es territorio. La barra lateral es verde profundo y el fondo de
+ *     la página tiene un tinte verde muy claro. Es el ambiente en el que se
+ *     trabaja, literalmente.
+ *   · El azul es acción. Botones primarios, enlaces, el estado activo. Aparece
+ *     sólo sobre el papel blanco de las tarjetas, nunca dentro de la barra.
+ *
+ * Los grises tiran a verde y no a azul: un gris neutro al lado de una barra
+ * verde se lee como gris de plantilla. Están construidos mezclando el verde
+ * profundo con blanco.
+ *
+ * El verde elegido es apagado, de eucalipto, no el verde saturado de «reciclaje»
+ * que sale por defecto cuando uno piensa en ambiente. Esto se mira ocho horas
+ * por día.
+ *
+ * Un solo tema, claro: es una herramienta de escritorio para una oficina. Un
+ * tema oscuro sería superficie de mantenimiento a cambio de nada acá.
  */
 
 :root {
+  /* --- Identidad del municipio: acción --- */
   --azul: #0066ff;
   --azul-hover: #0052d6;
   --azul-piso: #e8f0ff;
-  --celeste: #2eb1ff;
 
-  --tinta: #0d1526;
-  --tinta-media: #3d4a63;
-  --tinta-suave: #6a7690;
+  /* --- Identidad del área: territorio --- */
+  --verde-profundo: #0e3b2a;
+  --verde-barra: #114532;
+  --verde-medio: #1b5e43;
+  --verde-vivo: #2e9e6b;
+  --verde-claro: #e4efe7;
+  --verde-tenue: #f2f7f3;
+
+  /* --- Tinta: neutros con sesgo verde --- */
+  --tinta: #10231c;
+  --tinta-media: #3c5349;
+  --tinta-suave: #6d857a;
 
   --papel: #ffffff;
-  --papel-2: #f4f7fc;
-  --papel-3: #e9eff9;
-  --linea: #d9e2f0;
-  --linea-suave: #eaf0f9;
+  --papel-2: #f6faf7;
+  --linea: #d7e5db;
+  --linea-suave: #e9f1ec;
 
-  /* Semánticos, separados del color de marca: el estado de un documento no
-     tiene que competir visualmente con la identidad. */
+  /* --- Semánticos, separados de las dos identidades --- */
   --ok: #0f7a52;
   --ok-piso: #e2f4ec;
-  --curso: #9a6b00;
-  --curso-piso: #fcf2d9;
-  --pend: #6a7690;
-  --pend-piso: #edf1f8;
+  --curso: #8a6100;
+  --curso-piso: #fcf3dd;
+  --pend: #6d857a;
+  --pend-piso: #eaf0ec;
   --alerta: #b8322b;
   --alerta-piso: #fbe9e7;
 
-  --sombra: 0 1px 2px rgba(13, 21, 38, 0.05), 0 8px 24px rgba(13, 21, 38, 0.06);
-  --radio: 10px;
+  --sombra: 0 1px 2px rgba(16, 35, 28, 0.04), 0 6px 20px rgba(16, 35, 28, 0.06);
+  --sombra-alta: 0 4px 12px rgba(16, 35, 28, 0.08), 0 20px 48px rgba(16, 35, 28, 0.12);
+  --radio: 12px;
 
   --texto: "Asap", "Segoe UI", system-ui, -apple-system, sans-serif;
   --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+
+  --ancho-barra: 244px;
 }
 
 * {
@@ -55,7 +81,7 @@ body {
   font-size: 15px;
   line-height: 1.55;
   color: var(--tinta);
-  background: var(--papel-2);
+  background: var(--verde-tenue);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -64,16 +90,15 @@ h2,
 h3 {
   font-family: var(--display);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   text-wrap: balance;
   margin: 0;
 }
-
 h1 {
-  font-size: 1.65rem;
+  font-size: 1.7rem;
 }
 h2 {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
 }
 h3 {
   font-size: 1rem;
@@ -87,81 +112,185 @@ a:hover {
   text-decoration: underline;
 }
 
-/* Foco visible siempre: el panel se opera con teclado más de lo que parece. */
 :focus-visible {
   outline: 2px solid var(--azul);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 5px;
 }
 
-/* ---------------------------------------------------------------- estructura */
+/* ===================================================== estructura general === */
 
-.cabecera {
-  background: var(--papel);
-  border-bottom: 1px solid var(--linea);
-  padding: 0 24px;
+.armazon {
+  display: grid;
+  grid-template-columns: var(--ancho-barra) 1fr;
+  min-height: 100vh;
 }
 
-.cabecera-interior {
-  max-width: 1180px;
-  margin: 0 auto;
+/* --------------------------------------------------------- barra lateral --- */
+
+.barra {
+  background: var(--verde-profundo);
+  color: #dcebe2;
   display: flex;
-  align-items: center;
-  gap: 28px;
-  height: 60px;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  /* La marca de agua botánica se recorta acá. */
+  overflow: hidden;
 }
 
-.marca {
+.barra-marca {
+  padding: 22px 20px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  position: relative;
+  z-index: 1;
+}
+
+.barra-marca .nombre {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.02rem;
-  color: var(--tinta);
-  white-space: nowrap;
+  font-size: 1.16rem;
+  color: #fff;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
-.marca span {
-  color: var(--azul);
+.barra-marca .nombre em {
+  font-style: normal;
+  color: var(--verde-vivo);
+}
+.barra-marca .area {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: rgba(220, 235, 226, 0.55);
+  margin-top: 3px;
 }
 
-.nav {
+.barra-nav {
+  padding: 14px 12px;
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
   flex: 1;
-  overflow-x: auto;
+  overflow-y: auto;
+  position: relative;
+  z-index: 1;
 }
 
-.nav a {
-  padding: 7px 12px;
-  border-radius: 8px;
-  color: var(--tinta-media);
-  font-size: 0.92rem;
-  white-space: nowrap;
+.barra-nav a,
+.barra-nav .pendiente {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 0.925rem;
+  color: rgba(220, 235, 226, 0.82);
+  transition: background 0.12s, color 0.12s;
 }
-.nav a:hover {
-  background: var(--papel-2);
+
+.barra-nav a:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
   text-decoration: none;
 }
-.nav a[aria-current="page"] {
-  background: var(--azul-piso);
-  color: var(--azul-hover);
+
+.barra-nav a[aria-current="page"] {
+  background: var(--verde-medio);
+  color: #fff;
   font-weight: 600;
 }
 
-.sesion {
-  font-size: 0.83rem;
-  color: var(--tinta-suave);
-  text-align: right;
-  white-space: nowrap;
+/* Las secciones que todavía no existen se listan igual, atenuadas: el área ve
+   el alcance completo y no parece que falten cosas por olvido. */
+.barra-nav .pendiente {
+  color: rgba(220, 235, 226, 0.32);
+  cursor: default;
 }
-.sesion strong {
-  display: block;
-  color: var(--tinta);
+
+.barra-nav .icono {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  opacity: 0.85;
+}
+
+.barra-nav .rotulo-grupo {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: rgba(220, 235, 226, 0.38);
+  padding: 16px 12px 6px;
   font-weight: 600;
+}
+
+.barra-pie {
+  padding: 14px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.barra-pie .quien {
+  flex: 1;
+  min-width: 0;
+}
+.barra-pie .quien strong {
+  display: block;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.barra-pie .quien span {
+  font-size: 0.75rem;
+  color: rgba(220, 235, 226, 0.5);
+  text-transform: capitalize;
+}
+
+.barra-pie button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #dcebe2;
+  padding: 5px 11px;
+  font-size: 0.82rem;
+}
+.barra-pie button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* La marca de agua: hojas grandes, muy tenues, ancladas abajo y recortadas por
+   el overflow de la barra. Es atmósfera, no ilustración. */
+.barra-hojas {
+  position: absolute;
+  bottom: -30px;
+  left: -46px;
+  width: 300px;
+  height: 300px;
+  opacity: 0.07;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ------------------------------------------------------------- contenido --- */
+
+.contenido {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 main {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 28px 24px 64px;
+  padding: 30px 34px 72px;
+  max-width: 1160px;
+  width: 100%;
 }
 
 .titulo-pagina {
@@ -170,16 +299,61 @@ main {
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
 
 .bajada {
   color: var(--tinta-media);
-  margin: 0 0 22px;
-  max-width: 68ch;
+  margin: 0 0 24px;
+  max-width: 70ch;
 }
 
-/* -------------------------------------------------------------------- tarjeta */
+.migaja {
+  font-size: 0.86rem;
+  margin: 0 0 12px;
+}
+
+/* En pantallas angostas la barra pasa a ser una tira horizontal arriba. No es
+   un panel para el teléfono, pero tampoco tiene que romperse en una notebook
+   chica o con el navegador a media pantalla. */
+@media (max-width: 860px) {
+  .armazon {
+    grid-template-columns: 1fr;
+  }
+  .barra {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding-right: 12px;
+    flex-wrap: wrap;
+  }
+  .barra-marca {
+    border-bottom: none;
+    padding: 14px 16px;
+  }
+  .barra-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px;
+    flex-wrap: nowrap;
+  }
+  .barra-nav .rotulo-grupo,
+  .barra-nav .pendiente,
+  .barra-hojas {
+    display: none;
+  }
+  .barra-pie {
+    border-top: none;
+    padding: 8px 12px;
+  }
+  main {
+    padding: 22px 18px 56px;
+  }
+}
+
+/* ============================================================== tarjetas === */
 
 .tarjeta {
   background: var(--papel);
@@ -190,13 +364,14 @@ main {
 
 .resumen {
   display: flex;
-  gap: 28px;
+  gap: 30px;
   flex-wrap: wrap;
-  padding: 14px 18px;
-  margin-bottom: 16px;
+  padding: 16px 20px;
+  margin-bottom: 18px;
   background: var(--papel);
   border: 1px solid var(--linea);
   border-radius: var(--radio);
+  box-shadow: var(--sombra);
 }
 
 .resumen div {
@@ -205,23 +380,23 @@ main {
 }
 .resumen .n {
   font-family: var(--display);
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+  color: var(--verde-profundo);
 }
 .resumen .r {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--tinta-suave);
+  font-weight: 600;
 }
 
-/* --------------------------------------------------------------------- tabla */
+/* ================================================================ tabla === */
 
 .envoltorio-tabla {
-  /* Obligatorio: la tabla de documentos es ancha y el cuerpo de la página no
-     tiene que desplazarse en horizontal. */
   overflow-x: auto;
   border-radius: var(--radio);
 }
@@ -235,23 +410,22 @@ table {
 
 thead th {
   text-align: left;
-  padding: 10px 14px;
-  font-size: 0.74rem;
+  padding: 11px 15px;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   color: var(--tinta-suave);
   border-bottom: 1px solid var(--linea);
-  background: var(--papel-2);
+  background: var(--verde-tenue);
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 tbody td {
-  padding: 11px 14px;
+  padding: 12px 15px;
   border-bottom: 1px solid var(--linea-suave);
   vertical-align: top;
 }
-
 tbody tr:last-child td {
   border-bottom: none;
 }
@@ -265,26 +439,28 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
-/* Una fila dada de baja se atenúa, pero sigue legible: se consulta. */
 tr.de-baja td {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .titulo-fila {
   font-weight: 600;
   color: var(--tinta);
 }
+.titulo-fila:hover {
+  color: var(--azul);
+}
 .sub-fila {
-  font-size: 0.8rem;
+  font-size: 0.79rem;
   color: var(--tinta-suave);
   font-family: var(--mono);
 }
 
-/* ---------------------------------------------------------------------- chip */
+/* ================================================================= chip === */
 
 .chip {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 600;
@@ -307,27 +483,25 @@ tr.de-baja td {
   color: var(--alerta);
 }
 
-/* El detalle de un problema va abierto, no detrás de un tooltip: lo tiene que
-   leer alguien que no programa y necesita saber qué hacer. */
 .detalle-problema {
-  margin-top: 6px;
-  padding: 8px 10px;
+  margin-top: 7px;
+  padding: 9px 11px;
   background: var(--alerta-piso);
   border-left: 3px solid var(--alerta);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 7px 7px 0;
   font-size: 0.85rem;
   color: #7d211c;
   max-width: 62ch;
 }
 
-/* ------------------------------------------------------------------- botones */
+/* ============================================================== botones === */
 
 button,
 .boton {
   font-family: var(--texto);
   font-size: 0.9rem;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 8px 15px;
+  border-radius: 9px;
   border: 1px solid var(--linea);
   background: var(--papel);
   color: var(--tinta);
@@ -337,7 +511,7 @@ button,
 }
 button:hover:not(:disabled),
 .boton:hover {
-  background: var(--papel-2);
+  background: var(--verde-tenue);
   border-color: var(--tinta-suave);
   text-decoration: none;
 }
@@ -369,7 +543,7 @@ button.peligro:hover:not(:disabled) {
 }
 
 button.chico {
-  padding: 4px 9px;
+  padding: 4px 10px;
   font-size: 0.82rem;
 }
 
@@ -379,7 +553,7 @@ button.chico {
   flex-wrap: wrap;
 }
 
-/* ------------------------------------------------------------- formularios */
+/* ========================================================== formularios === */
 
 label {
   display: block;
@@ -393,20 +567,21 @@ label {
   font-size: 0.8rem;
   color: var(--tinta-suave);
   font-weight: 400;
-  margin-top: 4px;
+  margin-top: 5px;
 }
 
 input[type="text"],
 input[type="email"],
+input[type="password"],
 input[type="file"],
 textarea,
 select {
   width: 100%;
   font-family: var(--texto);
   font-size: 0.95rem;
-  padding: 9px 11px;
+  padding: 9px 12px;
   border: 1px solid var(--linea);
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--papel);
   color: var(--tinta);
 }
@@ -419,21 +594,22 @@ select:focus {
 }
 
 textarea {
-  min-height: 74px;
+  min-height: 76px;
   resize: vertical;
 }
 
 .campo {
-  margin-bottom: 16px;
+  margin-bottom: 17px;
 }
 
-/* --------------------------------------------------------------- cajon lateral */
+/* ======================================================== cajón lateral === */
 
 .velo {
   position: fixed;
   inset: 0;
-  background: rgba(13, 21, 38, 0.4);
+  background: rgba(16, 35, 28, 0.42);
   z-index: 40;
+  backdrop-filter: blur(1px);
 }
 
 .cajon {
@@ -441,17 +617,16 @@ textarea {
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(460px, 100vw);
+  width: min(470px, 100vw);
   background: var(--papel);
-  border-left: 1px solid var(--linea);
   z-index: 50;
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 32px rgba(13, 21, 38, 0.12);
+  box-shadow: var(--sombra-alta);
 }
 
 .cajon-cabecera {
-  padding: 18px 22px;
+  padding: 19px 24px;
   border-bottom: 1px solid var(--linea);
   display: flex;
   align-items: center;
@@ -460,27 +635,27 @@ textarea {
 }
 
 .cajon-cuerpo {
-  padding: 22px;
+  padding: 24px;
   overflow-y: auto;
   flex: 1;
 }
 
 .cajon-pie {
-  padding: 16px 22px;
+  padding: 16px 24px;
   border-top: 1px solid var(--linea);
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  background: var(--papel-2);
+  background: var(--verde-tenue);
 }
 
-/* ------------------------------------------------------------------- avisos */
+/* =============================================================== avisos === */
 
 .aviso {
-  padding: 11px 14px;
-  border-radius: 8px;
+  padding: 12px 15px;
+  border-radius: 9px;
   font-size: 0.89rem;
-  margin-bottom: 16px;
+  margin-bottom: 17px;
 }
 .aviso.info {
   background: var(--azul-piso);
@@ -500,26 +675,54 @@ textarea {
 }
 
 .vacio {
-  padding: 48px 24px;
+  padding: 52px 24px;
   text-align: center;
   color: var(--tinta-suave);
 }
 
-/* ------------------------------------------------------------------ ingreso */
+/* ============================================================== ingreso === */
 
-.pantalla-centrada {
+.pantalla-ingreso {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
+  position: relative;
+  overflow: hidden;
+  /* Verde profundo con un halo, para que la primera pantalla ya diga de qué
+     área es esto antes de leer una palabra. */
+  background:
+    radial-gradient(1100px 620px at 50% -18%, #1b5e43 0%, transparent 62%),
+    var(--verde-profundo);
 }
+
+.ingreso-hojas {
+  position: absolute;
+  opacity: 0.06;
+  pointer-events: none;
+}
+.ingreso-hojas.una {
+  bottom: -80px;
+  left: -70px;
+  width: 420px;
+  height: 420px;
+}
+.ingreso-hojas.dos {
+  top: -110px;
+  right: -90px;
+  width: 380px;
+  height: 380px;
+  transform: scaleX(-1);
+}
+
 .caja-ingreso {
-  width: min(400px, 100%);
+  width: min(404px, 100%);
   background: var(--papel);
-  border: 1px solid var(--linea);
-  border-radius: 14px;
-  box-shadow: var(--sombra);
-  padding: 32px;
+  border-radius: 16px;
+  box-shadow: var(--sombra-alta);
+  padding: 34px;
+  position: relative;
+  z-index: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

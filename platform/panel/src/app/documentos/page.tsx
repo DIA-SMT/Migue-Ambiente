@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
-import { Cabecera } from "@/componentes/Cabecera";
+import { Armazon } from "@/componentes/Armazon";
 import { TablaDocumentos } from "./TablaDocumentos";
 import type { Documento, PersonaNombre } from "@/lib/tipos";
 
@@ -40,8 +40,7 @@ export default async function PaginaDocumentos() {
   const conProblema = filas.filter((d) => d.estado === "error").length;
 
   return (
-    <>
-      <Cabecera persona={persona} actual="/documentos" />
+    <Armazon persona={persona} actual="/documentos">
       <main>
         <div className="titulo-pagina">
           <h1>Documentos</h1>
@@ -87,6 +86,6 @@ export default async function PaginaDocumentos() {
           bucket={process.env["NEXT_PUBLIC_SUPABASE_BUCKET_DOCUMENTOS"] ?? "documentos"}
         />
       </main>
-    </>
+    </Armazon>
   );
 }

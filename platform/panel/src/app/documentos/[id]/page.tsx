@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
-import { Cabecera } from "@/componentes/Cabecera";
+import { Armazon } from "@/componentes/Armazon";
 import {
   estadoVisible,
   fechaLegible,
@@ -67,11 +67,10 @@ export default async function DetalleDocumento({
   const sinSeccion = frags.filter((f) => !f.titulo_seccion).length;
 
   return (
-    <>
-      <Cabecera persona={persona} actual="/documentos" />
+    <Armazon persona={persona} actual="/documentos">
       <main>
-        <p style={{ marginTop: 0, marginBottom: 10, fontSize: "0.9rem" }}>
-          <Link href="/documentos">← Documentos</Link>
+        <p className="migaja">
+          <Link href="/documentos">← Volver a documentos</Link>
         </p>
 
         <div className="titulo-pagina">
@@ -224,6 +223,6 @@ export default async function DetalleDocumento({
           </div>
         </section>
       </main>
-    </>
+    </Armazon>
   );
 }

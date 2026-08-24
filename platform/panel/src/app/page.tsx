@@ -17,7 +17,7 @@ export default async function Inicio() {
   // persona, es que su cuenta existe pero no está en el padrón.
   if (!persona) {
     return (
-      <div className="pantalla-centrada">
+      <div className="pantalla-ingreso">
         <div className="caja-ingreso">
           <h1>Cuenta sin habilitar</h1>
           <p>
