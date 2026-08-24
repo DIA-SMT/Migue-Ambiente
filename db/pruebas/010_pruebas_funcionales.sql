@@ -957,6 +957,161 @@ begin
 end $$;
 \echo '   OK: el panel puede subir y probar, y no ve correos ajenos'
 
+-- ---------------------------------------------------------------------------
+-- BLOQUE L - Respuestas: quien publica y como se prueba un disparador (019)
+-- ---------------------------------------------------------------------------
+\echo ' L. Respuestas: operador carga, supervisor publica, disparadores probados'
+
+do $$
+declare
+  v_op   uuid := '77777777-7777-7777-7777-777777777777';
+  v_sup  uuid := '88888888-8888-8888-8888-888888888888';
+  v_conv uuid;
+  n int;
+  v_coincide boolean;
+  v_mirados int;
+  v_atrapados int;
+begin
+  insert into auth.users (id, email, email_confirmed_at) values
+    (v_op,  'operador@smt.gob.ar',   now()),
+    (v_sup, 'supervisor@smt.gob.ar', now())
+  on conflict (id) do nothing;
+  insert into public.personal_panel (usuario_id, correo, nombre, rol) values
+    (v_op,  'operador@smt.gob.ar',   'Operadora', 'operador'),
+    (v_sup, 'supervisor@smt.gob.ar', 'Supervisor','supervisor')
+  on conflict (usuario_id) do update set activo = true, rol = excluded.rol;
+
+  -- 1 - Un OPERADOR puede crear un borrador.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  insert into public.faqs (pregunta, respuesta, activa)
+  values ('¿Donde llevo los neumaticos?', 'En los Puntos Verdes.', false);
+  reset role;
+
+  select count(*) into n from public.faqs where pregunta like '%neumaticos%';
+  if n <> 1 then raise exception 'el operador no pudo crear un borrador'; end if;
+
+  -- 2 - Pero NO puede crear algo ya publicado. Es la diferencia entre «escribi
+  --     una respuesta» y «esto ya se lo estamos diciendo a los vecinos».
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  begin
+    insert into public.faqs (pregunta, respuesta, activa)
+    values ('¿Publico sin revision?', 'No deberia poder.', true);
+    reset role;
+    raise exception 'un operador pudo crear una FAQ ya publicada';
+  exception when insufficient_privilege then
+    reset role;
+  end;
+
+  -- 3 - Ni publicar una que ya existe.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  begin
+    update public.faqs set activa = true where pregunta like '%neumaticos%';
+    reset role;
+    raise exception 'un operador pudo PUBLICAR una FAQ';
+  exception when insufficient_privilege then
+    reset role;
+  end;
+
+  -- 4 - Pero si puede seguir editando el texto del borrador.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  update public.faqs set respuesta = 'En cualquiera de los Puntos Verdes.'
+   where pregunta like '%neumaticos%';
+  reset role;
+  select count(*) into n from public.faqs
+   where pregunta like '%neumaticos%' and respuesta like '%cualquiera%';
+  if n <> 1 then raise exception 'el operador no pudo editar su propio borrador'; end if;
+
+  -- 5 - Un SUPERVISOR si publica.
+  perform set_config('request.jwt.claim.sub', v_sup::text, true);
+  set local role authenticated;
+  update public.faqs set activa = true where pregunta like '%neumaticos%';
+  reset role;
+  select count(*) into n from public.faqs where pregunta like '%neumaticos%' and activa;
+  if n <> 1 then raise exception 'el supervisor no pudo publicar'; end if;
+
+  -- 6 - Y borrar es solo de supervisor o admin.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  delete from public.faqs where pregunta like '%neumaticos%';
+  reset role;
+  select count(*) into n from public.faqs where pregunta like '%neumaticos%';
+  if n <> 1 then raise exception 'un operador pudo borrar una FAQ'; end if;
+
+  -- 7 - probar_disparadores: coincide con el texto que se le pasa.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  select coincide_el_texto into v_coincide
+    from public.probar_disparadores(array['neumatico','cubierta'], 'contiene',
+                                   'donde tiro un NEUMÁTICO viejo');
+  if not v_coincide then
+    raise exception 'no coincidio ignorando mayusculas y acentos';
+  end if;
+
+  select coincide_el_texto into v_coincide
+    from public.probar_disparadores(array['neumatico'], 'contiene', 'cuando pasa el camion');
+  if v_coincide then raise exception 'coincidio con un texto que no corresponde'; end if;
+
+  -- 8 - Y mide contra los mensajes REALES. Es la prueba que importa: un
+  --     disparador puede parecer razonable y atrapar todo.
+  insert into public.conversaciones (canal, canal_usuario_id)
+  values ('telegram', 'prueba-L') returning id into v_conv;
+  insert into public.mensajes (conversacion_id, direccion, texto) values
+    (v_conv, 'entrante', 'donde llevo los neumaticos viejos'),
+    (v_conv, 'entrante', 'cuando pasa el camion por mi casa'),
+    (v_conv, 'entrante', 'quiero un taller para la escuela');
+
+  select mensajes_mirados, mensajes_atrapados into v_mirados, v_atrapados
+    from public.probar_disparadores(array['neumatico'], 'contiene', null);
+  if v_mirados < 3 then raise exception 'miro % mensajes, esperaba al menos 3', v_mirados; end if;
+  if v_atrapados <> 1 then
+    raise exception 'un disparador especifico atrapo % mensajes, esperaba 1', v_atrapados;
+  end if;
+
+  -- 9 - EL CASO PELIGROSO: un regex que atrapa TODO. Es lo que esta funcion
+  --     viene a hacer visible antes de publicar, porque un `.*` publicado deja
+  --     al bot respondiendo lo mismo a cualquier cosa que escriba un vecino.
+  select mensajes_mirados, mensajes_atrapados into v_mirados, v_atrapados
+    from public.probar_disparadores(array['.*'], 'regex', null);
+  if v_atrapados <> v_mirados then
+    raise exception 'un regex «.*» atrapo % de % mensajes; deberia atrapar todos',
+      v_atrapados, v_mirados;
+  end if;
+
+  -- 10 - Un modo invalido se rechaza en vez de no coincidir con nada en silencio.
+  begin
+    perform public.probar_disparadores(array['x'], 'aproximado', 'x');
+    raise exception 'acepto un modo invalido';
+  exception when others then
+    if sqlerrm not like 'modo invalido%' then raise; end if;
+  end;
+
+  -- 11 - Y no atiende a quien no esta en el padron.
+  perform set_config('request.jwt.claim.sub', '99999999-9999-9999-9999-999999999999', true);
+  begin
+    perform public.probar_disparadores(array['x'], 'contiene', 'x');
+    raise exception 'probar_disparadores atendio a alguien fuera del padron';
+  exception when insufficient_privilege then
+    null;
+  end;
+
+  -- 12 - La columna que faltaba: que respuesta fija se envio.
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'mensajes'
+     and column_name = 'respuesta_fija_id';
+  if n <> 1 then raise exception 'falta mensajes.respuesta_fija_id'; end if;
+
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.faqs where pregunta like '%neumaticos%';
+  delete from public.mensajes where conversacion_id = v_conv;
+  delete from public.conversaciones where id = v_conv;
+  delete from public.personal_panel where usuario_id in (v_op, v_sup);
+  delete from auth.users where id in (v_op, v_sup);
+end $$;
+\echo '   OK: el operador no publica, el supervisor si, y un «.*» se ve antes de publicarlo'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='

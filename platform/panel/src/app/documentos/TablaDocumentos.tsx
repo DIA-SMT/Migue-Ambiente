@@ -25,10 +25,12 @@ export function TablaDocumentos({
   documentos,
   nombres,
   bucket,
+  trabajosEnVuelo,
 }: {
   documentos: Documento[];
   nombres: Record<string, string>;
   bucket: string;
+  trabajosEnVuelo: number;
 }) {
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
@@ -43,7 +45,12 @@ export function TablaDocumentos({
   const [ahora, setAhora] = useState<number | null>(null);
   useEffect(() => setAhora(Date.now()), [documentos]);
 
-  const enCurso = documentos.some((d) => d.estado === "pendiente" || d.estado === "procesando");
+  // Dos motivos para seguir refrescando, y el segundo hacía falta: un documento
+  // que se está BORRANDO queda en estado «listo», así que mirando sólo los
+  // documentos su fila se quedaba en pantalla hasta que alguien recargaba.
+  const enCurso =
+    documentos.some((d) => d.estado === "pendiente" || d.estado === "procesando") ||
+    trabajosEnVuelo > 0;
 
   // Se consulta de nuevo SÓLO mientras haya algo en curso. Con todo terminado,
   // el panel no habla con la base.
@@ -217,7 +224,7 @@ export function TablaDocumentos({
 
       {enCurso && (
         <p className="ayuda" style={{ marginTop: 10 }}>
-          Hay documentos en proceso. La pantalla se actualiza sola cada 3 segundos.
+          El worker está trabajando. La pantalla se actualiza sola cada 3 segundos.
         </p>
       )}
 

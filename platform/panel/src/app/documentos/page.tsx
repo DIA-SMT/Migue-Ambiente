@@ -30,6 +30,15 @@ export default async function PaginaDocumentos() {
   const { data: personasCrudo } = await supabase.rpc("personal_nombres");
   const personas = (personasCrudo ?? []) as PersonaNombre[];
 
+  // Si hay trabajos en vuelo, la tabla tiene que seguir refrescando. No alcanza
+  // con mirar el estado de los documentos: un documento que se está BORRANDO
+  // figura como «listo», así que sin esto su fila se quedaba en la lista hasta
+  // que alguien recargaba a mano.
+  const { count: trabajosEnVuelo } = await supabase
+    .from("trabajos")
+    .select("id", { count: "exact", head: true })
+    .in("estado", ["pendiente", "tomado"]);
+
   const nombres = new Map(personas.map((p) => [p.usuario_id, p.nombre ?? "—"]));
   const filas = documentos ?? [];
 
@@ -84,6 +93,7 @@ export default async function PaginaDocumentos() {
           documentos={filas}
           nombres={Object.fromEntries(nombres)}
           bucket={process.env["NEXT_PUBLIC_SUPABASE_BUCKET_DOCUMENTOS"] ?? "documentos"}
+          trabajosEnVuelo={trabajosEnVuelo ?? 0}
         />
       </main>
     </Armazon>
