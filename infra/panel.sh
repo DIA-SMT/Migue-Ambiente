@@ -121,13 +121,22 @@ fi
 # ---------------------------------------------------------------------------
 # 2 · El DNS tiene que resolver ANTES de pedir el certificado
 #
-# Se consulta desde el servidor: es el que va a atender la validación de Let's
-# Encrypt, así que su vista del DNS es la que importa. Y hay un motivo para no
-# intentarlo a ciegas: Let's Encrypt limita a 5 fallas por hora por dominio, así
-# que un intento apurado deja el dominio bloqueado un rato.
+# Hay un motivo para no intentarlo a ciegas: Let's Encrypt limita a 5 fallas por
+# hora y por dominio, así que un intento apurado deja el dominio bloqueado un
+# rato.
 # ---------------------------------------------------------------------------
 echo "==> Verificando que $DOMINIO resuelva a $VPS_HOST"
-resuelto="$(ssh_root "getent hosts '$DOMINIO' 2>/dev/null | awk '{print \$1}' | head -1" || true)"
+# Se consulta un DNS PÚBLICO y no `getent`, que resolvería por /etc/hosts.
+#
+# No es un detalle: Ubuntu pone el hostname de la máquina en /etc/hosts
+# apuntando a 127.0.1.1, y Hostinger usa ese mismo nombre
+# (srvNNNNNN.hstgr.cloud) como DNS inverso público de la IP. Con `getent`, el
+# nombre correcto se rechazaba por «resuelve a 127.0.1.1». Lo que le importa a
+# Let's Encrypt es el DNS público, que es lo que se consulta acá.
+resuelto="$(ssh_root "dig +short +time=3 +tries=2 @1.1.1.1 '$DOMINIO' A 2>/dev/null | grep -E '^[0-9.]+$' | head -1" || true)"
+if [[ -z "$resuelto" ]]; then
+  resuelto="$(ssh_root "dig +short +time=3 +tries=2 @8.8.8.8 '$DOMINIO' A 2>/dev/null | grep -E '^[0-9.]+$' | head -1" || true)"
+fi
 if [[ -z "$resuelto" ]]; then
   cat >&2 <<AVISO
     $DOMINIO todavía no resuelve.

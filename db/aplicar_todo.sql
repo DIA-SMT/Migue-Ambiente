@@ -2107,24 +2107,37 @@ begin
     return;
   end if;
 
-  foreach v_op in array array['select','insert','update']
-  loop
-    execute format('drop policy if exists %I on storage.objects',
-                   'panel_documentos_' || v_op);
-  end loop;
+  -- Envuelto en un manejador a propósito. Crear políticas sobre
+  -- `storage.objects` requiere ser dueño de esa tabla, y según cómo esté
+  -- configurado el proyecto el rol del editor SQL de Supabase puede no serlo.
+  -- Sin este `exception`, ese error aborta el archivo completo y no se aplica
+  -- NADA del resto de la migración — que no depende de esto en absoluto.
+  -- Pasó de verdad: la 018 se pegó y quedó sin aplicar por entero.
+  begin
+    foreach v_op in array array['select','insert','update']
+    loop
+      execute format('drop policy if exists %I on storage.objects',
+                     'panel_documentos_' || v_op);
+    end loop;
 
-  create policy panel_documentos_select on storage.objects
-    for select to authenticated
-    using (bucket_id = 'documentos' and public.es_personal_panel());
+    create policy panel_documentos_select on storage.objects
+      for select to authenticated
+      using (bucket_id = 'documentos' and public.es_personal_panel());
 
-  create policy panel_documentos_insert on storage.objects
-    for insert to authenticated
-    with check (bucket_id = 'documentos' and public.es_personal_panel());
+    create policy panel_documentos_insert on storage.objects
+      for insert to authenticated
+      with check (bucket_id = 'documentos' and public.es_personal_panel());
 
-  create policy panel_documentos_update on storage.objects
-    for update to authenticated
-    using (bucket_id = 'documentos' and public.es_personal_panel())
-    with check (bucket_id = 'documentos' and public.es_personal_panel());
+    create policy panel_documentos_update on storage.objects
+      for update to authenticated
+      using (bucket_id = 'documentos' and public.es_personal_panel())
+      with check (bucket_id = 'documentos' and public.es_personal_panel());
+
+    raise notice 'politicas del bucket documentos: creadas';
+  exception when insufficient_privilege or others then
+    raise warning 'NO pude crear las politicas del bucket documentos: %', sqlerrm;
+    raise warning 'Hay que crearlas desde el panel de Supabase: Storage -> Policies';
+  end;
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -2286,10 +2299,15 @@ begin
     return;
   end if;
 
-  drop policy if exists panel_media_select on storage.objects;
-  create policy panel_media_select on storage.objects
-    for select to authenticated
-    using (bucket_id = 'media' and public.es_personal_panel());
+  begin
+    drop policy if exists panel_media_select on storage.objects;
+    create policy panel_media_select on storage.objects
+      for select to authenticated
+      using (bucket_id = 'media' and public.es_personal_panel());
+    raise notice 'politica del bucket media: creada';
+  exception when insufficient_privilege or others then
+    raise warning 'NO pude crear la politica del bucket media: %', sqlerrm;
+  end;
 end $$;
 
 -- `photo_url` guarda la RUTA en el bucket, no una URL pública.
