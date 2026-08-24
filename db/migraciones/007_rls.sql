@@ -84,7 +84,12 @@ end $$;
 -- Verificación: lista todas las tablas de public con su estado de RLS y su
 -- cantidad de políticas. Cualquier fila con rls_activo = false es un problema.
 -- ---------------------------------------------------------------------------
-create or replace view public.v_auditoria_rls as
+-- `drop` y no `create or replace`: la migración 017 le cambia las columnas a
+-- esta vista, y `create or replace view` no puede cambiar la lista de columnas
+-- —falla con «cannot drop columns from view»—. Sin esto, volver a aplicar el
+-- esquema completo sobre una base que ya tiene la 017 se rompe en esta línea.
+drop view if exists public.v_auditoria_rls;
+create view public.v_auditoria_rls as
   select c.relname                                   as tabla,
          c.relrowsecurity                            as rls_activo,
          count(p.policyname)                         as politicas,

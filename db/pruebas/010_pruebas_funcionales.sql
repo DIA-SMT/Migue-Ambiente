@@ -625,6 +625,126 @@ begin
 end $$;
 \echo '   OK: reemplazo atomico, reintentos acotados y encolado sin duplicar'
 
+-- ---------------------------------------------------------------------------
+-- BLOQUE J - RLS: que «estar logueado» NO alcance (017)
+-- ---------------------------------------------------------------------------
+-- Este bloque existe porque la version anterior de la auditoria contaba
+-- politicas sin mirar que permitian: las diez tablas de contenido tenian una
+-- politica cada una, y esa politica era `using (true)`. La vista decia
+-- "1 politica" y parecia todo en orden.
+\echo ' J. RLS: estar logueado no alcanza'
+
+do $$
+declare n int; v_alerta text;
+begin
+  -- 1 - Ninguna politica puede quedar con `using (true)` ni alcanzar a anon.
+  --     Es la asercion que habria evitado el agujero original.
+  select count(*) into n from public.v_auditoria_rls where alerta is not null
+     and alerta <> 'sin politicas: nadie accede (falla cerrada, ok)';
+  if n > 0 then
+    select string_agg(distinct tabla || ': ' || alerta, '; ') into v_alerta
+      from public.v_auditoria_rls where alerta is not null
+       and alerta <> 'sin politicas: nadie accede (falla cerrada, ok)';
+    raise exception 'quedaron % politicas permisivas -> %', n, v_alerta;
+  end if;
+
+  -- 2 - Las tablas con datos de vecinos tienen politicas, y su condicion
+  --     menciona el padron. Si alguien vuelve a poner `true`, esto lo caza.
+  foreach v_alerta in array array['conversaciones','mensajes','sin_respuesta','tickets','program_requests']
+  loop
+    select count(*) into n from public.v_auditoria_rls
+     where tabla = v_alerta
+       and politica is not null
+       and condicion_lectura like '%es_personal_panel%';
+    if n < 1 then
+      raise exception 'la tabla % no exige personal habilitado para leer', v_alerta;
+    end if;
+  end loop;
+
+  -- 3 - Ninguna security definer puede quedar ejecutable por anon o por public.
+  --     Es el otro camino que salteaba el RLS por completo.
+  select count(*) into n
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.prosecdef
+     and p.proname not in ('es_personal_panel','es_admin_panel')
+     and (has_function_privilege('anon', p.oid, 'execute')
+       or has_function_privilege('public', p.oid, 'execute'));
+  if n > 0 then
+    raise exception '% funciones security definer siguen ejecutables por anon/public', n;
+  end if;
+
+  -- 4 - Y las que el bot necesita siguen funcionando para service_role.
+  select count(*) into n
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.proname in ('buscar_conocimiento','agrupar_sin_respuesta',
+                       'registrar_uso_faq','registrar_uso_respuesta_fija')
+     and has_function_privilege('service_role', p.oid, 'execute');
+  if n < 4 then
+    raise exception 'el bot perdio el permiso de ejecutar sus funciones (% de 4)', n;
+  end if;
+
+  -- 5 - anon sigue sin poder tocar ninguna tabla. Es lo que ya cerraba la 007 y
+  --     no se puede perder al reescribir las politicas.
+  select count(*) into n from pg_policies
+   where schemaname = 'public' and 'anon' = any(roles);
+  if n > 0 then raise exception '% politicas alcanzan a anon', n; end if;
+end $$;
+\echo '   OK: sin politicas permisivas, sin definers abiertas, el bot conserva sus permisos'
+
+-- El predicado se comporta como debe segun quien pregunte. Se prueba con
+-- `set role` en vez de con un JWT: auth.uid() lee un ajuste de la sesion, asi
+-- que se lo puede simular sin levantar Supabase Auth.
+do $$
+declare v_uid uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  -- `personal_panel.usuario_id` referencia `auth.users`, asi que el usuario
+  -- tiene que existir. En Supabase lo crea Auth; aca lo crea el stub.
+  insert into auth.users (id, email, email_confirmed_at)
+  values (v_uid, 'prueba@smt.gob.ar', now())
+  on conflict (id) do nothing;
+
+  -- Sin fila en el padron, el predicado dice que no.
+  perform set_config('request.jwt.claim.sub', v_uid::text, true);
+  if public.es_personal_panel() then
+    raise exception 'un usuario que NO esta en el padron paso el chequeo';
+  end if;
+
+  -- Con fila activa, dice que si.
+  insert into public.personal_panel (usuario_id, correo, rol)
+  values (v_uid, 'prueba@smt.gob.ar', 'operador')
+  on conflict (usuario_id) do update set activo = true;
+  if not public.es_personal_panel() then
+    raise exception 'un usuario habilitado NO paso el chequeo';
+  end if;
+
+  -- Dado de baja, vuelve a decir que no. Es lo que pasa el dia que alguien deja
+  -- el area: se desactiva la fila y pierde el acceso sin borrar el registro.
+  update public.personal_panel set activo = false where usuario_id = v_uid;
+  if public.es_personal_panel() then
+    raise exception 'un usuario dado de baja siguio teniendo acceso';
+  end if;
+
+  -- Un operador no es admin: no puede tocar el padron.
+  update public.personal_panel set activo = true, rol = 'operador' where usuario_id = v_uid;
+  if public.es_admin_panel() then
+    raise exception 'un operador quedo con permisos de admin';
+  end if;
+
+  update public.personal_panel set rol = 'admin' where usuario_id = v_uid;
+  if not public.es_admin_panel() then
+    raise exception 'un admin no fue reconocido como admin';
+  end if;
+
+  delete from public.personal_panel where usuario_id = v_uid;
+  delete from auth.users where id = v_uid;
+  perform set_config('request.jwt.claim.sub', '', true);
+end $$;
+\echo '   OK: el padron habilita, la baja quita el acceso y el rol se respeta'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='

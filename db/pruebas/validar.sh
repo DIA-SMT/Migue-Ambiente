@@ -30,7 +30,7 @@ scp -q -i "$SSH_KEY" -o BatchMode=yes "$DB_DIR/aplicar_todo.sql" \
 
 echo "==> Recreando base desechable '$DB'"
 ssh_do "sudo -u postgres psql -q -c \"drop database if exists $DB\" -c \"create database $DB\" >/dev/null 2>&1
-        sudo -u postgres psql -q -f /tmp/dbtest/pruebas/roles_supabase.sql >/dev/null 2>&1"
+        sudo -u postgres psql -q -d $DB -f /tmp/dbtest/pruebas/roles_supabase.sql >/dev/null 2>&1"
 
 echo "==> Aplicando migraciones (3 pasadas, para probar idempotencia)"
 ssh_do "cd /tmp/dbtest
@@ -79,6 +79,7 @@ if git -C "$DB_DIR/.." show HEAD:db/aplicar_todo.sql > /tmp/esquema_anterior.sql
   rm -f /tmp/esquema_anterior.sql
 
   ssh_do "sudo -u postgres psql -q -c 'drop database if exists ${DB}_upg' -c 'create database ${DB}_upg' >/dev/null 2>&1
+    sudo -u postgres psql -q -d ${DB}_upg -f /tmp/dbtest/pruebas/roles_supabase.sql >/dev/null 2>&1
     sudo -u postgres psql -q -d ${DB}_upg -f /tmp/dbtest/pruebas/000_stub_tablas_legado.sql >/dev/null 2>&1
 
     printf '    versión anterior: '
@@ -106,7 +107,7 @@ fi
 
 echo "==> Auditoría de RLS (debe devolver cero filas)"
 ssh_do "sudo -u postgres psql -qtA -d $DB \
-        -c \"select tabla from public.v_auditoria_rls where rls_activo = false or 'anon' = any(roles_con_acceso)\"" \
+        -c \"select tabla, politica, alerta from public.v_auditoria_rls where alerta is not null and alerta not like 'sin politicas%'\"" \
   | sed 's/^/    PROBLEMA: /' || true
 
 echo "==> Listo"
