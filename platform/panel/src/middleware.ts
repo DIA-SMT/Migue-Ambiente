@@ -16,7 +16,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /** Rutas que se sirven sin sesión. Todo lo demás la exige. */
-const PUBLICAS = ["/ingresar", "/auth/callback", "/salud"];
+const PUBLICAS = ["/ingresar", "/salud"];
 
 export async function middleware(pedido: NextRequest) {
   let respuesta = NextResponse.next({ request: pedido });

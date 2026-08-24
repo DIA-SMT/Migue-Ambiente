@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PersonaDelPanel } from "@/lib/supabase-servidor";
+import { Salir } from "./Salir";
 
 /**
  * Cabecera con la navegación y quién está usando el panel.
@@ -48,9 +49,12 @@ export function Cabecera({ persona, actual }: { persona: PersonaDelPanel; actual
           ))}
         </nav>
 
-        <div className="sesion">
-          <strong>{persona.nombre ?? persona.correo}</strong>
-          {persona.rol}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div className="sesion">
+            <strong>{persona.nombre ?? persona.correo}</strong>
+            {persona.rol}
+          </div>
+          <Salir />
         </div>
       </div>
     </header>
