@@ -42,9 +42,9 @@ create table if not exists public.program_requests (
 
 -- Un par de filas para que las migraciones que hacen UPDATE tengan qué tocar.
 insert into public.tickets (ticket_type, status, address, chat_id, user_name, sla_deadline)
-values ('Pedido No Habitual', 'En Proceso', 'Lavalle al 500', '+5493815267804', 'Prueba Uno', now() + interval '3 days')
+values ('Pedido No Habitual', 'En Proceso', 'Lavalle al 500', '+5493814440055', 'Prueba Uno', now() + interval '3 days')
 on conflict do nothing;
 
 insert into public.program_requests (program_type, institution_name, responsible_person, student_count, address, chat_id, user_name, status)
-values ('educa', 'Escuela de Prueba', 'Responsable Prueba', 30, 'Muñecas al 200', '+5493815267804', 'Prueba Uno', 'Pendiente')
+values ('educa', 'Escuela de Prueba', 'Responsable Prueba', 30, 'Muñecas al 200', '+5493814440055', 'Prueba Uno', 'Pendiente')
 on conflict do nothing;

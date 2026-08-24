@@ -14,7 +14,7 @@ describe("EDUCÁ · talleres y visitas", () => {
     const s = simular(flujoProgramaEduca, [
       {
         texto:
-          "Escuela Normal Juan B Alberdi, Muñecas 200, responsable Luciano Bonilla, 30 alumnos, tel 3815267804",
+          "Escuela Normal Juan B Alberdi, Muñecas 200, responsable Ramiro Sosa, 30 alumnos, tel 3814440055",
       },
     ]);
     assert.equal(s.estado, null, "cerró en un solo turno");
@@ -24,7 +24,7 @@ describe("EDUCÁ · talleres y visitas", () => {
     assert.equal(d.direccion, "Muñecas 200");
     assert.equal(d.institucion, "Escuela Normal Juan B Alberdi");
     assert.equal(d.cantidadAlumnos, 30);
-    assert.equal(d.telefonoContacto, "3815267804");
+    assert.equal(d.telefonoContacto, "3814440055");
   });
 
   it("REGRESIÓN · la dirección no se confunde con el teléfono", () => {

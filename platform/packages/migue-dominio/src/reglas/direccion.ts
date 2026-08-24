@@ -290,7 +290,7 @@ export function formatearDireccion(d: DireccionInterpretada): string {
  * `interpretarDireccion` asume que todo el texto es la dirección, y sirve
  * cuando el bot preguntó justamente eso. Pero en los flujos de programas el
  * vecino manda todo en un mensaje —«Escuela Normal, Muñecas 200, responsable
- * Luciano, 30 alumnos, tel 3815267804»— y ahí el texto completo no es una
+ * Ramiro, 30 alumnos, tel 3814440055»— y ahí el texto completo no es una
  * dirección: hay tres números y sólo uno es la altura.
  *
  * Estrategia: primero se prueba el texto entero, y si no da, se prueba
