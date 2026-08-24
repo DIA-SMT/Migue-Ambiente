@@ -25,6 +25,18 @@
 # fuente de errores que en este caso costaría datos.
 #
 #   bash limpiar-sobrantes.sh <raiz> <manifiesto> [--simular]
+#
+# CÓMO COMPROBAR QUE UNA RUTA SE FUE DE VERDAD
+#
+# No sirve pedirla por HTTP. El proxy del panel intercepta todo lo que no está
+# en su lista pública y devuelve 307 hacia el login, así que una ruta borrada y
+# una ruta inexistente dan lo MISMO que una ruta que sigue ahí. Ya me confundió
+# dos veces: leí un 307 como «no existe» y la ruta estaba viva.
+#
+# La comprobación real es el manifiesto del build en el servidor:
+#
+#   ssh ... "cd /srv/bots/panel && python3 -c \"
+#     import json; print(sorted(json.load(open('.next/app-path-routes-manifest.json'))))\""
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
