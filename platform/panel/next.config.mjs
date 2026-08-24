@@ -18,8 +18,4 @@ export default {
   // nginx ya comprime. Hacerlo dos veces sólo gasta CPU de una VPS de 2 núcleos.
   compress: false,
 
-  eslint: {
-    // El proyecto no usa eslint; que no bloquee el build.
-    ignoreDuringBuilds: true,
-  },
 };

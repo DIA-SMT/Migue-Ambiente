@@ -38,7 +38,7 @@ const GRUPOS = [
   {
     rotulo: "El día a día",
     items: [
-      { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: false },
+      { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
       { href: "/sin-respuesta", texto: "No supo responder", Icono: IconoSinRespuesta, listo: false },
       { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: false },
     ],

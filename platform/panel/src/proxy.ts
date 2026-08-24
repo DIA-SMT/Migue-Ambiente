@@ -1,5 +1,8 @@
 /**
- * Middleware: refresca la sesión y manda al login a quien no la tiene.
+ * Proxy: refresca la sesión y manda al login a quien no la tiene.
+ *
+ * Se llama `proxy.ts` y no `middleware.ts` porque Next 16 renombró la
+ * convención y avisa en cada build que la vieja está deprecada.
  *
  * QUÉ ES Y QUÉ NO ES ESTO. No es el control de seguridad. Lo que protege los
  * datos de los vecinos es Row Level Security en Supabase: aunque alguien
@@ -18,7 +21,7 @@ import { NextResponse, type NextRequest } from "next/server";
 /** Rutas que se sirven sin sesión. Todo lo demás la exige. */
 const PUBLICAS = ["/ingresar", "/salud"];
 
-export async function middleware(pedido: NextRequest) {
+export async function proxy(pedido: NextRequest) {
   let respuesta = NextResponse.next({ request: pedido });
 
   const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];

@@ -264,3 +264,168 @@ export function riesgoDelDisparador(p: PruebaDisparadores): {
     mensaje: `Atrapa ${p.mensajes_atrapados} de los últimos ${p.mensajes_mirados} mensajes.`,
   };
 }
+
+/* ------------------------------------------------- pedidos y reclamos --- */
+
+export interface Ticket {
+  id: string;
+  ticket_type: string;
+  status: string;
+  address: string | null;
+  user_name: string | null;
+  chat_id: string | null;
+  channel: string | null;
+  waste_type: string | null;
+  quantity: string | null;
+  quantity_value: number | null;
+  quantity_unit: string | null;
+  exceeds_limit: boolean | null;
+  partial_pickup: boolean | null;
+  days_without_service: number | null;
+  derived_to: string | null;
+  photo_ref: string | null;
+  photo_url: string | null;
+  notes: string | null;
+  sla_deadline: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  conversation_id: string | null;
+}
+
+export interface SolicitudPrograma {
+  id: string;
+  program_type: string;
+  status: string;
+  institution_name: string | null;
+  responsible_person: string | null;
+  contact_phone: string | null;
+  student_count: number | null;
+  address: string | null;
+  preferred_time: string | null;
+  additional_info: string | null;
+  user_name: string | null;
+  chat_id: string | null;
+  channel: string | null;
+  // La 012 se las agregó a las dos tablas: TRANSFORMÁ recibe fotos de
+  // relevamiento del espacio a intervenir.
+  photo_ref: string | null;
+  photo_url: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  conversation_id: string | null;
+}
+
+/**
+ * Los estados a los que el panel puede mover un ticket.
+ *
+ * `tickets.status` es texto libre sin restricción, y en la base hay valores que
+ * dejó el bot anterior: "Pendiente Validación Imagen" en 15 de 20 tickets, y
+ * "Pendiente Verificación GPS" en otro. El panel los MUESTRA tal como están
+ * —esconderlos sería mentir sobre lo que hay— pero para moverlos ofrece esta
+ * lista corta. Así se van normalizando sin una migración que decida por el área
+ * qué significaba cada estado viejo.
+ */
+export const ESTADOS_TICKET = [
+  "En Proceso",
+  "Derivado",
+  "Resuelto",
+  "No corresponde",
+] as const;
+
+export const ESTADOS_PROGRAMA = ["Pendiente", "Contactado", "Coordinado", "Resuelto"] as const;
+
+/** Un estado que el panel no ofrece: viene del bot anterior. */
+export function esEstadoHeredado(estado: string): boolean {
+  return !(ESTADOS_TICKET as readonly string[]).includes(estado);
+}
+
+/**
+ * Estados en los que el caso ya no espera nada de nadie.
+ *
+ * Se usa para no mostrar como vencido algo que ya se cerró. Al cerrar desde el
+ * panel se sella `resolved_at`, pero los casos del bot anterior tienen el estado
+ * puesto y la fecha en null.
+ */
+const TERMINALES: readonly string[] = ["Resuelto", "No corresponde", "Cerrado"];
+
+export function esEstadoTerminal(estado: string): boolean {
+  return TERMINALES.includes(estado);
+}
+
+/**
+ * ¿El caso ya se cerró?
+ *
+ * UNA sola función para esto, y la razón es concreta: había dos lugares
+ * preguntándolo de formas distintas —uno miraba `resolved_at`, el otro el
+ * estado— y con los tickets del bot anterior daban resultados distintos. La
+ * bandeja decía «20 abiertos» y «13 vencidos» sobre los mismos datos, contando
+ * un ticket resuelto como abierto.
+ */
+export function estaCerrado(c: { status: string; resolved_at: string | null }): boolean {
+  return c.resolved_at !== null || esEstadoTerminal(c.status);
+}
+
+export interface SituacionSla {
+  readonly etiqueta: string;
+  readonly tono: "ok" | "curso" | "pend" | "alerta";
+  /** Para ordenar: lo más urgente primero. */
+  readonly urgencia: number;
+}
+
+/**
+ * Cómo está un caso contra el plazo que el bot ya le prometió al vecino.
+ *
+ * El plazo NO es una meta interna: el texto de confirmación le dice al vecino
+ * una fecha concreta. Que se venza es una promesa incumplida, y por eso esta
+ * pantalla ordena por esto y no por fecha de creación.
+ */
+export function situacionSla(t: Ticket, ahora = Date.now()): SituacionSla {
+  // Se miran las DOS cosas, y hace falta: el bot anterior dejó tickets con
+  // estado «Resuelto» y `resolved_at` en null. Mirando sólo la fecha, ese ticket
+  // aparecía abierto y vencido hace medio año en la bandeja del área.
+  //
+  // El panel, cuando cierra un caso, sella la fecha; así que a futuro las dos
+  // señales coinciden. Esto es para los que ya estaban.
+  if (estaCerrado(t)) {
+    return { etiqueta: "resuelto", tono: "ok", urgencia: 4 };
+  }
+  if (t.sla_deadline === null) {
+    // Los tickets del bot anterior no tienen plazo cargado. Calcularlo hacia
+    // atrás sería mostrar una fecha que nadie le prometió a nadie.
+    return { etiqueta: "sin plazo", tono: "pend", urgencia: 3 };
+  }
+
+  const horas = (new Date(t.sla_deadline).getTime() - ahora) / 3_600_000;
+
+  if (horas < 0) {
+    const dias = Math.floor(-horas / 24);
+    return {
+      etiqueta: dias >= 1 ? `vencido hace ${dias} día${dias === 1 ? "" : "s"}` : "vencido",
+      tono: "alerta",
+      urgencia: 0,
+    };
+  }
+  if (horas < 24) {
+    return { etiqueta: `vence en ${Math.max(1, Math.round(horas))} h`, tono: "curso", urgencia: 1 };
+  }
+  return { etiqueta: `${Math.round(horas / 24)} días`, tono: "ok", urgencia: 2 };
+}
+
+/**
+ * Qué datos le faltan a un ticket.
+ *
+ * Es el caso de los 17 tickets que dejó el bot anterior: sin tipo de residuo ni
+ * cantidad. Un caso a medias no se puede resolver, y quien lo abre tiene que ver
+ * qué falta antes de intentarlo.
+ */
+export function datosFaltantes(t: Ticket): string[] {
+  const faltan: string[] = [];
+  if (!t.address) faltan.push("dirección");
+  if (t.ticket_type === "Pedido No Habitual") {
+    if (!t.waste_type) faltan.push("tipo de residuo");
+    if (t.quantity_value === null && !t.quantity) faltan.push("cantidad");
+    if (!t.photo_ref && !t.photo_url) faltan.push("foto");
+  }
+  return faltan;
+}

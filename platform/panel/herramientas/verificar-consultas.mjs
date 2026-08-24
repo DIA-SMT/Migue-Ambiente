@@ -175,6 +175,70 @@ for (const t of textos ?? []) {
 }
 console.log("MARCADORES en uso: todos validos");
 
+
+// --- 8 · La bandeja de pedidos y reclamos ---
+console.log();
+const { data: tks, error: eTk } = await supabase
+  .from("tickets")
+  .select("*")
+  .order("created_at", { ascending: false })
+  .limit(200);
+
+if (eTk) mal(`tickets: ${eTk.message}`);
+else {
+  const { situacionSla, datosFaltantes, esEstadoHeredado, estaCerrado } = await import("../src/lib/tipos.ts");
+  const ahora = Date.now();
+
+  const porUrgencia = [...tks].sort(
+    (a, b) => situacionSla(a, ahora).urgencia - situacionSla(b, ahora).urgencia,
+  );
+
+  console.log(`TICKETS — ${tks.length}`);
+  console.log("  plazo                estado                        falta");
+  console.log("  " + "-".repeat(76));
+  for (const t of porUrgencia.slice(0, 8)) {
+    const s = situacionSla(t, ahora);
+    const f = datosFaltantes(t);
+    console.log(
+      "  " +
+        `[${s.tono}] ${s.etiqueta}`.padEnd(21) +
+        (t.status + (esEstadoHeredado(t.status) ? " (heredado)" : "")).padEnd(30) +
+        (f.length ? f.join(", ") : "—"),
+    );
+  }
+
+  const abiertos = tks.filter((t) => !estaCerrado(t)).length;
+  const vencidos = tks.filter((t) => !estaCerrado(t) && situacionSla(t, ahora).urgencia === 0).length;
+  const sinPlazo = tks.filter((t) => t.sla_deadline === null).length;
+  console.log();
+  console.log(`  abiertos: ${abiertos}  ·  vencidos: ${vencidos}  ·  sin plazo cargado: ${sinPlazo}`);
+
+  // Todo estado que hay en la base, para confirmar que el panel los muestra
+  // aunque no los ofrezca.
+  const estados = [...new Set(tks.map((t) => t.status))];
+  console.log(`  estados presentes: ${estados.join(" | ")}`);
+  const heredados = estados.filter(esEstadoHeredado);
+  if (heredados.length) console.log(`  de esos, heredados del bot anterior: ${heredados.join(" | ")}`);
+}
+
+const { data: prg, error: ePr } = await supabase
+  .from("program_requests")
+  .select("*")
+  .order("created_at", { ascending: false })
+  .limit(200);
+if (ePr) mal(`program_requests: ${ePr.message}`);
+else {
+  console.log();
+  console.log(`PROGRAMAS — ${prg.length}`);
+  for (const p of prg) {
+    console.log(`  ${p.program_type.padEnd(12)} ${String(p.status).padEnd(12)} ${p.institution_name ?? "—"}`);
+  }
+  // Las columnas que la ficha lee tienen que existir.
+  for (const col of ["institution_name", "responsible_person", "contact_phone", "student_count", "photo_ref", "channel"]) {
+    if (prg.length && prg[0][col] === undefined) mal(`program_requests no tiene la columna ${col}`);
+  }
+}
+
 console.log();
 if (fallas > 0) { console.log(`${fallas} problema(s)`); process.exitCode = 1; }
 else console.log("todas las consultas del panel devuelven lo que las pantallas esperan");
