@@ -268,13 +268,17 @@ a:hover {
 
 /* La marca de agua: hojas grandes, muy tenues, ancladas abajo y recortadas por
    el overflow de la barra. Es atmósfera, no ilustración. */
+/* 13% y no menos: medido, al 7% la diferencia de luminosidad contra el verde
+   profundo era de un 5% y las hojas se leían como una imperfección del fondo en
+   vez de como un dibujo. Sigue siendo marca de agua —no compite con el texto de
+   la navegación— pero ahora se ve que hay una rama. */
 .barra-hojas {
   position: absolute;
-  bottom: -30px;
-  left: -46px;
-  width: 300px;
-  height: 300px;
-  opacity: 0.07;
+  bottom: -34px;
+  left: -52px;
+  width: 330px;
+  height: 330px;
+  opacity: 0.13;
   pointer-events: none;
   z-index: 0;
 }
@@ -698,7 +702,9 @@ textarea {
 
 .ingreso-hojas {
   position: absolute;
-  opacity: 0.06;
+  /* Un poco más que en la barra: acá hay espacio de sobra y ninguna lista de
+     navegación con la que competir. */
+  opacity: 0.11;
   pointer-events: none;
 }
 .ingreso-hojas.una {
