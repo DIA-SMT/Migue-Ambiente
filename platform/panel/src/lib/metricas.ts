@@ -9,9 +9,9 @@
  *      `sum()`, `avg()` y `count()` agrupado devuelven 400 PGRST123. Lo único que
  *      funciona por HTTP es el count exacto con filtros y traer filas.
  *
- *   2. Y aunque funcionaran, no habría que usarlos. «Cerrado» y «heredado» ya
- *      están definidos en `tipos.ts` —`estaCerrado()`, `esEstadoHeredado()`— y
- *      cubiertos por pruebas. Reimplementarlos en SQL para una vista es
+ *   2. Y aunque funcionaran, no habría que usarlos. «Cerrado» ya está definido
+ *      en `tipos.ts` —`estaCerrado()`— y cubierto por pruebas.
+ *      Reimplementarlo en SQL para una vista es
  *      exactamente cómo nacieron los dos números contradictorios que este
  *      proyecto ya tuvo: la misma pantalla decía «20 abiertos» y «13 vencidos»
  *      sobre las mismas filas.
@@ -254,21 +254,19 @@ export function medirLatencia(mensajes: readonly MensajeMedido[]): Latencia {
 /* ------------------------------------------------------------ tickets --- */
 
 /**
- * Los tickets, separando lo heredado de lo que hizo el bot nuevo.
+ * Los tickets.
  *
- * EL CORTE ES POR CANAL, no por estado, y la diferencia no es teórica: en
- * producción `esEstadoHeredado()` atrapa 16 y `channel = 'manychat'` atrapa 19.
- * Los tres que se escapan son de febrero y tienen estados que el panel también
- * usa. Separando por estado, tres tickets viejos se cuentan como gestión del bot
- * nuevo — que generó exactamente UNO.
+ * Acá había un corte entre «heredado» y «del bot nuevo», porque la base traía 19
+ * casos del bot anterior de ManyChat mezclados con los nuestros. Esos casos se
+ * borraron —decisión del área: el bot viejo ya no existe— así que el corte se
+ * fue con ellos. Todo lo que hay en esta tabla ahora es de este bot.
  *
- * `esEstadoHeredado()` sigue sirviendo para lo que fue escrita: decidir si un
- * estado es de los que el panel no ofrece. No para saber de dónde vino el caso.
+ * Vale como nota para el futuro: mientras hubo mezcla, separar por CANAL era lo
+ * correcto y separar por ESTADO daba mal. `esEstadoHeredado()` atrapaba 16 de los
+ * 19 porque tres tenían estados que el panel también usa.
  */
 export interface Casos {
   readonly total: number;
-  readonly heredados: number;
-  readonly delBotNuevo: number;
   readonly abiertos: number;
   readonly vencidos: number;
   readonly sinPlazo: number;
@@ -283,7 +281,6 @@ export interface Casos {
 }
 
 export function medirCasos(tickets: readonly Ticket[], ahora: number): Casos {
-  const heredados = tickets.filter((t) => t.channel === "manychat");
   const abiertos = tickets.filter((t) => !estaCerrado(t));
   const cerrados = tickets.filter((t) => estaCerrado(t));
 
@@ -293,8 +290,6 @@ export function medirCasos(tickets: readonly Ticket[], ahora: number): Casos {
 
   return {
     total: tickets.length,
-    heredados: heredados.length,
-    delBotNuevo: tickets.length - heredados.length,
     abiertos: abiertos.length,
     vencidos: abiertos.filter((t) => situacionSla(t, ahora).urgencia === 0).length,
     sinPlazo: abiertos.filter((t) => t.sla_deadline === null).length,

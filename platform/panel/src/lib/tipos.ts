@@ -335,9 +335,25 @@ export const ESTADOS_TICKET = [
 
 export const ESTADOS_PROGRAMA = ["Pendiente", "Contactado", "Coordinado", "Resuelto"] as const;
 
-/** Un estado que el panel no ofrece: viene del bot anterior. */
-export function esEstadoHeredado(estado: string): boolean {
-  return !(ESTADOS_TICKET as readonly string[]).includes(estado);
+/**
+ * ¿El panel conoce este estado?
+ *
+ * Reemplazó a `esEstadoHeredado()`, que distinguía los estados del bot anterior
+ * de ManyChat. Ese bot ya no existe y sus 19 casos se borraron, así que la
+ * distinción no tenía a qué referirse — y una pantalla que explica una diferencia
+ * que ya no existe confunde más de lo que ayuda.
+ *
+ * Pero la parte defensiva sí valía la pena conservarla, y ahora es mejor: sale de
+ * `ESTADOS_TICKET`, la misma lista que el panel ofrece en el desplegable, en vez
+ * de una lista aparte de estados viejos. Si aparece un estado que el panel no
+ * ofrece —cargado por SQL, o de una integración futura— se muestra igual pero
+ * marcado, en lugar de aparentar ser uno normal.
+ *
+ * O sea: antes decía «esto viene del bot viejo». Ahora dice «esto no lo puse yo»,
+ * que es la pregunta que de verdad le sirve a quien mira la bandeja.
+ */
+export function esEstadoConocido(estado: string): boolean {
+  return (ESTADOS_TICKET as readonly string[]).includes(estado);
 }
 
 /**

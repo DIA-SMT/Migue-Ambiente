@@ -328,19 +328,18 @@ export function Metricas({
       <section style={{ marginTop: 30 }}>
         <h2>Pedidos y reclamos</h2>
         <p className="bajada" style={{ marginTop: 4 }}>
-          Se separa por <strong>canal</strong> y no por estado. La diferencia es real: hay estados
-          del bot anterior que el panel también usa, así que separando por estado tres casos viejos
-          se contarían como gestión del bot nuevo.
+          Los casos que generó este bot. Los 19 que había del bot anterior de ManyChat se
+          borraron, así que todo lo que aparece acá salió de una conversación de Migue Ambiente.
         </p>
 
         <div className="resumen">
           <div>
-            <span className="n">{casos.heredados}</span>
-            <span className="r">del bot anterior</span>
+            <span className="n">{casos.total}</span>
+            <span className="r">casos en total</span>
           </div>
           <div>
-            <span className="n">{casos.delBotNuevo}</span>
-            <span className="r">de Migue</span>
+            <span className="n">{casos.abiertos}</span>
+            <span className="r">abiertos</span>
           </div>
           <div>
             <span className="n" style={{ color: casos.vencidos > 0 ? "var(--alerta)" : undefined }}>
@@ -349,17 +348,6 @@ export function Metricas({
             <span className="r">con el plazo vencido</span>
           </div>
         </div>
-
-        {/* Un «13 vencidos» suelto se lee como un problema de Migue, y hoy es
-            deuda del bot anterior. Verificado: los vencidos son todos de
-            ManyChat y el único caso del bot nuevo está en plazo. */}
-        {ahora !== null && casos.vencidos > 0 && casos.vencidos <= casos.heredados && (
-          <p className="ayuda" style={{ maxWidth: "74ch" }}>
-            Los {casos.vencidos} vencidos son casos del <strong>bot anterior</strong>, de febrero y
-            marzo. No son plazos que Migue haya dejado pasar: son la deuda que había cuando
-            arrancó.
-          </p>
-        )}
 
         <div className="tarjeta" style={{ padding: 16 }}>
           <dl className="ficha">

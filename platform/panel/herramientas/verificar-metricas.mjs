@@ -124,19 +124,17 @@ for (const r of reparto) {
 
 const casos = medirCasos(tks ?? [], AHORA);
 
+// El corte «heredado / del bot nuevo» se fue con los datos del bot viejo: ya no
+// hay nada de ManyChat en la tabla. Se comprueba que siga siendo cierto, porque
+// si reaparecieran filas de otro canal las métricas volverían a mezclar cosas.
 const { count: nManychat } = await supabase
   .from("tickets")
   .select("id", { count: "exact", head: true })
   .eq("channel", "manychat");
-if (casos.heredados !== nManychat) {
-  mal(`heredados: la función dice ${casos.heredados} y la base cuenta ${nManychat} de manychat`);
+if (nManychat !== 0) {
+  mal(`hay ${nManychat} ticket(s) de manychat: se borraron y volvieron a aparecer`);
 } else {
-  bien(`heredados por canal: ${casos.heredados}`);
-}
-if (casos.heredados + casos.delBotNuevo !== casos.total) {
-  mal(`heredados + del bot nuevo != total (${casos.heredados}+${casos.delBotNuevo}!=${casos.total})`);
-} else {
-  bien(`heredados + de Migue = total (${casos.total})`);
+  bien("no queda nada del bot anterior");
 }
 
 // LA COMPROBACIÓN QUE IMPORTA: que abiertos y cerrados usen la MISMA definición.

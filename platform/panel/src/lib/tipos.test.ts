@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   datosFaltantes,
-  esEstadoHeredado,
+  esEstadoConocido,
   estadoDeLaPregunta,
   estadoVisible,
   MOTIVOS_SIN_RESPUESTA,
@@ -287,12 +287,12 @@ describe("datosFaltantes", () => {
     );
   });
 
-  it("esEstadoHeredado distingue los estados del bot anterior", () => {
+  it("esEstadoConocido distingue lo que el panel ofrece de lo que no", () => {
     // El panel los muestra pero no los ofrece: son los que hay que normalizar.
-    assert.equal(esEstadoHeredado("Pendiente Validación Imagen"), true);
-    assert.equal(esEstadoHeredado("Pendiente Verificación GPS"), true);
-    assert.equal(esEstadoHeredado("En Proceso"), false);
-    assert.equal(esEstadoHeredado("Resuelto"), false);
+    assert.equal(esEstadoConocido("Pendiente Validación Imagen"), false);
+    assert.equal(esEstadoConocido("Pendiente Verificación GPS"), false);
+    assert.equal(esEstadoConocido("En Proceso"), true);
+    assert.equal(esEstadoConocido("Resuelto"), true);
   });
 });
 

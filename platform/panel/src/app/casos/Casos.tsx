@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   datosFaltantes,
-  esEstadoHeredado,
+  esEstadoConocido,
   estaCerrado,
   ESTADOS_PROGRAMA,
   ESTADOS_TICKET,
@@ -191,12 +191,16 @@ export function Casos({
                         </td>
                         <td style={{ maxWidth: 220 }}>{t.address ?? "—"}</td>
                         <td>
-                          <span className={esEstadoHeredado(t.status) ? "chip pend" : "chip ok"}>
+                          <span className={esEstadoConocido(t.status) ? "chip ok" : "chip pend"}>
                             {t.status}
                           </span>
-                          {esEstadoHeredado(t.status) && (
+                          {!esEstadoConocido(t.status) && (
+                            // Un estado que el panel no ofrece en el
+                            // desplegable. Se muestra igual —esconderlo dejaría
+                            // un caso invisible— pero marcado, porque no salió
+                            // de acá.
                             <div className="sub-fila" style={{ marginTop: 3 }}>
-                              del bot anterior
+                              estado cargado por fuera del panel
                             </div>
                           )}
                         </td>
