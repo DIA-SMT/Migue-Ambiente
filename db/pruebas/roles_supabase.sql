@@ -125,5 +125,16 @@ alter default privileges in schema public
 alter default privileges in schema public
   grant usage, select on sequences to anon, authenticated, service_role;
 
+-- Y las FUNCIONES a los tres roles, que es lo que hace Supabase de verdad.
+--
+-- Acá decía sólo `service_role`, y esa diferencia con producción hizo que el
+-- arnés no pudiera ver un hallazgo real: once funciones de `public` quedaron
+-- ejecutables por la clave pública, y la vista de auditoría que se escribió para
+-- detectarlo daba cero alertas contra esta base — no porque la regla estuviera
+-- bien, sino porque acá la condición nunca se daba.
+--
+-- Es el mismo argumento que el comentario de arriba hace para las tablas: si el
+-- arnés no reproduce los permisos amplios de Supabase, un test puede pasar por
+-- falta de privilegio en vez de porque la protección funcione.
 alter default privileges in schema public
-  grant execute on functions to service_role;
+  grant execute on functions to anon, authenticated, service_role;

@@ -1518,6 +1518,93 @@ begin
 end $$;
 \echo '   OK: el voto va contra la respuesta, no cuenta doble, y el panel no lo modifica'
 
+-- ---------------------------------------------------------------------------
+-- BLOQUE O - La superficie ejecutable: ninguna funcion abierta a la clave publica
+-- ---------------------------------------------------------------------------
+-- Este bloque existe porque el arnes NO PODIA ver este problema, y la razon vale
+-- dejarla escrita: `roles_supabase.sql` daba EXECUTE sobre funciones solo a
+-- `service_role`, mientras Supabase se lo da a los tres roles. La condicion que
+-- produjo el hallazgo real —ocho funciones de `public` ejecutables con la clave
+-- publica, que esta en el JavaScript del panel— no podia darse en esta base. Una
+-- prueba habria pasado por falta de privilegio y no porque la proteccion
+-- funcionara.
+--
+-- Es exactamente el error que el arnes ya habia cometido con las TABLAS y que su
+-- propio comentario advierte. Corregido el stub, este bloque mide algo.
+--
+-- Verificado que detecta: sin la migracion 025, la vista devuelve 8 alertas.
+\echo ' O. Funciones: ninguna abierta a la clave publica'
+
+do $$
+declare
+  v_abiertas text;
+  n int;
+begin
+  -- 1 - La vista existe. Sin ella no hay deteccion, y un bloque que no encuentra
+  --     nada porque la vista falta es peor que no tener el bloque.
+  if to_regclass('public.v_auditoria_funciones') is null then
+    raise exception 'falta v_auditoria_funciones: la 024 no se aplico';
+  end if;
+
+  -- 2 - Y audita algo. Si el filtro de extensiones se pasara de largo, la vista
+  --     devolveria cero filas y este bloque pasaria sin mirar nada.
+  select count(*) into n from public.v_auditoria_funciones;
+  if n < 15 then
+    raise exception 'v_auditoria_funciones solo ve % funciones: el filtro esta mal', n;
+  end if;
+
+  -- 3 - EL ASERTO. Cero alertas: cualquier funcion nueva que quede ejecutable por
+  --     la clave publica hace fallar esto.
+  select string_agg(nombre || ' (' || left(alerta, 40) || ')', ', ' order by nombre)
+    into v_abiertas
+    from public.v_auditoria_funciones
+   where alerta is not null;
+
+  if v_abiertas is not null then
+    raise exception 'funciones abiertas a la clave publica: %', v_abiertas;
+  end if;
+
+  -- 4 - Las DOS que SI tienen que estar abiertas siguen abiertas. Es el otro lado
+  --     del aserto anterior: un revoke masivo las cerraria y dejaria a TODO el
+  --     mundo afuera del panel, y la vista no lo diria porque estan exceptuadas
+  --     por nombre.
+  select count(*) into n
+    from public.v_auditoria_funciones
+   where nombre in ('es_personal_panel', 'es_admin_panel')
+     and ejecutable_por_anon;
+  if n <> 2 then
+    raise exception
+      'es_personal_panel y es_admin_panel tienen que ser ejecutables por anon: Postgres las evalua al aplicar RLS. Abiertas: % de 2', n;
+  end if;
+
+  -- 5 - Y que de verdad se puedan llamar como `authenticated`, que es lo que pasa
+  --     en cada consulta del panel. El punto 4 lee el ACL; esto lo ejecuta.
+  perform set_config('request.jwt.claim.sub', '', true);
+  set local role authenticated;
+  perform public.es_personal_panel();
+  perform public.es_admin_panel();
+  reset role;
+
+  -- 6 - Las internas quedaron solo para service_role. Se prueba por el EFECTO:
+  --     como `authenticated`, llamar a una tiene que dar error de permiso.
+  set local role authenticated;
+  begin
+    perform public.tomar_trabajo('worker-prueba');
+    reset role;
+    raise exception 'authenticated pudo llamar a tomar_trabajo: la 025 no cerro nada';
+  exception
+    when insufficient_privilege then null;   -- lo esperado
+  end;
+  reset role;
+
+  -- 7 - Y el worker si puede, que es el otro lado. Sin esto, un revoke de mas
+  --     dejaria la cola muerta y el bloque pasaria igual.
+  set local role service_role;
+  perform public.tomar_trabajo('worker-prueba');
+  reset role;
+end $$;
+\echo '   OK: cero funciones abiertas, RLS conserva las suyas y el worker la cola'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='

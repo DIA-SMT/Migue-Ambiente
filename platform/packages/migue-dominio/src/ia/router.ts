@@ -73,26 +73,130 @@ const DESPEDIDAS = [
 ];
 
 /**
+ * Palabras que pueden acompañar un saludo sin volverlo una consulta.
+ *
+ * «listo gracias», «ok gracias», «muy amable», «buenas, che» siguen siendo
+ * despedidas. Sin esta lista, cualquier palabra sobrante haría que el atajo se
+ * salteara y un simple «listo gracias» pagaría una llamada al modelo.
+ */
+const RELLENO = new Set([
+  "ok", "oka", "okey", "listo", "dale", "che", "bueno", "buenisimo", "barbaro",
+  "genial", "perfecto", "muy", "mil", "muchas", "muchisimas", "amable", "y",
+  "eh", "ah", "a", "de", "nada", "todo", "bien", "si", "no", "gracias",
+]);
+
+/**
  * Resuelve saludos y despedidas sin llamar al modelo.
  *
- * Sólo actúa si el mensaje es CORTO. «Hola, necesito que me retiren unos
- * escombros» es un pedido, no un saludo: contestarle «¡Hola!» y esperar sería
- * exactamente el comportamiento que el QA critica.
+ * Sólo actúa si el mensaje NO TRAE NADA MÁS que el saludo. Es la parte que
+ * estaba mal, y el propio comentario de esta función ya decía qué tenía que
+ * pasar: «Hola, necesito que me retiren unos escombros» es un pedido, no un
+ * saludo. La guarda anterior era «como máximo 4 palabras», y no alcanzaba —
+ * verificado corriendo el clasificador real:
+ *
+ *   «hola necesito retirar escombros»  ->  saludo      (son exactamente 4)
+ *   «hola pasa el sabado?»             ->  saludo
+ *   «gracias donde reciclo vidrio»     ->  despedida
+ *
+ * Los tres son consultas reales. Al vecino que preguntó por el vidrio Migue le
+ * contestaba «¡De nada!» y le CERRABA la conversación. Y no quedaba registro en
+ * ninguna parte: el atajo corta antes del modelo y antes de la búsqueda de
+ * conocimiento, que es la única que sabe registrar una pregunta sin responder.
+ * O sea que la falla era invisible por diseño.
+ *
+ * Ahora se quita del texto el término que coincidió y se mira lo que sobra: si
+ * queda una sola palabra con contenido, el mensaje sigue su camino al modelo. El
+ * costo de equivocarse en cada dirección no es simétrico —una llamada al modelo
+ * de más cuesta una fracción de centavo; una pregunta contestada con «¡De nada!»
+ * pierde a un vecino— así que ante la duda, no atajar.
  */
-function porAtajo(texto: string): Intencion | null {
+/**
+ * Se exporta para poder probarla directo.
+ *
+ * `clasificar` toma el cliente del modelo a nivel de módulo, no inyectado, así
+ * que una prueba que la use para los casos negativos dependería de la red. Y la
+ * primera versión de esa prueba le pasaba un espía como tercer argumento que la
+ * función NO recibe: los tests pasaban en verde sin observar nada. Probar
+ * `porAtajo` directo es lo único que mide de verdad lo que se arregló.
+ */
+export function porAtajo(texto: string): Intencion | null {
   const norm = normalizar(texto);
   if (norm === "") return null;
 
-  const palabras = norm.split(" ").length;
-  if (palabras > 4) return null;
+  // `/start` es el primer mensaje de TODO vecino nuevo de Telegram: el botón
+  // «Empezar» lo manda solo. No estaba manejado en ninguna parte, así que el
+  // primer contacto de cada persona era «no entendí, elegí una opción» — y
+  // encima pagaba una llamada al modelo para no entender un comando fijo.
+  //
+  // Se resuelve acá y no en el adaptador de Telegram porque un comando con barra
+  // es una convención de canal, sí, pero la RESPUESTA correcta es la misma en
+  // todos: es alguien abriendo la conversación. WhatsApp no manda `/start`, así
+  // que allá esta rama simplemente no se usa.
+  if (norm === "start" || norm.startsWith("start ")) return "saludo";
 
-  for (const s of DESPEDIDAS) {
-    if (norm === normalizar(s) || contienePalabra(norm, s)) return "despedida";
-  }
-  for (const s of SALUDOS) {
-    if (norm === normalizar(s) || contienePalabra(norm, s)) return "saludo";
+  // Un tope generoso, sólo para no gastar trabajo en un mensaje largo: si tiene
+  // más de ocho palabras no es un saludo por más que empiece con «hola».
+  if (norm.split(" ").length > 8) return null;
+
+  // Los más largos primero: «listo gracias» tiene que ganarle a «gracias», para
+  // que lo que sobra sea vacío y no «listo».
+  const porLargo = (a: string, b: string) => normalizar(b).length - normalizar(a).length;
+
+  for (const [lista, intencion] of [
+    [[...DESPEDIDAS].sort(porLargo), "despedida"],
+    [[...SALUDOS].sort(porLargo), "saludo"],
+  ] as const) {
+    for (const termino of lista) {
+      const t = normalizar(termino);
+      if (t === "") continue;
+      if (norm !== t && !contienePalabra(norm, termino)) continue;
+
+      // Lo que queda después de sacar TODA la cortesía, no sólo el término que
+      // coincidió. «hola gracias» es alguien siendo amable, no una consulta: si
+      // sólo se quitara «gracias», sobraría «hola» y el mensaje pagaría una
+      // llamada al modelo para nada.
+      if (soloCortesia(norm)) return intencion;
+      // Coincidió pero traía algo más: que lo vea el modelo.
+      return null;
+    }
   }
   return null;
+}
+
+/**
+ * ¿El texto está hecho SÓLO de cortesía?
+ *
+ * Se quitan todos los términos de las dos listas, del más largo al más corto
+ * —«buenas tardes» antes que «buenas», «listo gracias» antes que «gracias»— y
+ * después el relleno. Si no queda nada, era un saludo o una despedida y nada
+ * más.
+ */
+function soloCortesia(norm: string): boolean {
+  const terminos = [...SALUDOS, ...DESPEDIDAS]
+    .map(normalizar)
+    .filter((t) => t !== "")
+    .sort((a, b) => b.length - a.length);
+
+  let resto = norm;
+  for (const t of terminos) {
+    resto = resto.replace(
+      new RegExp(
+        `(?<![\\p{L}\\p{N}])${escaparParaAtajo(t)}(?![\\p{L}\\p{N}])`,
+        "gu",
+      ),
+      " ",
+    );
+  }
+
+  return resto
+    .split(" ")
+    .map((w) => w.trim())
+    .every((w) => w === "" || RELLENO.has(w));
+}
+
+/** Escapa un término para poder buscarlo como palabra completa. */
+function escaparParaAtajo(termino: string): string {
+  return termino.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ---------------------------------------------------------------------------

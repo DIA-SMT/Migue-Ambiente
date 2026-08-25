@@ -377,6 +377,12 @@ try {
     }
   }
 
+  // Se borra la fila de `sin_respuesta` EXPLÍCITAMENTE. Su FK a
+  // `conversaciones` es `on delete set null`, así que borrar la conversación no
+  // se la lleva: la deja huérfana. La primera corrida de esto dejó una fila
+  // «__prueba 023 pendiente» en producción, y habría aparecido en Métricas como
+  // una pregunta real que un vecino hizo.
+  await supabase.from("sin_respuesta").delete().eq("id", sr.id);
   await supabase.from("conversaciones").delete().eq("id", c3.id);
 }
 

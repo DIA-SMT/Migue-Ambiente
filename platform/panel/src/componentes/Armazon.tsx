@@ -54,7 +54,7 @@ const GRUPOS = [
       // El voto del vecino se ve acá y en ningún otro lado.
       { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
       { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
-      { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: false },
+      { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: true },
     ],
   },
   {
