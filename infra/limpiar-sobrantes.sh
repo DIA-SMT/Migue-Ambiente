@@ -89,3 +89,54 @@ elif [[ $SIMULAR -eq 1 ]]; then
 else
   echo "    $borrados archivo(s) borrados"
 fi
+
+# ---------------------------------------------------------------------------
+# Y las carpetas que quedaron vacías.
+#
+# Borrar los archivos no borra el directorio, y en el App Router de Next un
+# directorio es una RUTA. Quedaron tres así durante muchos deploys:
+# `app/faqs`, `app/textos` y `app/auth/callback` — esta última es la del magic
+# link, que se eliminó del repo hace tiempo.
+#
+# Hoy son inocuas: sin `page.tsx` adentro, Next no genera ninguna ruta, y el
+# manifiesto del build lo confirma. Pero es exactamente la clase de sobrante que
+# ya tiró el panel abajo una vez: `middleware.ts` renombrado a `proxy.ts`
+# convivieron en la VPS y Next 16 se niega a compilar con los dos. Un directorio
+# vacío de hoy es el que mañana recibe un archivo con el mismo nombre.
+#
+# El bucle corre hasta que no queda ninguna, porque borrar la hoja deja vacío al
+# padre: `auth/callback` primero, y en la pasada siguiente `auth`.
+vacias=0
+if [[ $SIMULAR -eq 1 ]]; then
+  find "${CARPETAS[@]}" -mindepth 1 -type d -empty -not -path '*/node_modules/*' -not -path '*/.next/*' \
+    -print 2>/dev/null | sed 's|^|    sobraría la carpeta: |'
+else
+  # `-mindepth 1` protege a las carpetas RAÍZ. Sin eso, si `packages` quedara
+  # vacía se borraba entera, y en la pasada siguiente `find` fallaba por ruta
+  # inexistente: con `set -e` el script moría justo antes de informar lo que
+  # había hecho. Y borrar una raíz nunca es lo correcto — el tar siempre las
+  # trae.
+  #
+  # Se repite hasta que no queda ninguna: borrar la hoja deja vacío al padre.
+  #
+  # Y se cuentan las que se BORRARON, no las que se habían encontrado antes de
+  # borrar. `find -delete` es depth-first y colapsa el anidado en la MISMA
+  # pasada: borra `auth/callback` y en el mismo recorrido ve `auth` ya vacío y
+  # lo borra también. Contando de antes, la primera versión de esto informó
+  # «3 carpetas» habiendo borrado 4 — un número que no dice lo que parece, que
+  # es justo lo que este proyecto viene corrigiendo en otras cinco partes.
+  while :; do
+    borradas=$(find "${CARPETAS[@]}" -mindepth 1 -type d -empty -not -path '*/node_modules/*' -not -path '*/.next/*' \
+      -print -delete 2>/dev/null)
+    [[ -z "$borradas" ]] && break
+    printf '%s\n' "$borradas" | sed 's|^|    carpeta vacía borrada: |'
+    vacias=$((vacias + $(printf '%s\n' "$borradas" | wc -l)))
+  done
+fi
+# Un `if` y no `[[ ... ]] && echo`: con `set -e`, un test que da falso en la
+# ÚLTIMA línea hace salir al script con estado 1, y `deploy.sh` lo leería como
+# una falla de limpieza. Es el mismo error de estado de salida que ya hizo que un
+# build roto reportara «build ok».
+if [[ $vacias -gt 0 ]]; then
+  echo "    $vacias carpeta(s) vacía(s) borradas"
+fi
