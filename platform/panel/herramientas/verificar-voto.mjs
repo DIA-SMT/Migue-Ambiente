@@ -117,15 +117,21 @@ try {
   //      aunque ese sea el último saliente. Es el error más fácil de cometer y
   //      el que haría que el panel muestre un pulgar abajo sobre un texto que
   //      dice «¿te sirvió?».
-  const { data: votoId, error: eVoto } = await supabase.rpc("registrar_voto", {
+  // Desde la 029 devuelve `{ id, ya_habia_votado }` y no un uuid: el bot
+  // necesita distinguir «se registró ahora» de «ya estaba» para saber si
+  // agradecer o callarse.
+  const { data: primerVoto, error: eVoto } = await supabase.rpc("registrar_voto", {
     p_conversacion_id: conversacionId,
     p_voto: "no_util",
   });
+  const votoId = primerVoto?.id ?? null;
 
   if (eVoto) {
     mal(`registrar_voto falló: ${eVoto.message}`);
   } else if (!votoId) {
     mal("registrar_voto devolvió null sobre una conversación con respuesta");
+  } else if (primerVoto.ya_habia_votado !== false) {
+    mal("el PRIMER voto vino marcado como repetido: el bot no agradecería nunca");
   } else {
     const { data: fila } = await supabase
       .from("valoraciones")
@@ -143,13 +149,22 @@ try {
   }
 
   // 2b · Tocar dos veces no cuenta doble.
-  await supabase.rpc("registrar_voto", { p_conversacion_id: conversacionId, p_voto: "no_util" });
+  // Y ESTE CHEQUEO NO ALCANZABA. Contaba filas, y filas duplicadas nunca hubo:
+  // el `on conflict do update` de antes cambiaba el voto y devolvía un id, así
+  // que el bot volvía a agradecer en cada toque. Contaba la tabla mientras el
+  // problema estaba en la conversación. Ahora se exige el aviso.
+  const { data: repetido } = await supabase.rpc("registrar_voto", {
+    p_conversacion_id: conversacionId,
+    p_voto: "no_util",
+  });
   const { count } = await supabase
     .from("valoraciones")
     .select("id", { count: "exact", head: true })
     .eq("conversacion_id", conversacionId);
   if (count !== 1) mal(`dos toques del mismo botón crearon ${count} filas`);
-  else bien("tocar el botón dos veces corrige el voto, no lo duplica");
+  else if (repetido?.ya_habia_votado !== true)
+    mal("el segundo toque no vino marcado: el bot volvería a agradecer");
+  else bien("el segundo toque no duplica y viene marcado como repetido");
 
   // 2c · El comentario se pega, y el segundo texto ya no lo sobrescribe. Esto
   //      último es lo que permite que el bot llame a la función en CADA mensaje
@@ -196,18 +211,29 @@ try {
     else bien(`la transcripción trae ${trans.length} mensajes con el voto en el correcto`);
   }
 
-  // 2f · Cambiar el voto a positivo limpia el comentario: un «me faltaba el
-  //      horario» pegado a un pulgar ARRIBA no se entiende.
-  await supabase.rpc("registrar_voto", { p_conversacion_id: conversacionId, p_voto: "util" });
+  // 2f · EL VOTO NO SE CAMBIA. Este chequeo afirmaba lo contrario hasta la 029:
+  //      probaba que cambiar de pulgar limpiara el comentario. Probando el bot
+  //      se vio por qué estaba mal — se podía votar 👍 👎 👍 👎 y Migue agradecía
+  //      cada vez, como si cada toque contara.
+  //
+  //      El dato que le sirve al área es la primera reacción. El que tocó por
+  //      error lo puede decir en el comentario, que es lo que el área lee.
+  const { data: arrepentido } = await supabase.rpc("registrar_voto", {
+    p_conversacion_id: conversacionId,
+    p_voto: "util",
+  });
   const { data: tras } = await supabase
     .from("valoraciones")
     .select("voto, comentario")
     .eq("conversacion_id", conversacionId)
     .single();
-  if (tras?.voto !== "util") mal("no se corrigió el voto");
-  else if (tras?.comentario !== null)
-    mal(`quedó un comentario de pulgar abajo pegado a uno arriba: ${tras.comentario}`);
-  else bien("cambiar el voto limpia el comentario que ya no corresponde");
+  if (arrepentido?.ya_habia_votado !== true)
+    mal("el cambio de opinión no vino marcado como repetido");
+  else if (tras?.voto !== "no_util")
+    mal(`el voto se cambió a «${tras?.voto}»: el primer toque tenía que ganar`);
+  else if (!tras?.comentario?.includes("escombros"))
+    mal(`se perdió el comentario del vecino: ${tras?.comentario}`);
+  else bien("el primer toque gana y el comentario queda donde estaba");
 
   /* --- 3 · Los textos que el bot va a usar ------------------------------ */
 
@@ -276,11 +302,12 @@ try {
     origen_respuesta: "faq",
   });
 
-  const { data: idVoto, error } = await supabase.rpc("registrar_voto", {
+  const { data: conId, error } = await supabase.rpc("registrar_voto", {
     p_conversacion_id: conv,
     p_voto: "no_util",
     p_mensaje_id: resp.id,
   });
+  const idVoto = conId?.id ?? null;
 
   if (error) {
     mal(`registrar_voto con id explícito falló: ${error.message}`);
@@ -296,10 +323,10 @@ try {
       bien("el id explícito gana sobre la inferencia, incluso con una cortesía posterior");
     }
 
-    // Y el doble toque sobre el MISMO mensaje corrige en vez de duplicar. Con
-    // la inferencia esto insertaba una segunda fila, porque el mensaje que
-    // resolvía cambiaba entre un toque y el siguiente.
-    await supabase.rpc("registrar_voto", {
+    // Y el doble toque sobre el MISMO mensaje no duplica ni cambia nada. Con la
+    // inferencia esto insertaba una segunda fila, porque el mensaje que resolvía
+    // cambiaba entre un toque y el siguiente.
+    const { data: segundo } = await supabase.rpc("registrar_voto", {
       p_conversacion_id: conv,
       p_voto: "util",
       p_mensaje_id: resp.id,
@@ -308,8 +335,15 @@ try {
       .from("valoraciones")
       .select("id", { count: "exact", head: true })
       .eq("mensaje_id", resp.id);
-    if (count !== 1) mal(`el doble toque dejó ${count} filas en vez de corregir el voto`);
-    else bien("dos toques sobre el mismo mensaje dejan un solo voto, corregido");
+    const { data: quedo } = await supabase
+      .from("valoraciones")
+      .select("voto")
+      .eq("mensaje_id", resp.id)
+      .single();
+    if (count !== 1) mal(`el doble toque dejó ${count} filas`);
+    else if (segundo?.ya_habia_votado !== true) mal("el doble toque no vino marcado");
+    else if (quedo?.voto !== "no_util") mal(`el doble toque cambió el voto a «${quedo?.voto}»`);
+    else bien("dos toques sobre el mismo mensaje dejan un solo voto, el primero");
   }
 
   await supabase.from("conversaciones").delete().eq("id", conv);

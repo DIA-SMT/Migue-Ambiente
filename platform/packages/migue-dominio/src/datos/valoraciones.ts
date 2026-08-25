@@ -22,15 +22,18 @@ import type { SobreQue, Voto } from "../flujos/opciones.ts";
 /**
  * Registra el voto sobre la última respuesta de la conversación.
  *
- * Devuelve el id del voto, o null si no había nada que valorar — que pasa si el
- * vecino toca un botón viejo de una conversación que ya se cerró.
+ * `id` es null si no había nada que valorar, que pasa cuando el vecino toca un
+ * botón viejo de una conversación que ya no existe. `yaHabiaVotado` es true si
+ * ese mensaje ya tenía voto: desde la 029 el primer toque gana y los siguientes
+ * no cambian nada, y el bot usa este dato para callarse en vez de agradecer de
+ * nuevo.
  */
 export async function registrarVoto(
   conversacionId: string,
   voto: Voto,
   mensajeId: string | null = null,
   sobre: SobreQue = "respuesta",
-): Promise<string | null> {
+): Promise<{ id: string | null; yaHabiaVotado: boolean }> {
   const { data, error } = await obtenerCliente().rpc("registrar_voto", {
     p_conversacion_id: conversacionId,
     p_voto: voto,
@@ -47,8 +50,18 @@ export async function registrarVoto(
   // No se lanza a propósito. Si esto falla, el vecino ya tocó el botón y espera
   // una respuesta: mandarle un error porque no pudimos guardar una métrica
   // sería cambiar un problema nuestro por un problema suyo.
-  if (error) return null;
-  return (data as string | null) ?? null;
+  //
+  // Y ante un error se devuelve `yaHabiaVotado: false`, no true. Los dos hacen
+  // que el bot se calle, pero significan cosas opuestas, y con true un fallo de
+  // la base se vería igual que un segundo toque: el teclado se quitaría y el
+  // vecino se quedaría sin manera de reintentar un voto que nunca se guardó.
+  if (error) return { id: null, yaHabiaVotado: false };
+
+  const fila = data as { id?: string | null; ya_habia_votado?: boolean } | null;
+  return {
+    id: fila?.id ?? null,
+    yaHabiaVotado: fila?.ya_habia_votado === true,
+  };
 }
 
 /**

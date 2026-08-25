@@ -84,6 +84,24 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
     try {
       const resultado = await procesarMensaje(entrante, opciones.puertos);
 
+      // Los botones del mensaje tocado ya no sirven: se los quita ANTES de
+      // contestar, así el vecino ve que su toque quedó tomado sin esperar el
+      // mensaje siguiente.
+      //
+      // Telegram deja los teclados vivos para siempre, y con la encuesta eso se
+      // notaba: se votaba y se podía seguir tocando 👍 👎 👍 indefinidamente. La
+      // base ya bloquea el segundo voto (029), pero sin quitar el teclado el
+      // vecino no tiene forma de saberlo — toca, no pasa nada, y parece roto.
+      //
+      // Quién decide es el dominio (`quitarBotones`); acá sólo se ejecuta. Y se
+      // ignora el fallo: si el mensaje es viejo, si ya no tiene teclado, o si
+      // Telegram dice «message is not modified», nada de eso es un problema del
+      // vecino. `editMessageReplyMarkup` sólo tiene sentido sobre el mensaje de
+      // un callback, así que se comprueba que haya uno.
+      if (resultado.quitarBotones && ctx.callbackQuery !== undefined) {
+        await ctx.editMessageReplyMarkup().catch(() => undefined);
+      }
+
       for (const saliente of resultado.salientes) {
         for (const envio of renderizar(saliente)) {
           await ctx.reply(envio.texto, {

@@ -105,15 +105,24 @@ export interface Persistencia {
     confianza: number | null;
   }): Promise<unknown>;
   /**
-   * Guarda el voto sobre la última respuesta. Devuelve null si no había nada
-   * que valorar, que pasa cuando alguien toca un botón viejo.
+   * Guarda el voto sobre la última respuesta.
+   *
+   * Los tres desenlaces son distintos y el bot los trata distinto:
+   *
+   *   { id: "…", yaHabiaVotado: false }  se registró ahora  -> agradecer
+   *   { id: "…", yaHabiaVotado: true }   ya estaba          -> callarse
+   *   { id: null, yaHabiaVotado: false } no había qué votar -> callarse
+   *
+   * El segundo caso es el que arregla la 029: el primer toque gana, y sin este
+   * dato el bot no puede callarse en el momento correcto — o agradece de nuevo
+   * en cada toque, que es el bug, o no agradece nunca.
    */
   registrarVoto(
     conversacionId: string,
     voto: Voto,
     mensajeId: string | null,
     sobre: SobreQue,
-  ): Promise<string | null>;
+  ): Promise<{ id: string | null; yaHabiaVotado: boolean }>;
   /**
    * Intenta pegar este texto como explicación del último voto negativo.
    * Devuelve si correspondía: cuando es false, el texto era otra cosa.
@@ -137,6 +146,21 @@ export interface Resultado {
   readonly origenRespuesta: OrigenRespuesta;
   readonly flujoActivo: NombreFlujo | null;
   readonly efectos: readonly ResultadoEfecto[];
+  /**
+   * El teclado del mensaje que se acaba de tocar ya no sirve: el canal tiene
+   * que quitarlo.
+   *
+   * Existe porque Telegram deja los botones vivos para siempre. Con la encuesta
+   * eso se notaba: el vecino votaba, y podía seguir tocando 👍 👎 👍 sin que
+   * nada le dijera que su voto ya estaba tomado.
+   *
+   * La DECISIÓN vive acá y la MANERA vive en el canal, que es la única división
+   * que se sostiene: Telegram borra el teclado con `editMessageReplyMarkup`, y
+   * WhatsApp no puede editar un mensaje ya enviado —ahí el bloqueo lo hace sólo
+   * la base—. Un adaptador que decidiera esto por su cuenta tendría que saber
+   * qué es un voto, y eso es del dominio.
+   */
+  readonly quitarBotones: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +239,7 @@ export async function procesarMensaje(
     const { voto, sobre, mensajeId } = reconocido;
     // `mensajeId` viene del botón. Si es null —emoji suelto, o un teclado de
     // antes de este cambio— la base cae a su respaldo por conversación.
-    const idDelVoto = await puertos.persistencia.registrarVoto(
+    const { id: idDelVoto, yaHabiaVotado } = await puertos.persistencia.registrarVoto(
       conversacion.id,
       voto,
       mensajeId,
@@ -239,8 +263,18 @@ export async function procesarMensaje(
         : sobre === "tramite"
           ? "voto_tramite_detalle"
           : "voto_pedir_detalle";
+
+    // Y si el voto YA ESTABA, tampoco se contesta. Esto es el arreglo de lo que
+    // se vio probando: los botones de Telegram quedan vivos, el vecino tocaba
+    // 👍 👎 👍 y Migue agradecía cada vez, como si cada toque contara. Ahora el
+    // primer toque gana en la base (029) y el bot se calla en los siguientes.
+    //
+    // Callarse es mejor que decir «ya lo registré»: el teclado desaparece en el
+    // mismo turno, así que un segundo toque sólo puede venir de un mensaje
+    // viejo del historial, y contestarle algo a eso reabre una conversación que
+    // el vecino ya cerró.
     const salientes =
-      idDelVoto !== null && tieneTexto(catalogo, clave_texto)
+      idDelVoto !== null && !yaHabiaVotado && tieneTexto(catalogo, clave_texto)
         ? [decir(leerTexto(catalogo, clave_texto), voto === "util" ? "nada" : "texto")]
         : [];
 
@@ -249,6 +283,11 @@ export async function procesarMensaje(
       {
         conversacionId: conversacion.id,
         origenRespuesta: "flujo",
+        // El teclado se quita en cuanto el voto quedó tomado —ahora o antes—.
+        // Si NO se pudo tomar (`idDelVoto === null`, un botón de una charla que
+        // ya no existe) se dejan los botones: quitarlos le sacaría al vecino la
+        // única manera de reintentar sin decirle que algo falló.
+        quitarBotones: idDelVoto !== null,
         // Se informa el flujo que sigue abierto, si había uno. Decir null acá
         // haría que el panel mostrara la conversación como charla libre cuando
         // en realidad tiene un pedido a medias.
@@ -644,7 +683,10 @@ function sumar(a: number | null, b: number | null): number | null {
  */
 async function responderCon(
   salientes: readonly MensajeSaliente[],
-  resultado: Omit<Resultado, "salientes">,
+  // `quitarBotones` es opcional acá y obligatorio en `Resultado`: lo pide un
+  // solo camino —el del voto— y hacérselo declarar a los otros trece sería
+  // ruido que no dice nada. El default explícito de abajo es el contrato.
+  resultado: Omit<Resultado, "salientes" | "quitarBotones"> & { quitarBotones?: boolean },
   traza: TrazaMensaje,
   puertos: Puertos,
 ): Promise<Resultado> {
@@ -675,7 +717,7 @@ async function responderCon(
     enviados.push(conBotones);
   }
 
-  return { ...resultado, salientes: enviados };
+  return { quitarBotones: false, ...resultado, salientes: enviados };
 }
 
 /**

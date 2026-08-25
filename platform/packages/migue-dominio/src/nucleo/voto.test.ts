@@ -513,13 +513,21 @@ describe("si el voto no se pudo guardar, Migue no agradece", () => {
     const puertos = puertosPrueba();
     // El voto no se puede registrar: pasa si el vecino toca un botón de una
     // conversación que ya se cerró.
-    puertos.persistencia.registrarVoto = async () => null;
+    puertos.persistencia.registrarVoto = async () => ({ id: null, yaHabiaVotado: false });
 
     const r = await procesarMensaje(msg({ seleccion: "voto_util" }), puertos);
     assert.equal(
       r.salientes.length,
       0,
       "no hay que agradecer un voto que no se guardó",
+    );
+    // Y NO se le quitan los botones. Es la diferencia entre «tu voto ya estaba»
+    // y «tu voto no entró»: quitarle el teclado a este vecino le saca la única
+    // forma de reintentar, y encima sin decirle que algo falló.
+    assert.equal(
+      r.quitarBotones,
+      false,
+      "si el voto no entró, los botones tienen que seguir ahí",
     );
   });
 

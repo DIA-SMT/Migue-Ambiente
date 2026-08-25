@@ -1338,6 +1338,14 @@ declare
   v_otra uuid;
   v_voto uuid;
   v_mensaje uuid;
+  -- `registrar_voto` devuelve jsonb desde la 029: el bot necesita distinguir
+  -- «se registro ahora» de «ya estaba» para saber si agradecer o callarse.
+  v_res jsonb;
+  -- Conversacion aparte para las pruebas de la ventana de tiempo, y un segundo
+  -- mensaje para la del valor por defecto de `sobre`. Los dos existen porque el
+  -- voto ya no se puede re-votar; el comentario de cada check lo explica.
+  v_conv_v uuid;
+  v_mensaje2 uuid;
   v_texto text;
   v_op uuid := '77777777-7777-7777-7777-777777777777';
   v_fuera uuid := '99999999-9999-9999-9999-999999999999';
@@ -1367,8 +1375,12 @@ begin
 
   -- 1 - EL CASO QUE IMPORTA: el voto va contra la RESPUESTA, no contra la
   --     pregunta de cortesia, aunque esa sea el ultimo saliente.
-  select public.registrar_voto(v_conv, 'no_util') into v_voto;
+  v_res := public.registrar_voto(v_conv, 'no_util');
+  v_voto := (v_res->>'id')::uuid;
   if v_voto is null then raise exception 'no se registro el voto'; end if;
+  if (v_res->>'ya_habia_votado')::boolean then
+    raise exception 'el PRIMER voto vino marcado como repetido: el bot no agradeceria nunca';
+  end if;
 
   select mensaje_id into v_mensaje from public.valoraciones where id = v_voto;
   if v_mensaje = v_cortesia then
@@ -1380,9 +1392,21 @@ begin
 
   -- 2 - Tocar el boton dos veces NO cuenta doble. Pasa de verdad: el vecino no
   --     ve confirmacion inmediata y vuelve a tocar.
-  perform public.registrar_voto(v_conv, 'no_util');
+  --
+  --     Y ESTE CHEQUEO NO ALCANZABA. Contaba filas, y filas duplicadas nunca
+  --     hubo: el `on conflict do update` de antes CAMBIABA el voto y devolvia un
+  --     id, asi que el bot volvia a agradecer en cada toque. La prueba miraba la
+  --     tabla y el vecino veia la conversacion. Se agrega lo que faltaba: que la
+  --     funcion AVISE que ya habia voto.
+  v_res := public.registrar_voto(v_conv, 'no_util');
   select count(*) into n from public.valoraciones where conversacion_id = v_conv;
   if n <> 1 then raise exception 'dos toques crearon % filas', n; end if;
+  if not (v_res->>'ya_habia_votado')::boolean then
+    raise exception 'el segundo toque no vino marcado: el bot volveria a agradecer';
+  end if;
+  if (v_res->>'id')::uuid <> v_voto then
+    raise exception 'el segundo toque devolvio otro voto';
+  end if;
 
   -- 3 - El comentario se pega al voto negativo.
   select public.comentar_voto(v_conv, 'yo pregunte por escombros no por poda') into v_ok;
@@ -1401,15 +1425,31 @@ begin
     raise exception 'se perdio el comentario original';
   end if;
 
-  -- 5 - Cambiar el voto de abajo a ARRIBA limpia el comentario. Un «me faltaba
-  --     el horario» pegado a un pulgar arriba no se entiende.
-  perform public.registrar_voto(v_conv, 'util');
-  select voto, comentario into v_texto, v_texto from public.valoraciones where id = v_voto;
+  -- 5 - EL VOTO NO SE CAMBIA. Este check decia lo contrario hasta la 029:
+  --     probaba que cambiar de pulgar limpiara el comentario. Probando el bot
+  --     se vio por que estaba mal — se podia votar 👍 👎 👍 👎 y Migue agradecia
+  --     cada vez, como si cada toque contara.
+  --
+  --     El dato que le sirve al area es la primera reaccion, no la ultima de una
+  --     serie de toques. Y un boton que contesta siempre lo mismo no le ensena
+  --     al vecino que su voto ya quedo tomado.
+  --
+  --     Lo que se pierde, dicho de frente: el que toco por error ya no se
+  --     corrige solo. La valvula es el comentario, donde puede escribir «me
+  --     equivoque» y el area lo lee.
+  v_res := public.registrar_voto(v_conv, 'util');
+  if not (v_res->>'ya_habia_votado')::boolean then
+    raise exception 'el cambio de opinion no vino marcado como repetido';
+  end if;
   select voto into v_texto from public.valoraciones where id = v_voto;
-  if v_texto <> 'util' then raise exception 'no se corrigio el voto'; end if;
+  if v_texto <> 'no_util' then
+    raise exception 'el voto se cambio a «%»: el primer toque tenia que ganar', v_texto;
+  end if;
+  --     Y el comentario sigue donde estaba. Ya no existe el cambio de voto que
+  --     lo podia dejar colgado de un pulgar que no le corresponde.
   select comentario into v_texto from public.valoraciones where id = v_voto;
-  if v_texto is not null then
-    raise exception 'quedo un comentario de un pulgar abajo pegado a uno arriba: %', v_texto;
+  if v_texto <> 'yo pregunte por escombros no por poda' then
+    raise exception 'se perdio el comentario del vecino: %', v_texto;
   end if;
 
   -- 6 - Un voto invalido se rechaza en vez de guardarse.
@@ -1425,8 +1465,16 @@ begin
   --     mensajes.
   insert into public.conversaciones (canal, canal_usuario_id)
   values ('telegram', 'voto-prueba-vacia') returning id into v_otra;
-  select public.registrar_voto(v_otra, 'util') into v_voto;
-  if v_voto is not null then raise exception 'valoro una conversacion sin respuestas'; end if;
+  v_res := public.registrar_voto(v_otra, 'util');
+  if (v_res->>'id') is not null then
+    raise exception 'valoro una conversacion sin respuestas';
+  end if;
+  -- Y NO viene marcado como repetido. Los dos casos hacen que el bot se calle,
+  -- pero significan cosas opuestas: con «repetido» el adaptador le sacaria el
+  -- teclado a un vecino cuyo voto nunca entro, y se quedaria sin como reintentar.
+  if (v_res->>'ya_habia_votado')::boolean then
+    raise exception 'un voto que no se pudo registrar vino marcado como repetido';
+  end if;
 
   -- 8 - Un texto vacio no crea nada.
   select public.comentar_voto(v_conv, '   ') into v_ok;
@@ -1435,13 +1483,29 @@ begin
   -- 9 - La ventana de tiempo. Con ventana cero, un voto de hace un rato ya no
   --     acepta comentario: es lo que evita que un mensaje de manana quede
   --     pegado como explicacion de un pulgar abajo de hoy.
-  perform public.registrar_voto(v_conv, 'no_util');
-  select public.comentar_voto(v_conv, 'dentro de la ventana', 10) into v_ok;
+  --
+  --     Va en su PROPIA conversacion, y eso es consecuencia de la 029. Antes
+  --     esta prueba conseguia un voto limpio re-votando, y ahora el primer toque
+  --     gana. Valorar otro mensaje de `v_conv` tambien servia, pero le cambiaba
+  --     los totales a los checks 10, 11 y 16, que cuentan sobre esa
+  --     conversacion. Una conversacion aparte los deja quietos.
+  insert into public.conversaciones (canal, canal_usuario_id)
+  values ('telegram', 'voto-prueba-ventana') returning id into v_conv_v;
+
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta)
+  values (v_conv_v, 'saliente', 'Los escombros van a un Punto Verde.', 'faq');
+
+  perform public.registrar_voto(v_conv_v, 'no_util');
+  select public.comentar_voto(v_conv_v, 'dentro de la ventana', 10) into v_ok;
   if not v_ok then raise exception 'la ventana de 10 minutos rechazo un voto recien creado'; end if;
 
-  perform public.registrar_voto(v_conv, 'util');   -- limpia el comentario
-  perform public.registrar_voto(v_conv, 'no_util');
-  select public.comentar_voto(v_conv, 'fuera de la ventana', 0) into v_ok;
+  -- Otro mensaje, otro voto sin comentario. Sin la ventana, este texto quedaria
+  -- pegado como explicacion aunque no tenga nada que ver.
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta)
+  values (v_conv_v, 'saliente', 'El retiro de ramas se pide por aca.', 'faq');
+
+  perform public.registrar_voto(v_conv_v, 'no_util');
+  select public.comentar_voto(v_conv_v, 'fuera de la ventana', 0) into v_ok;
   if v_ok then raise exception 'una ventana de cero minutos acepto el comentario'; end if;
 
   -- 10 - La vista resume el voto sin que el panel tenga que traer los mensajes.
@@ -1545,8 +1609,12 @@ begin
   values (v_conv, 'saliente', 'Solicitud registrada. Numero AMB-1.', 'flujo')
   returning id into v_mensaje;
 
-  select public.registrar_voto(v_conv, 'no_util', v_mensaje, 'tramite') into v_voto;
+  v_res := public.registrar_voto(v_conv, 'no_util', v_mensaje, 'tramite');
+  v_voto := (v_res->>'id')::uuid;
   if v_voto is null then raise exception 'no se registro el voto del tramite'; end if;
+  if (v_res->>'ya_habia_votado')::boolean then
+    raise exception 'el voto del tramite vino marcado como repetido';
+  end if;
 
   select sobre into v_texto from public.valoraciones where id = v_voto;
   if v_texto <> 'tramite' then
@@ -1578,18 +1646,29 @@ begin
   -- 18 - Y sin el cuarto argumento sigue siendo 'respuesta'. Esto es lo que
   --      hace que el bot ya desplegado no se rompa cuando se aplica la 028:
   --      todas sus llamadas de hoy pasan tres argumentos.
-  perform public.registrar_voto(v_conv, 'util', v_mensaje);
-  select sobre into v_texto from public.valoraciones where mensaje_id = v_mensaje;
+  --
+  --      Tiene que ir contra un mensaje SIN VOTAR. La version anterior re-votaba
+  --      `v_mensaje` —que arriba quedo como 'tramite'— y funcionaba solo porque
+  --      el voto se sobreescribia. Con el bloqueo de la 029 ese camino no toca
+  --      nada, la fila sigue diciendo 'tramite', y el check habria fallado
+  --      culpando al default en vez de a si mismo.
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta)
+  values (v_conv, 'saliente', 'Los Puntos Verdes abren de 8 a 20.', 'faq')
+  returning id into v_mensaje2;
+
+  v_res := public.registrar_voto(v_conv, 'util', v_mensaje2);
+  if (v_res->>'id') is null then raise exception 'no se registro el voto de control'; end if;
+  select sobre into v_texto from public.valoraciones where mensaje_id = v_mensaje2;
   if v_texto <> 'respuesta' then
     raise exception 'el default de `sobre` quedo en «%» en vez de respuesta', v_texto;
   end if;
 
   perform set_config('request.jwt.claim.sub', '', true);
-  delete from public.conversaciones where id in (v_conv, v_otra);
+  delete from public.conversaciones where id in (v_conv, v_otra, v_conv_v);
   delete from public.personal_panel where usuario_id = v_op;
   delete from auth.users where id = v_op;
 end $$;
-\echo '   OK: el voto va contra la respuesta, no cuenta doble, y el panel no lo modifica'
+\echo '   OK: el voto va contra la respuesta, se cierra con el primer toque, y el panel no lo modifica'
 
 -- ---------------------------------------------------------------------------
 -- BLOQUE O - La superficie ejecutable: ninguna funcion abierta a la clave publica

@@ -132,11 +132,12 @@ try {
   //      desplegado ahora mismo llama con tres argumentos. Si el default no
   //      fuera 'respuesta', la 028 habría reclasificado en silencio todos los
   //      votos que ya venían andando.
-  const { data: v1, error: e1 } = await supabase.rpc("registrar_voto", {
+  const { data: r1, error: e1 } = await supabase.rpc("registrar_voto", {
     p_conversacion_id: conversacionId,
     p_voto: "no_util",
     p_mensaje_id: respuesta.id,
   });
+  const v1 = r1?.id ?? null;
   if (e1) mal(`registrar_voto de 3 argumentos falló: ${e1.message}`);
   else if (!v1) mal("registrar_voto devolvió null sobre un mensaje que existe");
   else {
@@ -150,12 +151,13 @@ try {
   }
 
   // 3b · El voto del TRÁMITE. Es la llamada nueva que hace el bot.
-  const { data: v2, error: e2 } = await supabase.rpc("registrar_voto", {
+  const { data: r2, error: e2 } = await supabase.rpc("registrar_voto", {
     p_conversacion_id: conversacionId,
     p_voto: "no_util",
     p_mensaje_id: cierre.id,
     p_sobre: "tramite",
   });
+  const v2 = r2?.id ?? null;
   if (e2) {
     mal(`registrar_voto con p_sobre falló: ${e2.message} <-- el bot no puede votar el trámite`);
   } else if (!v2) {
@@ -213,6 +215,30 @@ try {
     }
   }
 
+  /* --- 3f · El bloqueo de la 029, sobre las dos encuestas --------------- */
+  // El arreglo fácil y equivocado sería «un voto por conversación». Rompería la
+  // encuesta del trámite: acá hay DOS votos en la misma charla, uno de la
+  // respuesta y uno del trámite, y los dos tienen que haber entrado.
+  const { count: cuantos } = await supabase
+    .from("valoraciones")
+    .select("id", { count: "exact", head: true })
+    .eq("conversacion_id", conversacionId);
+  if (cuantos !== 2) mal(`el bloqueo dejó ${cuantos} votos en vez de 2`);
+  else bien("el bloqueo es por mensaje, no por conversación: entraron los dos votos");
+
+  // Y un segundo toque sobre el voto del trámite no cambia nada ni contesta.
+  const { data: reToque } = await supabase.rpc("registrar_voto", {
+    p_conversacion_id: conversacionId,
+    p_voto: "util",
+    p_mensaje_id: cierre.id,
+    p_sobre: "tramite",
+  });
+  const { data: siguePeor } = await supabase
+    .from("valoraciones").select("voto").eq("id", v2).single();
+  if (reToque?.ya_habia_votado !== true) mal("el segundo toque del trámite no vino marcado");
+  else if (siguePeor?.voto !== "no_util") mal("el segundo toque cambió el voto del trámite");
+  else bien("el segundo toque del trámite no cambia nada y viene marcado");
+
   /* --- 4 · Y el panel no puede tocar nada de esto ----------------------- */
   // `registrar_voto` está revocada a anon/authenticated a propósito: el voto es
   // del vecino. Que alguien del municipio lo pueda escribir destruiría el único
@@ -234,6 +260,11 @@ try {
     .from("valoraciones").select("voto").eq("id", v2).single();
   if (sigue?.voto !== "no_util") mal("la clave ANON cambió el voto de un vecino");
   else bien("la clave ANON no cambia el voto de un vecino");
+
+  // Vale aclarar qué prueba y qué no este último chequeo: la RPC está revocada y
+  // el UPDATE directo no pasa el RLS, así que el voto está cerrado por los dos
+  // lados. El bloqueo del segundo toque (029) es otra cosa —protege del propio
+  // vecino, no del panel— y se prueba arriba.
 } finally {
   if (conversacionId) {
     await supabase.from("conversaciones").delete().eq("id", conversacionId);

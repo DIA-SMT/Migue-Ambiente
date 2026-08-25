@@ -79,12 +79,30 @@ export async function guardarNota(id: string, notas: string): Promise<Resultado>
   const acceso = await conPermiso();
   if (!acceso) return { ok: false, mensaje: "Tu cuenta no está habilitada." };
 
-  const { error } = await acceso.supabase
+  // El `.select("id")` no es decorativo: es lo que permite saber si se escribió
+  // algo. El RLS de Postgres FILTRA filas en el `using`, no lanza excepción, así
+  // que un UPDATE que no alcanza ninguna fila vuelve sin error y con cero filas.
+  // Sin esto, alguien a quien dieron de baja del padrón después de abrir la
+  // pantalla escribía su nota, veía «Nota guardada.» en verde, y no se había
+  // guardado nada. `cambiarEstado` ya lo hacía diez líneas más arriba; esta
+  // función se quedó atrás.
+  const { error, data } = await acceso.supabase
     .from("tickets")
     .update({ notes: notas.trim() || null })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
-  if (error) return { ok: false, mensaje: error.message };
+  if (error) {
+    return {
+      ok: false,
+      mensaje: /row-level security/i.test(error.message)
+        ? "No tenés permiso para escribir notas."
+        : error.message,
+    };
+  }
+  if (!data || data.length === 0) {
+    return { ok: false, mensaje: "No pude guardar la nota: no encontré ese caso." };
+  }
 
   revalidatePath("/casos");
   return { ok: true, mensaje: "Nota guardada." };

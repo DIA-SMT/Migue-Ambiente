@@ -29,6 +29,14 @@ export interface Registro {
   readonly efectos: Efecto[];
   readonly sinRespuesta: Array<{ pregunta: string; motivo: MotivoSinRespuesta }>;
   readonly votos: Array<{ voto: string; sobre: string; mensajeId: string | null }>;
+  /**
+   * Los mensajes que ya tienen voto, para imitar el bloqueo de la 029.
+   *
+   * Va aparte de `votos` y no se deduce de el: `votos` guarda TODOS los
+   * intentos —incluidos los segundos toques— porque una prueba necesita poder
+   * afirmar que el bot intento registrar y que la base lo rechazo.
+   */
+  readonly mensajesVotados: Set<string>;
   /** Los textos que se intentaron pegar como explicación de un voto. */
   readonly comentariosIntentados: string[];
   readonly cierres: Array<"cerrada" | "derivada" | "abandonada">;
@@ -66,6 +74,7 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
     efectos: [],
     sinRespuesta: [],
     votos: [],
+    mensajesVotados: new Set<string>(),
     comentariosIntentados: [],
     cierres: [],
     flujosGuardados: [],
@@ -125,7 +134,20 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
       // Sin esto una prueba sólo puede decir que se votó, no que se votó lo que
       // correspondía — y ese era exactamente el bug.
       registro.votos.push({ voto, sobre, mensajeId });
-      return "v-1";
+
+      // El doble imita el bloqueo de la 029: el primer voto sobre un mensaje se
+      // registra, y los siguientes devuelven `yaHabiaVotado`. Se lleva por
+      // mensaje y no un simple contador porque votar la respuesta y después el
+      // trámite son dos mensajes distintos y los dos tienen que entrar.
+      //
+      // La clave usa `mensajeId ?? "(inferido)"`: cuando el botón no trae el id
+      // la base cae a su respaldo por conversación, que en una misma
+      // conversación siempre resuelve al mismo mensaje. Tratar cada emoji suelto
+      // como un mensaje nuevo dejaría pasar exactamente el bug que se arregló.
+      const clave = mensajeId ?? "(inferido)";
+      const yaHabiaVotado = registro.mensajesVotados.has(clave);
+      registro.mensajesVotados.add(clave);
+      return { id: "v-1", yaHabiaVotado };
     },
     // El doble registra el INTENTO y devuelve false, que es el caso normal: la
     // enorme mayoría de los mensajes no explican ningún voto. Una prueba que
