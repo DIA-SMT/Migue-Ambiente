@@ -35,3 +35,10 @@ export {
  * resueltos, exactamente igual que los resuelve el bot al enviarlo.
  */
 export { interpolar, recortar } from "./texto.ts";
+
+export {
+  MARCADORES_POR_TEXTO,
+  MARCADORES_DE_CONFIRMACION,
+  marcadoresDe,
+  marcadoresQueNoSeResuelven,
+} from "./marcadores.ts";

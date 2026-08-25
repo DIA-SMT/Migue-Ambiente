@@ -30,7 +30,7 @@ import {
   buscarDireccion,
   preguntaPorDireccion,
 } from "../reglas/direccion.ts";
-import { leerTexto } from "../datos/catalogo.ts";
+import { leerTexto, tieneTexto } from "../datos/catalogo.ts";
 import { normalizar, recortar } from "../texto.ts";
 import { decir, preguntar, textoEfectivo } from "../mensajeria.ts";
 import type {
@@ -282,15 +282,29 @@ export const flujoProgramaSepara: DefinicionFlujo = {
 
     datos_fuera: {
       // Los datos que pidió el área en el documento de QA, en un solo mensaje.
-      abrir: () => [
+      //
+      // SALE DEL CATÁLOGO, y eso es un arreglo. La clave
+      // `separa_fuera_de_avenidas` existe en `textos_bot` desde la migración 008,
+      // con el texto que el área pidió explícitamente — y NINGÚN archivo la leía.
+      // El bot mandaba la versión escrita a mano acá abajo. O sea: el panel
+      // ofrecía editar esta frase, confirmaba que se había guardado, y el vecino
+      // seguía recibiendo otra cosa. Es la peor clase de control roto, porque no
+      // parece roto.
+      //
+      // El texto de abajo queda como RESPALDO: la clave está marcada `opcional`,
+      // así que se puede vaciar desde el panel, y este paso no puede quedarse sin
+      // pedir los datos o el flujo se corta con el vecino esperando.
+      abrir: (ctx) => [
         decir(
-          "Para coordinar el retiro necesito, en un mismo mensaje:\n\n" +
-            "• Tu nombre\n" +
-            "• Un teléfono de contacto\n" +
-            "• La dirección exacta (calle y altura)\n" +
-            "• Qué materiales tenés para entregar\n" +
-            "• En qué franja horaria estás\n\n" +
-            "Si podés sumar una foto de los reciclables limpios, mejor.",
+          tieneTexto(ctx.catalogo, "separa_fuera_de_avenidas")
+            ? leerTexto(ctx.catalogo, "separa_fuera_de_avenidas")
+            : "Para coordinar el retiro necesito, en un mismo mensaje:\n\n" +
+              "• Tu nombre\n" +
+              "• Un teléfono de contacto\n" +
+              "• La dirección exacta (calle y altura)\n" +
+              "• Qué materiales tenés para entregar\n" +
+              "• En qué franja horaria estás\n\n" +
+              "Si podés sumar una foto de los reciclables limpios, mejor.",
           "texto",
         ),
       ],

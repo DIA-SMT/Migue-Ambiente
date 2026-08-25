@@ -284,7 +284,22 @@ describe("casos borde", () => {
       intencion: "no_entendido",
     });
     assert.equal(ultimo.origenRespuesta, "fallback");
-    assert.match(dicho(puertos), /Retiro de residuos especiales/);
+
+    // Se afirma sobre las OPCIONES y no sobre el texto del menú, y el cambio
+    // vale explicarlo: esta prueba buscaba «Retiro de residuos especiales» en el
+    // texto, y pasaba sólo porque el fixture tenía la lista numerada vieja. En
+    // producción la 020 le quitó los números —el menú ahora va con botones— así
+    // que la prueba estaba verde afirmando algo que ningún vecino recibe.
+    //
+    // Lo que de verdad tiene que cumplirse es que el menú llegue con las seis
+    // opciones elegibles: eso es lo que hace que se vean como botones y que
+    // contestar con el número funcione.
+    const menu = puertos.registro.salientes.at(-1);
+    assert.equal(menu?.opciones.length, OPCIONES_MENU.length);
+    assert.deepEqual(
+      menu?.opciones.map((o) => o.id),
+      OPCIONES_MENU.map((o) => o.id),
+    );
   });
 
   it("la traza va sólo en el primer mensaje del turno", async () => {

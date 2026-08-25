@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { interpolar } from "@migue/dominio/compartido";
-import { fechaLegible } from "@/lib/tipos";
+import { interpolar, marcadoresDe } from "@migue/dominio/compartido";
+import { fechaLegible, type TextoBot } from "@/lib/tipos";
 import { guardarTexto, type Resultado } from "./acciones";
-import type { TextoBot } from "./page";
 
 interface Grupo {
   rotulo: string;
@@ -21,16 +20,25 @@ interface Grupo {
  * los marcadores cuando el bot envía el mensaje. Si acá se usara una versión
  * propia, la vista previa mentiría — y una vista previa que miente es peor que
  * no tenerla, porque da confianza para publicar.
+ *
+ * Es una pestaña de Conocimiento y no una pantalla aparte porque las cuatro
+ * cosas de esa pantalla son lo mismo visto de cerca: todo lo que Migue dice y el
+ * área puede cambiar. Tener «Textos del bot» en el menú, al lado de
+ * «Conocimiento», obligaba a saber de antemano en cuál de las dos vivía la frase
+ * que se quería corregir.
+ *
+ * Lo que SÍ distingue a estos textos de una pregunta frecuente, y la pantalla lo
+ * dice: estas 21 claves son FIJAS. El código las busca por nombre, así que se
+ * edita el texto pero no se agregan ni se borran. Sin decirlo, alguien busca el
+ * botón de «nuevo» y no lo encuentra.
  */
 export function EditorTextos({
   grupos,
   sinAgrupar,
-  marcadores,
   ejemplos,
 }: {
   grupos: Grupo[];
   sinAgrupar: TextoBot[];
-  marcadores: string[];
   ejemplos: Record<string, string>;
 }) {
   const router = useRouter();
@@ -41,7 +49,7 @@ export function EditorTextos({
 
   async function guardar(clave: string) {
     setGuardando(clave);
-    const r = await guardarTexto(clave, borradores[clave] ?? "", marcadores);
+    const r = await guardarTexto(clave, borradores[clave] ?? "");
     setAviso({ ...r, clave });
     setGuardando(null);
     if (r.ok) {
@@ -59,7 +67,12 @@ export function EditorTextos({
     const valor = borradores[t.clave] ?? t.texto;
     const cambiado = valor.trim() !== t.texto.trim();
     const usados = [...valor.matchAll(/\{[a-zA-Z_]+\}/g)].map((m) => m[0]);
-    const invalidos = [...new Set(usados.filter((u) => !marcadores.includes(u)))];
+    // Por CLAVE y no contra la lista global: `interpolar()` corre en dos pasos de
+    // flujo y en ningún otro lado, así que un `{plazo}` bien escrito en
+    // `bienvenida` le llega al vecino con las llaves. La lista global decía que
+    // era válido.
+    const admite = marcadoresDe(t.clave);
+    const invalidos = [...new Set(usados.filter((u) => !admite.includes(u)))];
 
     return (
       <div key={t.clave} className="tarjeta" style={{ padding: 16, marginBottom: 10 }}>
@@ -95,11 +108,30 @@ export function EditorTextos({
 
             {invalidos.length > 0 && (
               <div className="aviso mal" style={{ marginTop: 10 }}>
-                {invalidos.join(", ")} no {invalidos.length === 1 ? "es un marcador" : "son marcadores"} válido
-                {invalidos.length === 1 ? "" : "s"}: el bot se {invalidos.length === 1 ? "lo" : "los"} enviaría
-                al vecino con las llaves puestas.
+                {admite.length === 0 ? (
+                  <>
+                    Este mensaje no acepta marcadores: {invalidos.join(", ")} se{" "}
+                    {invalidos.length === 1 ? "le" : "les"} enviaría al vecino con las llaves
+                    puestas. Sólo los mensajes de confirmación de un trámite los resuelven.
+                  </>
+                ) : (
+                  <>
+                    {invalidos.join(", ")} no {invalidos.length === 1 ? "es" : "son"} de los que el
+                    bot reemplaza acá: se {invalidos.length === 1 ? "lo" : "los"} enviaría al vecino
+                    con las llaves puestas. En este mensaje valen {admite.join(", ")}.
+                  </>
+                )}
               </div>
             )}
+
+            {/* Qué acepta ESTA frase. Sin decirlo hay que adivinar, y la lista
+                global de arriba —que estaba antes— afirmaba que los cuatro
+                servían en todas, que es justamente lo que no es cierto. */}
+            <p className="ayuda">
+              {admite.length === 0
+                ? "Este mensaje se envía tal cual: no acepta marcadores."
+                : `Acepta ${admite.join(", ")}. El bot los reemplaza al enviar.`}
+            </p>
 
             {/* La vista previa sólo aparece si hay marcadores: sin ellos el texto
                 de arriba ya ES lo que ve el vecino, y repetirlo sería ruido. */}
@@ -154,19 +186,17 @@ export function EditorTextos({
         </div>
       )}
 
-      <div className="aviso info">
-        <strong>Marcadores disponibles:</strong>{" "}
-        {marcadores.map((m) => (
-          <code key={m} style={{ marginRight: 6 }}>
-            {m}
-          </code>
-        ))}
-        <div style={{ marginTop: 5, fontSize: "0.85rem" }}>
-          El bot los reemplaza al enviar. Cualquier otra cosa entre llaves se envía con las llaves
-          puestas.
-        </div>
-      </div>
+      {/*
+        Acá había un cartel que listaba los cuatro marcadores como «disponibles»,
+        sin más. Era falso y de la forma más costosa: afirmaba que servían en
+        cualquier mensaje, cuando `interpolar()` se llama en DOS pasos de flujo y
+        en ningún otro lado. Alguien podía escribir «te contesto en {plazo}» en la
+        bienvenida, guardarlo sin protesta, y el vecino recibía las llaves.
 
+        Ahora cada frase dice qué acepta, mientras se la edita, y las dos que
+        aceptan algo lo dicen en su grupo. Un dato correcto en el lugar donde se
+        usa vale más que una lista completa arriba.
+      */}
       {grupos.map((g) => (
         <section key={g.rotulo} style={{ marginTop: 26 }}>
           <h2>{g.rotulo}</h2>

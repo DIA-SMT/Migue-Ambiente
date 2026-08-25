@@ -90,13 +90,19 @@ const TEXTOS = new Map<string, string>([
       "Puedo ayudarte con retiro de residuos especiales, reclamos de recolección, " +
       "programas ambientales y Puntos Verdes.\n\nContame qué necesitás.",
   ],
+  // Una sola línea, sin la lista numerada. La 020 le quitó los números porque el
+  // menú ahora se manda con opciones de verdad —botones en Telegram— y tener los
+  // números en el texto ADEMÁS de los botones hacía que el vecino escribiera «3»
+  // refiriéndose a un orden distinto al de las opciones reales.
+  ["menu_principal", "Decime con qué necesitás que te ayude."],
+  // Los tres del voto (022). Los dos últimos son opcionales: vaciarlos desde el
+  // panel apaga la respuesta de Migue al voto sin dejar de registrarlo.
+  ["seguimiento_tras_responder", "¿Te sirvió esta respuesta?"],
+  ["voto_gracias_util", "¡Buenísimo! Cualquier otra cosa que necesites, escribime."],
   [
-    "menu_principal",
-    "Decime cuál de estas opciones te sirve:\n\n" +
-      "1. Retiro de residuos especiales (poda, escombros, muebles)\n" +
-      "2. El camión no pasó\n" +
-      "3. Programas ambientales (SEPARÁ, EDUCÁ, TRANSFORMÁ, Puntos Verdes)\n" +
-      "4. Otra consulta\n\nO escribime directamente tu consulta.",
+    "voto_pedir_detalle",
+    "Gracias por decirme, me ayuda a mejorar. ¿Qué te falta saber? " +
+      "Si querés no me contestes, ya lo registré.",
   ],
   [
     "sin_respuesta",
@@ -128,6 +134,24 @@ const TEXTOS = new Map<string, string>([
     "separa_info",
     "El servicio SEPARÁ pasa los Miércoles y Sábados de 09 a 12 hs (dentro de las 4 avenidas). Dejá tus reciclables limpios y secos.",
   ],
+  // Las tres de abajo FALTABAN, y faltar acá no es un detalle: el código que las
+  // lee no se ejecuta nunca en la suite, así que un cambio de comportamiento ahí
+  // pasa sin que nada lo note. Ya ocurrió con `seguimiento_tras_responder`: se
+  // cambió el «¿te sirvió?» de texto suelto a dos botones y los 360 tests
+  // siguieron verdes porque el bloque entero era inalcanzable.
+  //
+  // `catalogo.claves.test.ts` compara este mapa contra las claves de las
+  // migraciones y falla si vuelve a faltar alguna.
+  [
+    "separa_fuera_de_avenidas",
+    "Tu domicilio está fuera de las 4 avenidas. Para coordinar el retiro necesito: tu nombre, teléfono, dirección exacta, una foto de los reciclables limpios, qué materiales son y en qué franja horaria estás.",
+  ],
+  // VACÍA, igual que en producción: Ambiente todavía no pasó la URL del mapa de
+  // recorridos. El fixture espeja la base, no lo que sería lindo tener — si acá
+  // tuviera texto, las pruebas del flujo de reclamo estarían midiendo un
+  // comportamiento que ningún vecino recibe.
+  ["reclamo_info_turnos", ""],
+  ["despedida", "¡De nada! Cualquier otra cosa, escribime."],
 ]);
 
 /**

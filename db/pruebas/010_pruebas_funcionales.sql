@@ -1112,6 +1112,412 @@ begin
 end $$;
 \echo '   OK: el operador no publica, el supervisor si, y un «.*» se ve antes de publicarlo'
 
+-- ---------------------------------------------------------------------------
+-- BLOQUE M - Cerrar el circuito: pregunta sin responder -> respuesta (021)
+-- ---------------------------------------------------------------------------
+-- Lo que se prueba aca no es que las funciones existan: es que resolver sea
+-- ATOMICO y que no sea una puerta de atras para publicar.
+--
+-- Las dos son SECURITY DEFINER, o sea que corren con los privilegios del dueno
+-- y RLS NO se les aplica. Si la verificacion de rol de adentro estuviera mal, un
+-- operador podria publicar por RPC lo que las politicas de la 019 le prohiben
+-- por INSERT directo, y el bloque L seguiria pasando igual.
+\echo ' M. Resolver: escribir la respuesta y marcar la pregunta, en una transaccion'
+
+do $$
+declare
+  v_op    uuid := '77777777-7777-7777-7777-777777777777';
+  v_sup   uuid := '88888888-8888-8888-8888-888888888888';
+  v_fuera uuid := '99999999-9999-9999-9999-999999999999';
+  v_p1 uuid; v_p2 uuid; v_p3 uuid;
+  v_faq uuid; v_fija uuid;
+  v_pub boolean;
+  v_estado text;
+  v_titulo text;
+  v_publicada boolean;
+  n int;
+begin
+  insert into auth.users (id, email, email_confirmed_at) values
+    (v_op,  'operador@smt.gob.ar',   now()),
+    (v_sup, 'supervisor@smt.gob.ar', now())
+  on conflict (id) do nothing;
+  insert into public.personal_panel (usuario_id, correo, nombre, rol) values
+    (v_op,  'operador@smt.gob.ar',   'Operadora', 'operador'),
+    (v_sup, 'supervisor@smt.gob.ar', 'Supervisor','supervisor')
+  on conflict (usuario_id) do update set activo = true, rol = excluded.rol;
+
+  insert into public.sin_respuesta (pregunta, motivo, veces_repetida)
+  values ('donde tiro el aceite usado de cocina', 'sin_coincidencia', 4)
+  returning id into v_p1;
+  insert into public.sin_respuesta (pregunta, motivo, veces_repetida)
+  values ('a que hora atiende el corralon', 'confianza_baja', 2)
+  returning id into v_p2;
+  insert into public.sin_respuesta (pregunta, motivo)
+  values ('cuando me llega la boleta de rentas', 'fuera_de_alcance')
+  returning id into v_p3;
+
+  -- 1 - Un OPERADOR resuelve: se escribe la FAQ y la pregunta queda marcada.
+  --     Las dos cosas, o ninguna.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  select faq_id, publicada into v_faq, v_pub
+    from public.resolver_con_faq(v_p1, 'donde tiro el aceite usado de cocina',
+                                 'En los Puntos Verdes, en botella cerrada.',
+                                 array['aceite'], false);
+  if v_faq is null then raise exception 'no se creo la FAQ'; end if;
+
+  select estado, resuelta_con_faq_id into v_estado, v_faq
+    from public.sin_respuesta where id = v_p1;
+  if v_estado <> 'resuelta' then
+    raise exception 'la pregunta quedo en «%» en vez de resuelta', v_estado;
+  end if;
+  if v_faq is null then
+    raise exception 'la pregunta se marco resuelta pero sin vincular la respuesta';
+  end if;
+
+  -- 2 - EL CASO QUE IMPORTA: el operador pidio publicar y NO se publico.
+  --     Es la unica forma de que estas funciones no sean una puerta de atras a
+  --     lo que la 019 le prohibe por INSERT directo.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  select faq_id, publicada into v_faq, v_pub
+    from public.resolver_con_faq(v_p2, 'a que hora atiende el corralon',
+                                 'De 8 a 13.', array[]::text[], true);
+  if v_pub then
+    raise exception 'un operador publico usando resolver_con_faq: es una puerta de atras';
+  end if;
+  select activa into v_publicada from public.faqs where id = v_faq;
+  if v_publicada then
+    raise exception 'la FAQ quedo activa aunque la creo un operador';
+  end if;
+
+  -- 3 - Y no se pierde el trabajo: quedo el borrador escrito y la pregunta
+  --     tomada. Rechazar la operacion entera seria peor.
+  select estado into v_estado from public.sin_respuesta where id = v_p2;
+  if v_estado <> 'resuelta' then
+    raise exception 'se perdio el vinculo cuando el operador no pudo publicar';
+  end if;
+
+  -- 4 - La vista distingue «respondida» de «falta publicar». Sin esto el panel
+  --     da por cerrado algo que el vecino todavia no puede recibir.
+  select respuesta_titulo, respuesta_publicada, respuesta_tipo
+    into v_titulo, v_publicada, v_estado
+    from public.v_sin_respuesta where id = v_p2;
+  if v_titulo is null then raise exception 'la vista no trae el titulo de la respuesta'; end if;
+  if v_publicada is not false then
+    raise exception 'la vista dice publicada=% para un borrador', v_publicada;
+  end if;
+  if v_estado <> 'faq' then raise exception 'la vista no dice que es una FAQ'; end if;
+
+  -- 5 - Un SUPERVISOR si publica en el mismo paso.
+  perform set_config('request.jwt.claim.sub', v_sup::text, true);
+  select fija_id, publicada into v_fija, v_pub
+    from public.resolver_con_fija(v_p3, 'Derivar a Rentas', array['boleta','rentas'],
+                                  'contiene', 'Eso lo atiende Rentas: 0800-...',
+                                  true, 'Salio de una pregunta sin responder.');
+  if not v_pub then raise exception 'un supervisor no pudo publicar'; end if;
+
+  select activa, notas into v_publicada, v_titulo from public.respuestas_fijas where id = v_fija;
+  if not v_publicada then raise exception 'la fija no quedo activa'; end if;
+  -- Las notas viajan: el panel tiene el campo y si la RPC no lo aceptara, se
+  -- tragaria en silencio lo que se escribe ahi.
+  if v_titulo is null then raise exception 'se perdieron las notas de la respuesta fija'; end if;
+
+  -- 6 - Descartar no borra la fila: deja el motivo para poder revisarlo.
+  insert into public.sin_respuesta (pregunta, motivo) values ('asdasd', 'sin_coincidencia');
+  perform public.descartar_sin_respuesta(
+    (select id from public.sin_respuesta where pregunta = 'asdasd'), 'No se entiende');
+  select estado, notas into v_estado, v_titulo
+    from public.sin_respuesta where pregunta = 'asdasd';
+  if v_estado <> 'descartada' then raise exception 'no se descarto'; end if;
+  if v_titulo <> 'No se entiende' then raise exception 'no quedo el motivo del descarte'; end if;
+
+  -- 7 - Una pregunta que no existe da error, no un exito silencioso. Sin esto
+  --     el panel diria «respondida» y no habria quedado nada vinculado.
+  perform set_config('request.jwt.claim.sub', v_sup::text, true);
+  begin
+    perform public.resolver_con_faq(gen_random_uuid(), 'x', 'y', array[]::text[], false);
+    raise exception 'resolvio una pregunta inexistente';
+  exception when others then
+    if sqlerrm not like 'no existe esa pregunta%' then raise; end if;
+  end;
+
+  -- 8 - Y no atienden a quien no esta en el padron, que es lo que las hace
+  --     seguras siendo SECURITY DEFINER.
+  perform set_config('request.jwt.claim.sub', v_fuera::text, true);
+  begin
+    perform public.resolver_con_faq(v_p1, 'x', 'y', array[]::text[], false);
+    raise exception 'resolver_con_faq atendio a alguien fuera del padron';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.descartar_sin_respuesta(v_p1, 'x');
+    raise exception 'descartar_sin_respuesta atendio a alguien fuera del padron';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- 9 - La vista hereda RLS de las tablas (security_invoker). Si se hubiera
+  --     creado sin eso, correria con los permisos del dueno y cualquier cuenta
+  --     autenticada leeria las preguntas de los vecinos por la vista, saltando
+  --     todo lo que cerro la 017.
+  perform set_config('request.jwt.claim.sub', v_fuera::text, true);
+  set local role authenticated;
+  select count(*) into n from public.v_sin_respuesta;
+  reset role;
+  if n <> 0 then
+    raise exception 'una cuenta fuera del padron leyo % filas de v_sin_respuesta', n;
+  end if;
+
+  -- 10 - Y alguien del padron si las ve.
+  perform set_config('request.jwt.claim.sub', v_sup::text, true);
+  set local role authenticated;
+  select count(*) into n from public.v_sin_respuesta;
+  reset role;
+  if n = 0 then raise exception 'un supervisor no ve ninguna pregunta sin responder'; end if;
+
+  -- 11 - `anon` no toca nada de esto. Es la puerta que da a internet.
+  set local role anon;
+  begin
+    select count(*) into n from public.v_sin_respuesta;
+    if n > 0 then
+      reset role;
+      raise exception 'anon leyo % preguntas de vecinos', n;
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.faqs where pregunta like '%aceite%' or pregunta like '%corralon%';
+  delete from public.respuestas_fijas where nombre = 'Derivar a Rentas';
+  delete from public.sin_respuesta
+   where pregunta in ('donde tiro el aceite usado de cocina',
+                      'a que hora atiende el corralon',
+                      'cuando me llega la boleta de rentas', 'asdasd');
+  delete from public.personal_panel where usuario_id in (v_op, v_sup);
+  delete from auth.users where id in (v_op, v_sup);
+end $$;
+\echo '   OK: resolver es atomico, un operador no publica por RPC y la vista hereda RLS'
+
+-- ---------------------------------------------------------------------------
+-- BLOQUE N - El voto del vecino (022)
+-- ---------------------------------------------------------------------------
+-- Lo que se prueba aca no es que la tabla exista: es que el voto quede colgado
+-- del mensaje CORRECTO, que tocar dos veces no cuente doble, y que el panel no
+-- pueda modificarlo.
+--
+-- Lo primero es lo mas facil de errar. El bot manda DOS salientes por turno: la
+-- respuesta y despues el "te sirvio?" con los botones. Si `registrar_voto`
+-- tomara literalmente el ultimo saliente, el voto quedaria colgado del mensaje
+-- de cortesia, y el panel mostraria un pulgar abajo sobre un texto que dice
+-- "te sirvio?" en vez de sobre la respuesta que fallo.
+\echo ' N. Voto: contra el mensaje correcto, sin contar doble, y el panel no lo toca'
+
+do $$
+declare
+  v_conv uuid;
+  v_respuesta uuid;
+  v_cortesia uuid;
+  v_otra uuid;
+  v_voto uuid;
+  v_mensaje uuid;
+  v_texto text;
+  v_op uuid := '77777777-7777-7777-7777-777777777777';
+  v_fuera uuid := '99999999-9999-9999-9999-999999999999';
+  n int;
+  v_ok boolean;
+begin
+  insert into auth.users (id, email, email_confirmed_at)
+  values (v_op, 'operador@smt.gob.ar', now()) on conflict (id) do nothing;
+  insert into public.personal_panel (usuario_id, correo, nombre, rol)
+  values (v_op, 'operador@smt.gob.ar', 'Operadora', 'operador')
+  on conflict (usuario_id) do update set activo = true;
+
+  insert into public.conversaciones (canal, canal_usuario_id, nombre_usuario)
+  values ('telegram', 'voto-prueba-1', 'Vecino Prueba') returning id into v_conv;
+
+  insert into public.mensajes (conversacion_id, direccion, texto)
+  values (v_conv, 'entrante', 'cuando pasa el camion de poda');
+
+  -- El turno del bot: la respuesta (con traza) y despues la cortesia (sin).
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta, intencion)
+  values (v_conv, 'saliente', 'Los residuos verdes se retiran los martes.', 'faq', 'consulta_libre')
+  returning id into v_respuesta;
+
+  insert into public.mensajes (conversacion_id, direccion, texto)
+  values (v_conv, 'saliente', 'Te sirvio esta respuesta?')
+  returning id into v_cortesia;
+
+  -- 1 - EL CASO QUE IMPORTA: el voto va contra la RESPUESTA, no contra la
+  --     pregunta de cortesia, aunque esa sea el ultimo saliente.
+  select public.registrar_voto(v_conv, 'no_util') into v_voto;
+  if v_voto is null then raise exception 'no se registro el voto'; end if;
+
+  select mensaje_id into v_mensaje from public.valoraciones where id = v_voto;
+  if v_mensaje = v_cortesia then
+    raise exception 'el voto quedo colgado del «te sirvio?» en vez de la respuesta';
+  end if;
+  if v_mensaje <> v_respuesta then
+    raise exception 'el voto quedo colgado de un mensaje inesperado';
+  end if;
+
+  -- 2 - Tocar el boton dos veces NO cuenta doble. Pasa de verdad: el vecino no
+  --     ve confirmacion inmediata y vuelve a tocar.
+  perform public.registrar_voto(v_conv, 'no_util');
+  select count(*) into n from public.valoraciones where conversacion_id = v_conv;
+  if n <> 1 then raise exception 'dos toques crearon % filas', n; end if;
+
+  -- 3 - El comentario se pega al voto negativo.
+  select public.comentar_voto(v_conv, 'yo pregunte por escombros no por poda') into v_ok;
+  if not v_ok then raise exception 'no se pego el comentario'; end if;
+  select comentario into v_texto from public.valoraciones where id = v_voto;
+  if v_texto <> 'yo pregunte por escombros no por poda' then
+    raise exception 'el comentario quedo mal: %', v_texto;
+  end if;
+
+  -- 4 - Y el SEGUNDO texto ya no lo sobrescribe. Es lo que hace que el bot
+  --     pueda llamar a esta funcion en cada mensaje sin destruir lo guardado.
+  select public.comentar_voto(v_conv, 'otra cosa que escribio despues') into v_ok;
+  if v_ok then raise exception 'sobrescribio un comentario que ya estaba'; end if;
+  select comentario into v_texto from public.valoraciones where id = v_voto;
+  if v_texto <> 'yo pregunte por escombros no por poda' then
+    raise exception 'se perdio el comentario original';
+  end if;
+
+  -- 5 - Cambiar el voto de abajo a ARRIBA limpia el comentario. Un «me faltaba
+  --     el horario» pegado a un pulgar arriba no se entiende.
+  perform public.registrar_voto(v_conv, 'util');
+  select voto, comentario into v_texto, v_texto from public.valoraciones where id = v_voto;
+  select voto into v_texto from public.valoraciones where id = v_voto;
+  if v_texto <> 'util' then raise exception 'no se corrigio el voto'; end if;
+  select comentario into v_texto from public.valoraciones where id = v_voto;
+  if v_texto is not null then
+    raise exception 'quedo un comentario de un pulgar abajo pegado a uno arriba: %', v_texto;
+  end if;
+
+  -- 6 - Un voto invalido se rechaza en vez de guardarse.
+  begin
+    perform public.registrar_voto(v_conv, 'mas_o_menos');
+    raise exception 'acepto un voto invalido';
+  exception when others then
+    if sqlerrm not like 'voto invalido%' then raise; end if;
+  end;
+
+  -- 7 - Una conversacion sin ninguna respuesta previa devuelve null, no explota.
+  --     Pasa si alguien toca un boton viejo de una charla que ya no tiene
+  --     mensajes.
+  insert into public.conversaciones (canal, canal_usuario_id)
+  values ('telegram', 'voto-prueba-vacia') returning id into v_otra;
+  select public.registrar_voto(v_otra, 'util') into v_voto;
+  if v_voto is not null then raise exception 'valoro una conversacion sin respuestas'; end if;
+
+  -- 8 - Un texto vacio no crea nada.
+  select public.comentar_voto(v_conv, '   ') into v_ok;
+  if v_ok then raise exception 'acepto un comentario vacio'; end if;
+
+  -- 9 - La ventana de tiempo. Con ventana cero, un voto de hace un rato ya no
+  --     acepta comentario: es lo que evita que un mensaje de manana quede
+  --     pegado como explicacion de un pulgar abajo de hoy.
+  perform public.registrar_voto(v_conv, 'no_util');
+  select public.comentar_voto(v_conv, 'dentro de la ventana', 10) into v_ok;
+  if not v_ok then raise exception 'la ventana de 10 minutos rechazo un voto recien creado'; end if;
+
+  perform public.registrar_voto(v_conv, 'util');   -- limpia el comentario
+  perform public.registrar_voto(v_conv, 'no_util');
+  select public.comentar_voto(v_conv, 'fuera de la ventana', 0) into v_ok;
+  if v_ok then raise exception 'una ventana de cero minutos acepto el comentario'; end if;
+
+  -- 10 - La vista resume el voto sin que el panel tenga que traer los mensajes.
+  select votos_utiles, votos_no_utiles, primer_mensaje
+    into n, n, v_texto
+    from public.v_conversaciones where id = v_conv;
+  if v_texto <> 'cuando pasa el camion de poda' then
+    raise exception 'la vista no trae el primer mensaje del vecino: %', v_texto;
+  end if;
+  select votos_no_utiles into n from public.v_conversaciones where id = v_conv;
+  if n <> 1 then raise exception 'la vista conto % votos negativos', n; end if;
+
+  -- 11 - La transcripcion trae el voto pegado a la respuesta que lo recibio.
+  select count(*) into n from public.transcripcion(v_conv) where voto is not null;
+  if n <> 1 then raise exception 'la transcripcion pego el voto a % mensajes', n; end if;
+  select texto into v_texto from public.transcripcion(v_conv) where voto is not null;
+  if v_texto not like 'Los residuos verdes%' then
+    raise exception 'el voto quedo pegado al mensaje «%»', v_texto;
+  end if;
+
+  -- 12 - El panel LEE pero NO ESCRIBE. El voto es del vecino: que alguien del
+  --      municipio pueda cambiarlo destruiria el unico dato que vale de esta
+  --      tabla. Se prueba el EFECTO con `set local role`, no la definicion de
+  --      la politica: el arnes corre como postgres, que saltea RLS.
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  select count(*) into n from public.valoraciones;
+  reset role;
+  if n = 0 then raise exception 'el panel no puede leer las valoraciones'; end if;
+
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  begin
+    update public.valoraciones set voto = 'util' where conversacion_id = v_conv;
+    if found then
+      reset role;
+      raise exception 'el panel pudo CAMBIAR el voto de un vecino';
+    end if;
+    reset role;
+  exception when insufficient_privilege then
+    reset role;
+  end;
+
+  perform set_config('request.jwt.claim.sub', v_op::text, true);
+  set local role authenticated;
+  begin
+    delete from public.valoraciones where conversacion_id = v_conv;
+    if found then
+      reset role;
+      raise exception 'el panel pudo BORRAR un voto';
+    end if;
+    reset role;
+  exception when insufficient_privilege then
+    reset role;
+  end;
+
+  -- 13 - Y una cuenta fuera del padron no ve nada, ni por la tabla ni por la
+  --      vista. La vista es security_invoker justamente para esto.
+  perform set_config('request.jwt.claim.sub', v_fuera::text, true);
+  set local role authenticated;
+  select count(*) into n from public.valoraciones;
+  reset role;
+  if n <> 0 then raise exception 'una cuenta fuera del padron leyo % votos', n; end if;
+
+  perform set_config('request.jwt.claim.sub', v_fuera::text, true);
+  set local role authenticated;
+  select count(*) into n from public.v_conversaciones;
+  reset role;
+  if n <> 0 then
+    raise exception 'una cuenta fuera del padron leyo % conversaciones por la vista', n;
+  end if;
+
+  -- 14 - Y la transcripcion tampoco es una puerta: es security invoker.
+  perform set_config('request.jwt.claim.sub', v_fuera::text, true);
+  set local role authenticated;
+  select count(*) into n from public.transcripcion(v_conv);
+  reset role;
+  if n <> 0 then
+    raise exception 'la transcripcion le dio % mensajes a alguien fuera del padron', n;
+  end if;
+
+  -- 15 - Los tres textos del voto quedaron cargados y son opcionales los que
+  --      tienen que serlo: vaciarlos desde el panel es como se apaga el voto.
+  select count(*) into n from public.textos_bot
+   where clave in ('seguimiento_tras_responder','voto_gracias_util','voto_pedir_detalle')
+     and opcional = true;
+  if n <> 3 then raise exception 'faltan textos del voto o no son opcionales: %', n; end if;
+
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.conversaciones where id in (v_conv, v_otra);
+  delete from public.personal_panel where usuario_id = v_op;
+  delete from auth.users where id = v_op;
+end $$;
+\echo '   OK: el voto va contra la respuesta, no cuenta doble, y el panel no lo modifica'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='

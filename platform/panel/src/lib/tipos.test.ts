@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import {
   datosFaltantes,
   esEstadoHeredado,
+  estadoDeLaPregunta,
   estadoVisible,
+  MOTIVOS_SIN_RESPUESTA,
   riesgoDelDisparador,
   situacionSla,
   tamanoLegible,
   type Documento,
+  type PreguntaSinResponder,
   type Ticket,
 } from "./tipos.ts";
 
@@ -330,5 +333,132 @@ describe("un ticket cerrado por el bot anterior", () => {
     const s = situacionSla(t, new Date("2026-08-26T12:00:00Z").getTime());
     assert.equal(s.tono, "alerta");
     assert.equal(s.urgencia, 0);
+  });
+});
+
+function pregunta(parcial: Partial<PreguntaSinResponder> = {}): PreguntaSinResponder {
+  return {
+    id: "p1",
+    pregunta: "donde tiro el aceite usado de cocina",
+    motivo: "sin_coincidencia",
+    confianza: null,
+    veces_repetida: 1,
+    estado: "pendiente",
+    notas: null,
+    creado_en: "2026-08-20T10:00:00Z",
+    actualizado_en: "2026-08-20T10:00:00Z",
+    resuelta_con_faq_id: null,
+    resuelta_con_fija_id: null,
+    respuesta_titulo: null,
+    respuesta_publicada: null,
+    respuesta_tipo: null,
+    ...parcial,
+  };
+}
+
+describe("estadoDeLaPregunta", () => {
+  it("una pregunta nueva está pendiente", () => {
+    assert.equal(estadoDeLaPregunta(pregunta()).etiqueta, "pendiente");
+  });
+
+  it("una resuelta con la respuesta publicada dice «respondida»", () => {
+    const e = estadoDeLaPregunta(
+      pregunta({
+        estado: "resuelta",
+        resuelta_con_faq_id: "f1",
+        respuesta_tipo: "faq",
+        respuesta_publicada: true,
+        respuesta_titulo: "¿Dónde llevo el aceite?",
+      }),
+    );
+    assert.equal(e.etiqueta, "respondida");
+    assert.equal(e.tono, "ok");
+    assert.equal(e.detalle, "¿Dónde llevo el aceite?");
+  });
+
+  // ESTE es el caso que justifica que la función exista. Alguien escribió la
+  // respuesta, la pregunta figura «resuelta», y el vecino que vuelva a
+  // preguntar lo mismo va a fallar IGUAL porque el borrador no está publicado.
+  // Si esto se mostrara como respondida, el panel diría que el trabajo está
+  // hecho cuando falta el único paso que lo hace servir.
+  it("una resuelta con el borrador sin publicar NO dice respondida", () => {
+    const e = estadoDeLaPregunta(
+      pregunta({
+        estado: "resuelta",
+        resuelta_con_faq_id: "f1",
+        respuesta_tipo: "faq",
+        respuesta_publicada: false,
+        respuesta_titulo: "¿Dónde llevo el aceite?",
+      }),
+    );
+    assert.equal(e.etiqueta, "falta publicar");
+    assert.equal(e.tono, "alerta");
+    assert.match(e.detalle ?? "", /todavía no lo usa/);
+    // Y el tono tiene que ser de alerta, no el neutro de «pendiente»: es
+    // trabajo hecho a medias, que es peor que trabajo sin empezar porque nadie
+    // lo va a volver a tomar.
+    assert.notEqual(e.tono, "ok");
+  });
+
+  it("distingue una respuesta textual de una frecuente", () => {
+    const e = estadoDeLaPregunta(
+      pregunta({
+        estado: "resuelta",
+        resuelta_con_fija_id: "r1",
+        respuesta_tipo: "fija",
+        respuesta_publicada: true,
+        respuesta_titulo: "Derivar a Rentas",
+      }),
+    );
+    assert.equal(e.etiqueta, "respondida");
+    assert.equal(e.detalle, "Derivar a Rentas");
+  });
+
+  // Pasa si alguien la marca resuelta por fuera del panel, con service_role.
+  // Queda visible en vez de darla por buena: no hay ninguna respuesta escrita.
+  it("una resuelta sin nada vinculado se muestra como anomalía", () => {
+    const e = estadoDeLaPregunta(pregunta({ estado: "resuelta" }));
+    assert.equal(e.etiqueta, "resuelta sin respuesta vinculada");
+    assert.notEqual(e.tono, "ok");
+  });
+
+  it("una descartada muestra el motivo que se anotó", () => {
+    const e = estadoDeLaPregunta(
+      pregunta({ estado: "descartada", notas: "Es una prueba nuestra" }),
+    );
+    assert.equal(e.etiqueta, "descartada");
+    assert.equal(e.detalle, "Es una prueba nuestra");
+  });
+});
+
+describe("MOTIVOS_SIN_RESPUESTA", () => {
+  // El CHECK de `sin_respuesta.motivo` en la migración 004 admite exactamente
+  // estos cuatro. Si la base agrega un quinto y esta tabla no lo tiene, el
+  // panel busca `MOTIVOS_SIN_RESPUESTA[motivo]` y explota con «cannot read
+  // properties of undefined» al renderizar la fila.
+  const DEL_CHECK = ["sin_coincidencia", "confianza_baja", "fuera_de_alcance", "error_modelo"];
+
+  it("cubre los cuatro motivos que admite el CHECK de la base", () => {
+    assert.deepEqual(Object.keys(MOTIVOS_SIN_RESPUESTA).sort(), [...DEL_CHECK].sort());
+  });
+
+  it("cada motivo dice qué hacer, y sólo error_modelo no es accionable", () => {
+    for (const [clave, m] of Object.entries(MOTIVOS_SIN_RESPUESTA)) {
+      assert.ok(m.etiqueta.length > 0, `${clave} sin etiqueta`);
+      assert.ok(m.queHacer.length > 0, `${clave} no dice qué hacer`);
+    }
+    // Escribir una respuesta no arregla que se haya caído el proveedor del
+    // modelo, así que la pantalla no ofrece esa acción para ese motivo.
+    assert.equal(MOTIVOS_SIN_RESPUESTA.error_modelo.accionable, false);
+    assert.equal(MOTIVOS_SIN_RESPUESTA.sin_coincidencia.accionable, true);
+    assert.equal(MOTIVOS_SIN_RESPUESTA.confianza_baja.accionable, true);
+  });
+
+  it("los tonos son clases de chip que el CSS define", () => {
+    // Un tono inventado sale sin estilo: el chip queda transparente y no se lee.
+    const TONOS = ["ok", "curso", "pend", "alerta"];
+    for (const [clave, m] of Object.entries(MOTIVOS_SIN_RESPUESTA)) {
+      assert.ok(TONOS.includes(m.tono), `${clave} usa el tono «${m.tono}», que no existe`);
+    }
   });
 });

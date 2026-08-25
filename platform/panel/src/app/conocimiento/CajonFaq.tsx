@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Faq } from "@/lib/tipos";
-import { guardarFaq, type Resultado } from "./acciones";
+import { guardarFaq, resolverConFaq, type Resultado } from "./acciones";
 
 /**
  * Escribir o editar una pregunta frecuente.
@@ -11,19 +11,30 @@ import { guardarFaq, type Resultado } from "./acciones";
  * pregunta peso «A» y a la respuesta peso «B», así que lo que se escribe en la
  * pregunta es lo que hace que Migue la encuentre. Conviene escribirla como la
  * escribiría un vecino, no como la enunciaría el área.
+ *
+ * Con `resolviendo` el cajón hace además de cierre del circuito: viene de una
+ * pregunta que Migue no supo contestar, y guarda por la RPC que escribe la
+ * respuesta y marca la pregunta en la misma transacción.
+ *
+ * La pregunta del vecino se precarga TEXTUAL, con sus palabras y sus errores de
+ * tipeo. No es descuido: es exactamente el texto que falló al buscar, así que es
+ * el que mejor hace que la próxima vez encuentre. Se puede editar, pero el
+ * primer borrador tiene que ser el original.
  */
 export function CajonFaq({
   faq,
   puedePublicar,
+  resolviendo = null,
   alCerrar,
   alTerminar,
 }: {
   faq: Faq | null;
   puedePublicar: boolean;
+  resolviendo?: { id: string; pregunta: string } | null;
   alCerrar: () => void;
   alTerminar: (r: Resultado) => void;
 }) {
-  const [pregunta, setPregunta] = useState(faq?.pregunta ?? "");
+  const [pregunta, setPregunta] = useState(faq?.pregunta ?? resolviendo?.pregunta ?? "");
   const [respuesta, setRespuesta] = useState(faq?.respuesta ?? "");
   const [etiquetas, setEtiquetas] = useState(faq?.etiquetas.join(", ") ?? "");
   const [activa, setActiva] = useState(faq?.activa ?? false);
@@ -32,7 +43,15 @@ export function CajonFaq({
   async function guardar() {
     setGuardando(true);
     alTerminar(
-      await guardarFaq({ id: faq?.id ?? null, pregunta, respuesta, etiquetas, activa }),
+      resolviendo
+        ? await resolverConFaq({
+            sinRespuestaId: resolviendo.id,
+            pregunta,
+            respuesta,
+            etiquetas,
+            activa,
+          })
+        : await guardarFaq({ id: faq?.id ?? null, pregunta, respuesta, etiquetas, activa }),
     );
     setGuardando(false);
   }
@@ -42,13 +61,30 @@ export function CajonFaq({
       <div className="velo" onClick={alCerrar} aria-hidden="true" />
       <aside className="cajon" role="dialog" aria-modal="true" aria-label="Pregunta frecuente">
         <div className="cajon-cabecera">
-          <h2>{faq ? "Editar pregunta frecuente" : "Nueva pregunta frecuente"}</h2>
+          <h2>
+            {resolviendo
+              ? "Responder lo que Migue no supo"
+              : faq
+                ? "Editar pregunta frecuente"
+                : "Nueva pregunta frecuente"}
+          </h2>
           <button className="chico" onClick={alCerrar}>
             Cerrar
           </button>
         </div>
 
         <div className="cajon-cuerpo">
+          {resolviendo && (
+            <div className="cita-original">
+              <span className="rotulo">Lo que preguntó el vecino</span>
+              <blockquote>{resolviendo.pregunta}</blockquote>
+              <p className="ayuda" style={{ marginTop: 6 }}>
+                Ya está cargada abajo tal como la escribió. Al guardar, esta pregunta se marca
+                resuelta y queda vinculada a la respuesta.
+              </p>
+            </div>
+          )}
+
           <div className="campo">
             <label htmlFor="pregunta">La pregunta, como la haría un vecino</label>
             <textarea

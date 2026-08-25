@@ -168,3 +168,127 @@ export const OPCIONES_MENU: readonly OpcionElegible[] = [
   { id: "programa_transforma", etiqueta: "Mural o intervención en un espacio (TRANSFORMÁ)" },
   { id: "consulta_libre", etiqueta: "Otra consulta" },
 ];
+
+/**
+ * Las opciones del voto: ¿te sirvió la respuesta?
+ *
+ * Los emojis van en la ETIQUETA y no en el id, porque el id viaja en el
+ * `callback_data` de Telegram —que tiene 64 bytes— y un emoji ocupa cuatro.
+ * Además un id con emoji sería un dolor de cabeza para comparar.
+ *
+ * Dos opciones y no tres. Un «más o menos» en el medio se lleva la mayoría de
+ * los votos y no dice nada: la pregunta que esto contesta es si hay que escribir
+ * una respuesta mejor o no, y eso es binario.
+ */
+export const OPCIONES_VALORACION: readonly OpcionElegible[] = [
+  { id: "voto_util", etiqueta: "👍 Sí, me sirvió" },
+  { id: "voto_no_util", etiqueta: "👎 No me sirvió" },
+];
+
+export type Voto = "util" | "no_util";
+
+/**
+ * Los botones de voto, con el id del mensaje que se está valorando pegado.
+ *
+ * ESTO ES EL ARREGLO DE UN BUG QUE LLEGÓ A PRODUCCIÓN, y vale escribir por qué.
+ *
+ * Antes los ids eran fijos —`voto_util`— y era la BASE la que resolvía contra
+ * qué mensaje iba el voto: buscaba el último saliente con `origen_respuesta` no
+ * nulo. La idea era saltear el «¿te sirvió?», porque el comentario de la
+ * migración afirmaba que `responderCon` sólo pone la traza en el primer saliente
+ * del turno. Falso: le ponía `origenRespuesta` a TODOS, así que ningún saliente
+ * tenía la columna en null y el «último no nulo» era siempre la propia pregunta
+ * de cortesía. El 100% de los votos habría quedado colgado de ella.
+ *
+ * Y la inferencia fallaba de una segunda forma que ningún arreglo de esa
+ * columna resolvía: Telegram deja los teclados viejos vivos para siempre, así
+ * que un vecino puede tocar el pulgar veinte minutos después, cuando el último
+ * saliente ya es una despedida o un paso de otro trámite. El voto se acreditaba
+ * a ese.
+ *
+ * Ahora el botón lleva su referente: no hay nada que inferir, y un pulgar tocado
+ * tarde sigue valorando la respuesta correcta. De paso arregla el doble toque —
+ * mismo `mensaje_id` significa que el índice único hace su trabajo y el voto se
+ * CORRIGE en vez de contarse dos veces e inflar el porcentaje.
+ *
+ * Sobre el largo: el `callback_data` de Telegram admite 64 bytes. «voto_no_util»
+ * (12) + «:» (1) + un uuid (36) son 49. Entra. Los ids de botón de WhatsApp
+ * admiten 256, así que también.
+ */
+export function opcionesDeVoto(mensajeId: string | null): readonly OpcionElegible[] {
+  if (mensajeId === null) return OPCIONES_VALORACION;
+  return OPCIONES_VALORACION.map((o) => ({ ...o, id: `${o.id}:${mensajeId}` }));
+}
+
+/**
+ * Quita los modificadores de un emoji para poder compararlo.
+ *
+ * `👍🏽` no es `👍`: es `👍` más un modificador de tono de piel (U+1F3FB a
+ * U+1F3FF). Y muchos teclados agregan un selector de variación (U+FE0F) que
+ * tampoco se ve. Sin esto, un vecino que usa el pulgar con su tono de piel
+ * —cosa habitual— manda un voto que no se registra, y el mensaje sigue de largo
+ * hasta el clasificador: se paga una llamada al modelo y recibe un «no entendí»
+ * por haber usado el mismo emoji que el bot le ofreció.
+ */
+function sinModificadores(texto: string): string {
+  return texto.replace(/[\u{1F3FB}-\u{1F3FF}\u{FE0E}\u{FE0F}\u{200D}]/gu, "");
+}
+
+/** Un voto reconocido, con el mensaje al que corresponde si el botón lo traía. */
+export interface VotoReconocido {
+  readonly voto: Voto;
+  /**
+   * El saliente que se está valorando, o null si el botón no lo traía.
+   *
+   * Es null en dos casos legítimos: un botón de antes de este cambio, y un
+   * vecino que manda el emoji suelto en vez de tocar. En los dos la base cae al
+   * respaldo por conversación, que es peor pero es lo único que hay.
+   */
+  readonly mensajeId: string | null;
+}
+
+/**
+ * ¿Este mensaje es un voto?
+ *
+ * A diferencia del menú, acá NO se aceptan números sueltos, y la razón es que
+ * el bot no lleva registro de que acaba de ofrecer el voto. Un «2» suelto es
+ * mucho más probable que sea una opción del menú principal —que el vecino ve
+ * seguido— que un pulgar abajo. Leerlo como voto registraría una medición falsa
+ * y, peor, no arrancaría el flujo que el vecino pidió.
+ *
+ * Es la misma decisión que ya se tomó en `resolverOpcion` cuando buscar palabras
+ * sueltas hacía que «¿cuándo pasa el camión?» arrancara un reclamo: ante la
+ * duda, no interpretar.
+ *
+ * Sí se acepta el emoji suelto, porque es inequívoco y hay gente que lo manda
+ * en vez de tocar el botón.
+ */
+export function votoDe(entrante: {
+  readonly seleccion?: string | null;
+  readonly texto?: string | null;
+}): VotoReconocido | null {
+  // El toque de un botón es el camino normal, en Telegram y en WhatsApp. El id
+  // puede venir con el mensaje pegado (`voto_util:<uuid>`) o sin él, si es un
+  // teclado viejo de antes de que los botones llevaran su referente.
+  const sel = entrante.seleccion ?? "";
+  if (sel !== "") {
+    const corte = sel.indexOf(":");
+    const clave = corte === -1 ? sel : sel.slice(0, corte);
+    const mensajeId = corte === -1 ? null : sel.slice(corte + 1) || null;
+    if (clave === "voto_util") return { voto: "util", mensajeId };
+    if (clave === "voto_no_util") return { voto: "no_util", mensajeId };
+  }
+
+  // El emoji suelto: inequívoco, y hay gente que lo manda en vez de tocar. Acá
+  // no hay mensaje al que colgarlo, así que resuelve la base.
+  const t = sinModificadores(normalizar(entrante.texto ?? ""));
+  if (t === "") return null;
+
+  const util = sinModificadores(normalizar(OPCIONES_VALORACION[0]!.etiqueta));
+  const noUtil = sinModificadores(normalizar(OPCIONES_VALORACION[1]!.etiqueta));
+
+  if (t === "👍" || t === util) return { voto: "util", mensajeId: null };
+  if (t === "👎" || t === noUtil) return { voto: "no_util", mensajeId: null };
+
+  return null;
+}

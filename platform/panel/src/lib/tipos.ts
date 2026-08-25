@@ -429,3 +429,348 @@ export function datosFaltantes(t: Ticket): string[] {
   }
   return faltan;
 }
+
+/* ------------------------------------------------- preguntas sin responder --- */
+
+/**
+ * Por qué Migue no supo contestar. Cada motivo pide una acción distinta, y por
+ * eso se guarda el motivo y no sólo el hecho de que falló:
+ *
+ *   sin_coincidencia   el buscador no encontró NADA. Falta material: hay que
+ *                      escribir una respuesta o cargar el documento.
+ *   confianza_baja     encontró algo pero flojo. Suele significar que existe la
+ *                      información pero está redactada con otras palabras.
+ *   fuera_de_alcance   no es de Ambiente. No hay nada que escribir; se descarta,
+ *                      y si se repite mucho conviene una respuesta que derive.
+ *   error_modelo       falló el proveedor. No es un problema de contenido y no
+ *                      hay que responderlo: es para mirar en Métricas.
+ */
+export type MotivoSinRespuesta =
+  | "sin_coincidencia"
+  | "confianza_baja"
+  | "fuera_de_alcance"
+  | "error_modelo";
+
+export type EstadoSinRespuesta = "pendiente" | "resuelta" | "descartada";
+
+/** Una fila de `v_sin_respuesta` (migración 021). */
+export interface PreguntaSinResponder {
+  id: string;
+  pregunta: string;
+  motivo: MotivoSinRespuesta;
+  confianza: number | null;
+  veces_repetida: number;
+  estado: EstadoSinRespuesta;
+  notas: string | null;
+  creado_en: string;
+  actualizado_en: string;
+  resuelta_con_faq_id: string | null;
+  resuelta_con_fija_id: string | null;
+  respuesta_titulo: string | null;
+  respuesta_publicada: boolean | null;
+  respuesta_tipo: "faq" | "fija" | null;
+}
+
+export const MOTIVOS_SIN_RESPUESTA: Record<
+  MotivoSinRespuesta,
+  { etiqueta: string; tono: string; queHacer: string; accionable: boolean }
+> = {
+  sin_coincidencia: {
+    etiqueta: "no encontró nada",
+    tono: "alerta",
+    queHacer: "Falta material sobre el tema. Escribir una respuesta es lo más directo.",
+    accionable: true,
+  },
+  confianza_baja: {
+    etiqueta: "encontró poco",
+    tono: "curso",
+    queHacer:
+      "Probablemente la información exista pero con otras palabras. Una pregunta frecuente escrita como la hace el vecino lo arregla.",
+    accionable: true,
+  },
+  fuera_de_alcance: {
+    etiqueta: "no es de Ambiente",
+    tono: "pend",
+    queHacer:
+      "No hay nada que responder. Si se repite, conviene una respuesta textual que derive al área que corresponde.",
+    accionable: true,
+  },
+  error_modelo: {
+    etiqueta: "falló el proveedor",
+    tono: "alerta",
+    queHacer:
+      "No es un problema de contenido: escribir una respuesta no lo arregla. Se revisa en Métricas.",
+    accionable: false,
+  },
+};
+
+/**
+ * Qué mostrar del estado de una pregunta.
+ *
+ * El caso que importa es el tercero: una pregunta marcada «resuelta» cuya
+ * respuesta quedó en borrador NO está contestada — el vecino que vuelva a
+ * preguntar lo mismo va a fallar igual. Sin distinguirlo, la lista dice que el
+ * trabajo está hecho cuando falta el paso que lo hace servir.
+ */
+export function estadoDeLaPregunta(p: PreguntaSinResponder): {
+  etiqueta: string;
+  tono: string;
+  detalle: string | null;
+} {
+  if (p.estado === "descartada") {
+    return { etiqueta: "descartada", tono: "pend", detalle: p.notas };
+  }
+  if (p.estado === "resuelta") {
+    if (p.respuesta_tipo === null) {
+      // Se marcó resuelta sin vincular nada. Pasa si alguien la resolvió por
+      // fuera del panel; queda visible en vez de darla por buena.
+      return { etiqueta: "resuelta sin respuesta vinculada", tono: "curso", detalle: p.notas };
+    }
+    return p.respuesta_publicada
+      ? { etiqueta: "respondida", tono: "ok", detalle: p.respuesta_titulo }
+      : {
+          etiqueta: "falta publicar",
+          tono: "alerta",
+          detalle: `El borrador «${p.respuesta_titulo}» está escrito pero Migue todavía no lo usa.`,
+        };
+  }
+  return { etiqueta: "pendiente", tono: "curso", detalle: null };
+}
+
+/* ------------------------------------------------------ conversaciones --- */
+
+export type CanalConversacion = "telegram" | "whatsapp" | "web";
+export type EstadoConversacion = "abierta" | "cerrada" | "derivada" | "abandonada";
+
+/** Una fila de `v_conversaciones` (migración 023). */
+export interface Conversacion {
+  id: string;
+  canal: CanalConversacion;
+  // `canal_usuario_id` NO está, y la ausencia es deliberada: en WhatsApp es el
+  // teléfono del vecino, ningún componente lo usaba, y viajaba a cada navegador
+  // que abre la lista. La 023 lo sacó de la vista.
+  nombre_usuario: string | null;
+  estado: EstadoConversacion;
+  flujo_activo: string | null;
+  cantidad_mensajes: number;
+  iniciada_en: string;
+  ultima_actividad_en: string;
+  votos_utiles: number;
+  votos_no_utiles: number;
+  ultimo_comentario: string | null;
+  primer_mensaje: string | null;
+  /**
+   * Las que todavía nadie resolvió. Es la accionable: baja cuando el área
+   * escribe la respuesta.
+   *
+   * Antes había una sola columna, `preguntas_sin_responder`, que contaba TODAS
+   * las filas de `sin_respuesta` sin mirar el estado. El número era monótono
+   * creciente: hacer el trabajo no lo bajaba. Es la misma forma del bug que
+   * hizo que una pantalla dijera «20 abiertos» y «13 vencidos» sobre las
+   * mismas filas.
+   */
+  preguntas_pendientes: number;
+  /**
+   * Todas las que alguna vez fallaron, resueltas incluidas.
+   *
+   * Historia, no tarea. Va aparte y con otro nombre porque una sola columna que
+   * se puede leer de las dos maneras es cómo nació el bug.
+   */
+  preguntas_falladas: number;
+}
+
+/** Una fila de `transcripcion(id)` (migración 022). */
+export interface MensajeTranscripto {
+  id: string;
+  direccion: "entrante" | "saliente";
+  texto: string | null;
+  media_tipo: string | null;
+  media_ruta: string | null;
+  intencion: string | null;
+  confianza: number | null;
+  origen_respuesta: string | null;
+  costo_usd: number | null;
+  creado_en: string;
+  voto: "util" | "no_util" | null;
+  comentario: string | null;
+}
+
+/**
+ * Cómo le fue a esta conversación, en una etiqueta.
+ *
+ * El orden de las ramas ES la política de qué mirar primero, y la primera es la
+ * que importa: un pulgar abajo pesa más que cualquier otra señal, porque es el
+ * vecino diciendo explícitamente que no le servimos. Todo lo demás son
+ * inferencias nuestras; eso es un dato.
+ *
+ * Y un pulgar abajo no se compensa con dos arriba. Una charla donde Migue
+ * acertó dos veces y falló una vez sigue teniendo una falla que hay que
+ * arreglar: promediarlas la escondería.
+ */
+export function comoLeFue(c: Conversacion): {
+  etiqueta: string;
+  tono: string;
+  urgencia: number;
+} {
+  if (c.votos_no_utiles > 0) {
+    return {
+      etiqueta:
+        c.votos_no_utiles === 1 ? "no le sirvió" : `no le sirvió (${c.votos_no_utiles})`,
+      tono: "alerta",
+      urgencia: 0,
+    };
+  }
+  if (c.preguntas_pendientes > 0) {
+    // No votó, pero el bot no supo contestarle. Es una falla igual, sólo que
+    // detectada por nosotros y no reportada por el vecino.
+    //
+    // Se mira la PENDIENTE y no el total: una pregunta que alguien ya resolvió
+    // no es una tarea abierta, y contarla dejaba esta etiqueta pegada para
+    // siempre.
+    return {
+      etiqueta:
+        c.preguntas_pendientes === 1
+          ? "quedó una sin responder"
+          : `quedaron ${c.preguntas_pendientes} sin responder`,
+      tono: "curso",
+      urgencia: 1,
+    };
+  }
+  // Falló y ya se arregló. Vale distinguirlo de una charla que salió bien de
+  // entrada: no es una tarea, pero tampoco es un éxito.
+  if (c.preguntas_falladas > 0 && c.votos_no_utiles === 0) {
+    return { etiqueta: "falló y se resolvió", tono: "pend", urgencia: 2 };
+  }
+  if (c.votos_utiles > 0) {
+    return {
+      etiqueta: c.votos_utiles === 1 ? "le sirvió" : `le sirvió (${c.votos_utiles})`,
+      tono: "ok",
+      urgencia: 3,
+    };
+  }
+  // Lo más común, y por eso NO dice «bien»: que nadie se haya quejado no es lo
+  // mismo que haber ayudado. Decir «sin datos» es la verdad.
+  return { etiqueta: "sin voto", tono: "pend", urgencia: 2 };
+}
+
+/** De dónde salió la respuesta, en palabras del área y no del esquema. */
+export const ORIGENES_RESPUESTA: Record<string, string> = {
+  respuesta_fija: "respuesta textual",
+  faq: "pregunta frecuente",
+  documentos: "documentos cargados",
+  flujo: "trámite guiado",
+  exclusion: "derivación automática",
+  fallback: "no supo",
+};
+
+/**
+ * Recorta un texto a lo que entra en una celda, cortando por palabra.
+ *
+ * Corta en el espacio anterior al límite y no en el carácter exacto: partir una
+ * palabra al medio hace que el texto parezca dañado en vez de recortado, y en
+ * una lista de preguntas de vecinos eso se lee como si el dato estuviera roto.
+ */
+export function recortarTexto(texto: string, maximo: number): string {
+  const limpio = texto.replace(/\s+/g, " ").trim();
+  if (limpio.length <= maximo) return limpio;
+  const corte = limpio.lastIndexOf(" ", maximo);
+  return `${limpio.slice(0, corte > maximo * 0.6 ? corte : maximo)}…`;
+}
+
+/* ---------------------------------------------------- textos del bot --- */
+
+/**
+ * Una fila de `textos_bot`: una frase fija que el bot envía tal cual.
+ *
+ * Las claves son FIJAS. El código las busca por nombre con `leerTexto()`, así
+ * que se edita el texto pero no se agregan ni se borran filas desde el panel.
+ */
+export interface TextoBot {
+  clave: string;
+  texto: string;
+  descripcion: string | null;
+  /**
+   * Si puede quedar vacía.
+   *
+   * Sale de la columna `opcional` (migración 020) y NO de una lista en el
+   * código. Había una, `PUEDEN_IR_VACIAS`, con una sola clave — y ya se había
+   * desincronizado: producción tiene cinco opcionales. El efecto era que vaciar
+   * `seguimiento_tras_responder` para apagar el voto, que es la forma
+   * documentada de apagarlo, lo rechazaba el panel con un mensaje falso.
+   *
+   * El resto se lee con `leerTexto()`, que devuelve «[falta texto: clave]»
+   * cuando no hay nada. Vaciar una obligatoria es mandarle eso a un vecino.
+   */
+  opcional: boolean;
+  actualizado_en: string;
+}
+
+/* --------------------------------------------------------------- reglas --- */
+
+/** Una fila de `configuracion`. El valor es `jsonb`: puede ser cualquier cosa. */
+export interface FilaConfiguracion {
+  clave: string;
+  valor: unknown;
+  descripcion: string | null;
+  actualizado_por: string | null;
+  actualizado_en: string;
+}
+
+/**
+ * Una fila de `limites_volumen`.
+ *
+ * NO tiene `id`: la clave primaria es `categoria`, y el CHECK la limita a tres
+ * valores. Agregar una cuarta categoría no se puede desde el panel — hace falta
+ * una migración y además tocar el tipo `Categoria` del dominio y las opciones del
+ * flujo de retiro. La pantalla lo dice en vez de ofrecer un botón que fallaría
+ * con un 23514.
+ */
+export interface FilaLimite {
+  categoria: "escombros" | "poda" | "voluminosos";
+  etiqueta: string;
+  limite_valor: number;
+  limite_unidad: string;
+  peso_max_bolsa_kg: number | null;
+  accion_al_exceder: "parcial_con_ticket" | "derivar_sin_ticket";
+  texto_exceso: string | null;
+  activo: boolean;
+  palabras: string[];
+  actualizado_en: string;
+}
+
+/** Una fila de `reglas_exclusion`. */
+export interface FilaExclusion {
+  id: string;
+  nombre: string;
+  palabras: string[];
+  organismo: string | null;
+  respuesta: string;
+  accion: "derivar" | "advertir";
+  prioridad: number;
+  activa: boolean;
+  veces_aplicada: number;
+  actualizado_en: string;
+}
+
+/** Una fila de `puntos_verdes`. */
+export interface FilaPuntoVerde {
+  id: string;
+  nombre: string | null;
+  direccion: string;
+  tipo: string | null;
+  horario: string | null;
+  materiales: string[] | null;
+  observaciones: string | null;
+  activo: boolean;
+  orden: number;
+}
+
+/** Una fila de `zonas_recoleccion`. */
+export interface FilaZona {
+  id: string;
+  nombre: string;
+  dias: string[];
+  hora_sacar: string | null;
+  observaciones: string | null;
+  activo: boolean;
+}

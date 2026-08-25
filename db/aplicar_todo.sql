@@ -2641,3 +2641,736 @@ update public.textos_bot
 
 comment on column public.textos_bot.texto is
   'El mensaje tal como lo lee el vecino. Los marcadores {plazo}, {vencimiento}, {empresa} y {direccion} los reemplaza el bot al enviar.';
+
+-- >>>>>>>>>>>>>>>>>>>> 021_resolver.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 021 · Cerrar el circuito: de una pregunta sin responder a una respuesta
+-- ===========================================================================
+-- La tabla `sin_respuesta` ya tenía el diseño completo desde la 004:
+-- `resuelta_con_faq_id` y `resuelta_con_fija_id` apuntan a la respuesta que
+-- resolvió la pregunta. Lo que faltaba era hacerlo en UNA transacción.
+--
+-- Son dos escrituras —crear la respuesta y marcar la pregunta— y PostgREST hace
+-- cada llamada HTTP en su propia transacción. Si la segunda falla, queda una
+-- respuesta escrita y la pregunta todavía en la lista de pendientes: alguien la
+-- va a volver a resolver y van a quedar dos respuestas para lo mismo, compitiendo
+-- entre ellas en el ranking del buscador.
+--
+-- Y hay una decisión de fondo acá: una pregunta se marca resuelta al VINCULARLA,
+-- no al publicar la respuesta. Un operador puede escribir el borrador y dejarlo
+-- para que un supervisor lo publique, y en el medio la pregunta no tiene que
+-- seguir apareciendo como pendiente —ya alguien se hizo cargo—. El panel muestra
+-- si la respuesta vinculada está publicada o sigue en borrador, que es la
+-- información que hace falta para no dar por cerrado algo que el vecino todavía
+-- no puede recibir.
+-- ===========================================================================
+
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as firma
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('resolver_con_faq','resolver_con_fija','descartar_sin_respuesta')
+  loop
+    execute format('drop function if exists %s cascade', r.firma);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Resolver escribiendo una pregunta frecuente
+--
+-- `p_publicar` respeta la misma regla que las políticas de la 019: sólo un
+-- supervisor o un admin puede dejar algo publicado. Acá se verifica adentro
+-- porque la función es SECURITY DEFINER y las políticas no se aplican.
+-- ---------------------------------------------------------------------------
+create function public.resolver_con_faq(
+  p_sin_respuesta_id uuid,
+  p_pregunta         text,
+  p_respuesta        text,
+  p_etiquetas        text[] default '{}',
+  p_publicar         boolean default false
+)
+returns table (faq_id uuid, publicada boolean)
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_faq_id uuid;
+  v_publicar boolean;
+  v_usuario uuid := auth.uid();
+begin
+  if not public.es_personal_panel() then
+    raise exception 'no autorizado' using errcode = '42501';
+  end if;
+
+  if coalesce(trim(p_pregunta), '') = '' or coalesce(trim(p_respuesta), '') = '' then
+    raise exception 'la pregunta y la respuesta no pueden estar vacias';
+  end if;
+
+  if not exists (select 1 from public.sin_respuesta where id = p_sin_respuesta_id) then
+    raise exception 'no existe esa pregunta sin responder';
+  end if;
+
+  -- Publicar es de supervisor. En vez de fallar, se guarda como borrador: quien
+  -- escribió no pierde el trabajo por no tener el permiso.
+  v_publicar := p_publicar and public.es_admin_panel();
+
+  insert into public.faqs (pregunta, respuesta, etiquetas, activa, creada_por)
+  values (trim(p_pregunta), trim(p_respuesta), coalesce(p_etiquetas, '{}'), v_publicar, v_usuario)
+  returning id into v_faq_id;
+
+  update public.sin_respuesta
+     set estado = 'resuelta',
+         resuelta_con_faq_id = v_faq_id,
+         resuelta_con_fija_id = null,
+         revisada_por = v_usuario
+   where id = p_sin_respuesta_id;
+
+  return query select v_faq_id, v_publicar;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Resolver con una respuesta textual
+--
+-- Sin prueba de disparadores acá: esta función se usa desde el panel, que ya
+-- obliga a probarlos antes de dejar publicar. Y si se guarda como borrador, el
+-- disparador todavía no afecta a nadie.
+-- ---------------------------------------------------------------------------
+create function public.resolver_con_fija(
+  p_sin_respuesta_id uuid,
+  p_nombre           text,
+  p_disparadores     text[],
+  p_modo             text,
+  p_respuesta        text,
+  p_publicar         boolean default false,
+  p_notas            text default null
+)
+returns table (fija_id uuid, publicada boolean)
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_fija_id uuid;
+  v_publicar boolean;
+  v_usuario uuid := auth.uid();
+begin
+  if not public.es_personal_panel() then
+    raise exception 'no autorizado' using errcode = '42501';
+  end if;
+
+  if coalesce(trim(p_nombre), '') = '' or coalesce(trim(p_respuesta), '') = '' then
+    raise exception 'el nombre y la respuesta no pueden estar vacios';
+  end if;
+  if p_disparadores is null or array_length(p_disparadores, 1) is null then
+    raise exception 'hace falta al menos un disparador';
+  end if;
+  if p_modo not in ('exacto','contiene','regex') then
+    raise exception 'modo invalido: %', p_modo;
+  end if;
+
+  if not exists (select 1 from public.sin_respuesta where id = p_sin_respuesta_id) then
+    raise exception 'no existe esa pregunta sin responder';
+  end if;
+
+  v_publicar := p_publicar and public.es_admin_panel();
+
+  insert into public.respuestas_fijas (nombre, disparadores, modo, respuesta, activa, notas, creada_por)
+  values (trim(p_nombre), p_disparadores, p_modo, trim(p_respuesta), v_publicar,
+          nullif(trim(coalesce(p_notas, '')), ''), v_usuario)
+  returning id into v_fija_id;
+
+  update public.sin_respuesta
+     set estado = 'resuelta',
+         resuelta_con_fija_id = v_fija_id,
+         resuelta_con_faq_id = null,
+         revisada_por = v_usuario
+   where id = p_sin_respuesta_id;
+
+  return query select v_fija_id, v_publicar;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Descartar una pregunta
+--
+-- No todo lo que el bot no supo responder merece una respuesta: hay pruebas,
+-- mensajes sin sentido y cosas que no son del área. Descartar es una acción de
+-- primera clase y no un borrado: la fila queda, con el motivo, así que se puede
+-- revisar si se descartó de más.
+-- ---------------------------------------------------------------------------
+create function public.descartar_sin_respuesta(
+  p_sin_respuesta_id uuid,
+  p_motivo           text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+begin
+  if not public.es_personal_panel() then
+    raise exception 'no autorizado' using errcode = '42501';
+  end if;
+
+  update public.sin_respuesta
+     set estado = 'descartada',
+         notas = coalesce(nullif(trim(coalesce(p_motivo, '')), ''), notas),
+         revisada_por = auth.uid()
+   where id = p_sin_respuesta_id;
+
+  if not found then raise exception 'no existe esa pregunta sin responder'; end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Permisos: los tres los usa el panel, y los tres verifican el padrón adentro
+-- ---------------------------------------------------------------------------
+revoke all on function public.resolver_con_faq(uuid, text, text, text[], boolean) from public, anon;
+revoke all on function public.resolver_con_fija(uuid, text, text[], text, text, boolean, text) from public, anon;
+revoke all on function public.descartar_sin_respuesta(uuid, text) from public, anon;
+
+grant execute on function public.resolver_con_faq(uuid, text, text, text[], boolean) to authenticated;
+grant execute on function public.resolver_con_fija(uuid, text, text[], text, text, boolean, text) to authenticated;
+grant execute on function public.descartar_sin_respuesta(uuid, text) to authenticated;
+
+comment on function public.resolver_con_faq(uuid, text, text, text[], boolean) is
+  'Crea una FAQ y marca la pregunta como resuelta, en una sola transaccion.';
+comment on function public.resolver_con_fija(uuid, text, text[], text, text, boolean, text) is
+  'Crea una respuesta textual y marca la pregunta como resuelta, en una sola transaccion.';
+comment on function public.descartar_sin_respuesta(uuid, text) is
+  'Marca una pregunta como descartada. No borra la fila: queda el motivo.';
+
+-- ---------------------------------------------------------------------------
+-- Vista de trabajo
+--
+-- Junta la pregunta con el estado de la respuesta que la resolvió. Sin esto el
+-- panel tendría que hacer tres consultas y unirlas en el cliente, y no podría
+-- ordenar por «lo más repetido primero» sin traerse todo.
+-- ---------------------------------------------------------------------------
+drop view if exists public.v_sin_respuesta;
+create view public.v_sin_respuesta
+with (security_invoker = true) as
+  select s.id,
+         s.pregunta,
+         s.motivo,
+         s.confianza,
+         s.veces_repetida,
+         s.estado,
+         s.notas,
+         s.creado_en,
+         s.actualizado_en,
+         s.resuelta_con_faq_id,
+         s.resuelta_con_fija_id,
+         -- Qué se escribió para resolverla, y si ya está en circulación. Una
+         -- pregunta «resuelta» con un borrador sin publicar NO está contestada
+         -- todavía, y el panel tiene que poder decirlo.
+         coalesce(f.pregunta, rf.nombre)                as respuesta_titulo,
+         coalesce(f.activa, rf.activa)                  as respuesta_publicada,
+         case
+           when s.resuelta_con_faq_id  is not null then 'faq'
+           when s.resuelta_con_fija_id is not null then 'fija'
+           else null
+         end                                            as respuesta_tipo
+    from public.sin_respuesta s
+    left join public.faqs f              on f.id  = s.resuelta_con_faq_id
+    left join public.respuestas_fijas rf on rf.id = s.resuelta_con_fija_id;
+
+comment on view public.v_sin_respuesta is
+  'Preguntas sin responder con el estado de la respuesta que las resolvio. security_invoker: hereda el RLS de las tablas.';
+
+-- >>>>>>>>>>>>>>>>>>>> 022_valoraciones.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 022 · El vecino vota si la respuesta le sirvió
+-- ===========================================================================
+-- Hasta acá el bot preguntaba «¿te sirvió?» y la respuesta se perdía en el
+-- texto de la conversación. Nadie la contaba, así que no había forma de saber
+-- si Migue sirve — sólo de saber cuántas veces habló.
+--
+-- El voto se cuelga del MENSAJE valorado, no de la conversación. Una charla
+-- puede tener cuatro preguntas: tres bien contestadas y una mal. Colgarlo de la
+-- conversación promediaría eso hasta volverlo inútil, y lo que hace falta saber
+-- es cuál de las cuatro falló para poder escribir esa respuesta.
+--
+-- Y el comentario va JUNTO al voto y no como un mensaje más de la charla. El
+-- pulgar dice cuántas veces falló; el comentario dice qué escribir para
+-- arreglarlo. Separados, hay que leer la conversación entera para recuperar el
+-- segundo, que es justo el trabajo que esta tabla viene a evitar.
+-- ===========================================================================
+
+create table if not exists public.valoraciones (
+  id              uuid primary key default gen_random_uuid(),
+
+  conversacion_id uuid not null references public.conversaciones(id) on delete cascade,
+
+  -- El mensaje SALIENTE que se valoró. `on delete cascade` porque un voto sin
+  -- la respuesta que valoró no significa nada.
+  mensaje_id      uuid not null references public.mensajes(id) on delete cascade,
+
+  voto            text not null check (voto in ('util','no_util')),
+
+  -- Lo que el vecino contestó cuando se le preguntó qué le faltaba. Sólo tiene
+  -- sentido tras un 'no_util', pero no se fuerza por CHECK: si algún día se
+  -- pide detalle también tras un pulgar arriba («¿algo más?»), no hace falta
+  -- migrar nada.
+  comentario      text,
+
+  creado_en       timestamptz not null default now(),
+  actualizado_en  timestamptz not null default now()
+);
+
+-- Un voto por mensaje. Es lo que hace que tocar el botón dos veces —cosa que
+-- pasa: el vecino no ve confirmación inmediata y vuelve a tocar— corrija el
+-- voto en vez de contarlo doble e inflar la métrica.
+create unique index if not exists valoraciones_mensaje_idx
+  on public.valoraciones (mensaje_id);
+
+create index if not exists valoraciones_conversacion_idx
+  on public.valoraciones (conversacion_id, creado_en desc);
+
+-- Índice parcial: la consulta que importa es «traeme los pulgares abajo», que
+-- es de donde sale el trabajo. Los útiles se cuentan, no se listan.
+create index if not exists valoraciones_negativas_idx
+  on public.valoraciones (creado_en desc) where voto = 'no_util';
+
+comment on table public.valoraciones is
+  'Voto del vecino sobre una respuesta concreta. Un voto por mensaje saliente.';
+comment on column public.valoraciones.mensaje_id is
+  'El mensaje saliente valorado. El voto se cuelga de la respuesta, no de la charla.';
+comment on column public.valoraciones.comentario is
+  'Lo que el vecino dijo que le faltaba. El pulgar dice cuantas veces fallo; esto dice que escribir.';
+
+-- ---------------------------------------------------------------------------
+-- Registrar un voto
+--
+-- La escribe el BOT con `service_role`, así que no verifica el padrón: no hay
+-- usuario del panel de este lado. Lo que sí hace es resolver contra qué mensaje
+-- va el voto, porque el bot sabe la conversación pero no necesariamente el id
+-- del mensaje que mandó.
+--
+-- `p_mensaje_id` null significa «la última respuesta de esta conversación», que
+-- es siempre lo que el vecino está valorando cuando toca el botón.
+-- ---------------------------------------------------------------------------
+create or replace function public.registrar_voto(
+  p_conversacion_id uuid,
+  p_voto            text,
+  p_mensaje_id      uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_mensaje uuid;
+  v_id uuid;
+begin
+  if p_voto not in ('util','no_util') then
+    raise exception 'voto invalido: %', p_voto;
+  end if;
+
+  -- La última respuesta de verdad, no el «¿te sirvió?». Se excluyen los
+  -- salientes que ofrecieron el voto: valorar la pregunta de cortesía en vez de
+  -- la respuesta dejaría el voto colgado del mensaje equivocado, y el panel
+  -- mostraría un pulgar abajo sobre un texto que dice «¿te sirvió?».
+  --
+  -- ESTE RESPALDO ES EL CAMINO EXCEPCIONAL, no el normal, y el comentario que
+  -- estaba acá antes describía algo que el código no hacía.
+  --
+  -- Decía: «se reconocen por origen_respuesta is null, porque responderCon sólo
+  -- pone la traza completa en el PRIMER saliente». Falso: le copiaba
+  -- `origenRespuesta` a todos, así que NINGÚN saliente tenía la columna en null
+  -- y «el último no nulo» era siempre la propia pregunta de cortesía. El 100% de
+  -- los votos habría quedado colgado de ella.
+  --
+  -- Se arregló en dos capas. La principal: los botones llevan el id del mensaje
+  -- valorado (`voto_util:<uuid>`) y el bot lo pasa en `p_mensaje_id`, así que no
+  -- hay nada que inferir — y un pulgar tocado veinte minutos después sigue
+  -- valorando la respuesta correcta, no la despedida que quedó última. La
+  -- secundaria: `responderCon` ahora sí escribe `origen_respuesta = null` en los
+  -- salientes de cortesía, así que este respaldo también quedó correcto.
+  --
+  -- Sigue existiendo porque hay dos casos sin id: el vecino que manda el emoji
+  -- suelto en vez de tocar, y los teclados de antes del arreglo, que Telegram
+  -- deja vivos para siempre.
+  v_mensaje := coalesce(
+    p_mensaje_id,
+    (select m.id
+       from public.mensajes m
+      where m.conversacion_id = p_conversacion_id
+        and m.direccion = 'saliente'
+        and m.origen_respuesta is not null
+      order by m.creado_en desc
+      limit 1)
+  );
+
+  if v_mensaje is null then
+    -- Sin respuesta previa no hay nada que valorar. Puede pasar si alguien
+    -- toca un botón viejo después de que se borró la conversación.
+    return null;
+  end if;
+
+  insert into public.valoraciones (conversacion_id, mensaje_id, voto)
+  values (p_conversacion_id, v_mensaje, p_voto)
+  on conflict (mensaje_id) do update
+    set voto = excluded.voto,
+        -- Se limpia el comentario al cambiar el voto: un «me faltaba el
+        -- horario» pegado a un pulgar ARRIBA no se entiende, y dejarlo sería
+        -- peor que perderlo.
+        comentario = case when public.valoraciones.voto <> excluded.voto
+                          then null else public.valoraciones.comentario end,
+        actualizado_en = now()
+  returning id into v_id;
+
+  return v_id;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Pegarle el comentario al voto
+--
+-- Va aparte porque llega en un mensaje POSTERIOR: el vecino toca el pulgar
+-- abajo y recién después escribe qué le faltaba.
+-- ---------------------------------------------------------------------------
+create or replace function public.comentar_voto(
+  p_conversacion_id uuid,
+  p_comentario      text,
+  p_ventana_minutos int default 10
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare v_id uuid;
+begin
+  if coalesce(trim(p_comentario), '') = '' then return false; end if;
+
+  -- El último voto negativo SIN comentario y RECIENTE de esta conversación.
+  --
+  -- Las tres condiciones importan. Si ya tiene comentario, lo que el vecino
+  -- escribe ahora es otra cosa y sobrescribirlo perdería el primero. Y la
+  -- ventana de tiempo es lo que evita que un mensaje de mañana quede pegado
+  -- como explicación de un pulgar abajo de hoy: sin ella, el bot llamaría a
+  -- esta función en cada mensaje y el primer texto que llegara —aunque fuera
+  -- una consulta nueva sin relación— se registraría como el detalle del voto.
+  --
+  -- Que el bot pregunte en cada mensaje, en vez de recordar que hay un voto
+  -- esperando, es deliberado: no hay estado que se desincronice ni que se
+  -- pierda si Redis se vacía, y la decisión de si el texto corresponde vive en
+  -- un solo lugar.
+  select id into v_id
+    from public.valoraciones
+   where conversacion_id = p_conversacion_id
+     and voto = 'no_util'
+     and comentario is null
+     and creado_en > now() - make_interval(mins => greatest(p_ventana_minutos, 0))
+   order by creado_en desc
+   limit 1;
+
+  if v_id is null then return false; end if;
+
+  update public.valoraciones
+     set comentario = trim(p_comentario), actualizado_en = now()
+   where id = v_id;
+
+  return true;
+end $$;
+
+revoke all on function public.registrar_voto(uuid, text, uuid) from public, anon, authenticated;
+revoke all on function public.comentar_voto(uuid, text, int) from public, anon, authenticated;
+
+comment on function public.registrar_voto(uuid, text, uuid) is
+  'Registra el voto del vecino sobre la ultima respuesta. La llama el bot con service_role.';
+comment on function public.comentar_voto(uuid, text, int) is
+  'Pega el comentario al ultimo voto negativo sin comentario de esa conversacion.';
+
+-- ---------------------------------------------------------------------------
+-- RLS
+--
+-- El panel LEE. No escribe: el voto es del vecino, y que alguien del municipio
+-- pueda cambiarlo destruiría el único dato de esta tabla que vale algo.
+-- Tampoco se borra: es la medición de si el servicio sirve.
+-- ---------------------------------------------------------------------------
+alter table public.valoraciones enable row level security;
+
+drop policy if exists valoraciones_lee_panel on public.valoraciones;
+create policy valoraciones_lee_panel on public.valoraciones
+  for select to authenticated using (public.es_personal_panel());
+
+-- ---------------------------------------------------------------------------
+-- Los textos del voto, editables desde el panel
+--
+-- `seguimiento_tras_responder` ya existía (020) y se reescribe: antes invitaba
+-- a contestar por texto, ahora acompaña a dos botones.
+-- ---------------------------------------------------------------------------
+insert into public.textos_bot (clave, texto, descripcion, opcional) values
+  ('seguimiento_tras_responder',
+   '¿Te sirvió esta respuesta?',
+   'Se manda como mensaje aparte despues de una respuesta, con los botones de pulgar. Vaciarlo apaga el voto.',
+   true),
+  ('voto_gracias_util',
+   '¡Buenísimo! Cualquier otra cosa que necesites, escribime.',
+   'Lo que contesta Migue cuando el vecino vota que la respuesta le sirvio.',
+   true),
+  ('voto_pedir_detalle',
+   'Gracias por decirme, me ayuda a mejorar. ¿Qué te falta saber? Si querés no me contestes, ya lo registré.',
+   'Lo que contesta Migue tras un pulgar abajo. Lo que el vecino escriba despues queda pegado al voto.',
+   true)
+on conflict (clave) do update
+  set texto = excluded.texto,
+      descripcion = excluded.descripcion,
+      opcional = excluded.opcional;
+
+-- ---------------------------------------------------------------------------
+-- La vista de conversaciones para el panel
+--
+-- Existe para que la pantalla no tenga que traerse todos los mensajes de todas
+-- las charlas para mostrar una lista. Sin esto, ordenar por «las que no
+-- sirvieron primero» obligaría a leer la tabla entera en el cliente.
+-- ---------------------------------------------------------------------------
+drop view if exists public.v_conversaciones;
+create view public.v_conversaciones
+with (security_invoker = true) as
+  select c.id,
+         c.canal,
+         c.canal_usuario_id,
+         c.nombre_usuario,
+         c.estado,
+         c.flujo_activo,
+         c.cantidad_mensajes,
+         c.iniciada_en,
+         c.ultima_actividad_en,
+
+         -- El voto resumido. Se cuentan los dos por separado en vez de un
+         -- promedio: «2 de 3 sirvieron» dice algo, «0.66» no dice nada, y una
+         -- charla con un solo pulgar abajo importa igual que una con tres.
+         coalesce(v.utiles, 0)      as votos_utiles,
+         coalesce(v.no_utiles, 0)   as votos_no_utiles,
+         v.ultimo_comentario,
+
+         -- La primera cosa que preguntó el vecino, para poder reconocer la
+         -- charla en una lista sin abrirla. Es más útil que la fecha: nadie
+         -- recuerda una conversación por su hora.
+         (select m.texto
+            from public.mensajes m
+           where m.conversacion_id = c.id
+             and m.direccion = 'entrante'
+             and m.texto is not null
+           order by m.creado_en
+           limit 1)                as primer_mensaje,
+
+         -- Cuántas de sus preguntas quedaron sin responder. Es la señal que
+         -- existe incluso cuando el vecino no votó nada, que va a ser el caso
+         -- más frecuente.
+         (select count(*)
+            from public.sin_respuesta s
+           where s.conversacion_id = c.id) as preguntas_sin_responder
+
+    from public.conversaciones c
+    left join (
+      select conversacion_id,
+             count(*) filter (where voto = 'util')     as utiles,
+             count(*) filter (where voto = 'no_util')  as no_utiles,
+             (array_agg(comentario order by creado_en desc)
+                filter (where comentario is not null))[1] as ultimo_comentario
+        from public.valoraciones
+       group by conversacion_id
+    ) v on v.conversacion_id = c.id;
+
+comment on view public.v_conversaciones is
+  'Conversaciones con su voto resumido, para la pantalla del panel. security_invoker: hereda el RLS.';
+
+-- ---------------------------------------------------------------------------
+-- Y la transcripción, con el voto pegado a cada respuesta
+--
+-- Es una función y no una vista porque siempre se pide UNA conversación. Una
+-- vista sobre todos los mensajes obligaría al panel a filtrar por
+-- conversacion_id, y sin el filtro —un error fácil— se traería la bitácora
+-- completa del bot.
+-- ---------------------------------------------------------------------------
+create or replace function public.transcripcion(p_conversacion_id uuid)
+returns table (
+  id uuid,
+  direccion text,
+  texto text,
+  media_tipo text,
+  media_ruta text,
+  intencion text,
+  confianza numeric,
+  origen_respuesta text,
+  costo_usd numeric,
+  creado_en timestamptz,
+  voto text,
+  comentario text
+)
+language sql
+stable
+security invoker
+set search_path = public, pg_catalog
+as $$
+  select m.id, m.direccion, m.texto, m.media_tipo, m.media_ruta,
+         m.intencion, m.confianza, m.origen_respuesta, m.costo_usd, m.creado_en,
+         v.voto, v.comentario
+    from public.mensajes m
+    left join public.valoraciones v on v.mensaje_id = m.id
+   where m.conversacion_id = p_conversacion_id
+   order by m.creado_en;
+$$;
+
+-- `security invoker`, así que el RLS de `mensajes` se aplica igual y esto NO es
+-- una puerta para leer conversaciones sin estar en el padrón. Se le da EXECUTE
+-- a `authenticated` porque el panel la usa; a `anon` no, que es la puerta que
+-- da a internet.
+revoke all on function public.transcripcion(uuid) from public, anon;
+grant execute on function public.transcripcion(uuid) to authenticated;
+
+comment on function public.transcripcion(uuid) is
+  'Los mensajes de una conversacion con el voto pegado a cada respuesta. security invoker: respeta RLS.';
+
+-- >>>>>>>>>>>>>>>>>>>> 023_conversaciones_honestas.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 023 · Dos arreglos en `v_conversaciones`
+-- ===========================================================================
+-- Los dos salieron de una revisión adversarial de la 022, y los dos son del tipo
+-- que no se nota: la pantalla funciona, muestra números, y los números no
+-- significan lo que dicen.
+--
+-- 1 · «DONDE ALGO FALLÓ» NUNCA BAJABA
+--
+-- `preguntas_sin_responder` contaba TODAS las filas de `sin_respuesta` de la
+-- conversación, sin mirar `estado`. Una pregunta que alguien ya resolvió
+-- —escribió la respuesta, la publicó, el vecino que vuelva a preguntar ya recibe
+-- algo— seguía contando igual. El filtro «Donde falló algo» del panel es
+-- monótono creciente: hacer el trabajo no lo baja.
+--
+-- Es exactamente la forma del bug que este proyecto ya tuvo con los tickets: dos
+-- lugares preguntaban «¿esto está cerrado?» de maneras distintas y la misma
+-- pantalla decía «20 abiertos» y «13 vencidos» sobre las mismas filas. Se
+-- arregló unificando en un solo helper, `estaCerrado()`.
+--
+-- Acá se parte en dos columnas con nombres que dicen qué son, en vez de una que
+-- se pueda leer de las dos formas:
+--
+--   preguntas_pendientes  las que todavía nadie resolvió. Es la accionable, la
+--                         que baja cuando el área trabaja.
+--   preguntas_falladas    todas las que alguna vez fallaron, resueltas
+--                         incluidas. Es historia y no una tarea; sirve para no
+--                         perder de vista que esa charla salió mal aunque ya se
+--                         haya arreglado.
+--
+-- 2 · EL IDENTIFICADOR DEL VECINO SALÍA A LA VISTA SIN QUE NADIE LO USE
+--
+-- `canal_usuario_id` estaba en el select. En Telegram es el chat id; en WhatsApp
+-- —a donde este bot va a migrar— es EL TELÉFONO del vecino. Ningún componente
+-- del panel lo lee: viajaba a cada navegador que abre la lista, quedaba en el
+-- HTML, en la caché y en cualquier captura de pantalla, sin habilitar ninguna
+-- funcionalidad.
+--
+-- El criterio es el mismo que la 018 aplicó cuando una vista con
+-- `security_invoker` iba a exponer los correos del padrón: RLS es por FILA y no
+-- por COLUMNA, así que lo único que evita que una columna se lea es no
+-- seleccionarla. Se saca. Si algún día hace falta identificar al vecino desde el
+-- panel, va por una función que devuelva sólo lo necesario.
+--
+-- La conversación se sigue reconociendo por `nombre_usuario` y por
+-- `primer_mensaje`, que es lo que el panel realmente muestra.
+-- ===========================================================================
+
+drop view if exists public.v_conversaciones;
+
+create view public.v_conversaciones
+with (security_invoker = true) as
+  select c.id,
+         c.canal,
+         -- `canal_usuario_id` NO va acá. Ver el encabezado: en WhatsApp es el
+         -- teléfono del vecino y ningún componente lo usa.
+         c.nombre_usuario,
+         c.estado,
+         c.flujo_activo,
+         c.cantidad_mensajes,
+         c.iniciada_en,
+         c.ultima_actividad_en,
+
+         -- El voto resumido. Se cuentan los dos por separado en vez de un
+         -- promedio: «2 de 3 sirvieron» dice algo, «0.66» no dice nada, y una
+         -- charla con un solo pulgar abajo importa igual que una con tres.
+         coalesce(v.utiles, 0)      as votos_utiles,
+         coalesce(v.no_utiles, 0)   as votos_no_utiles,
+         v.ultimo_comentario,
+
+         -- La primera cosa que preguntó el vecino, para poder reconocer la
+         -- charla en una lista sin abrirla. Es más útil que la fecha: nadie
+         -- recuerda una conversación por su hora.
+         (select m.texto
+            from public.mensajes m
+           where m.conversacion_id = c.id
+             and m.direccion = 'entrante'
+             and m.texto is not null
+           order by m.creado_en
+           limit 1)                as primer_mensaje,
+
+         -- Lo que todavía hay que hacer. Baja cuando alguien escribe la
+         -- respuesta, que es lo que se espera de un número accionable.
+         (select count(*)
+            from public.sin_respuesta s
+           where s.conversacion_id = c.id
+             and s.estado = 'pendiente') as preguntas_pendientes,
+
+         -- Lo que alguna vez falló, ya resuelto o descartado incluido. Es
+         -- historia, no tarea. Se expone aparte y con otro nombre a propósito:
+         -- una sola columna que se pueda leer de las dos maneras es cómo nació
+         -- el bug que esta migración arregla.
+         (select count(*)
+            from public.sin_respuesta s
+           where s.conversacion_id = c.id) as preguntas_falladas
+
+    from public.conversaciones c
+    left join (
+      select conversacion_id,
+             count(*) filter (where voto = 'util')     as utiles,
+             count(*) filter (where voto = 'no_util')  as no_utiles,
+             (array_agg(comentario order by creado_en desc)
+                filter (where comentario is not null))[1] as ultimo_comentario
+        from public.valoraciones
+       group by conversacion_id
+    ) v on v.conversacion_id = c.id;
+
+comment on view public.v_conversaciones is
+  'Conversaciones con su voto resumido. security_invoker: hereda el RLS. No expone canal_usuario_id: en WhatsApp es el telefono del vecino y el panel no lo usa.';
+
+-- ---------------------------------------------------------------------------
+-- Permisos
+-- ---------------------------------------------------------------------------
+-- `anon` conservaba el GRANT de SELECT que Supabase da por defecto a toda tabla
+-- y vista nueva del esquema `public`. No se filtraba nada —`security_invoker`
+-- hace que la vista corra con los permisos de quien la consulta, y `anon` no
+-- pasa el RLS de `conversaciones`— pero la separación entre la clave pública y
+-- las charlas de todos los vecinos quedaba dependiendo de una sola palabra en
+-- una línea, sin nada que la respalde.
+--
+-- Con el REVOKE hay dos cerraduras independientes. Y `v_auditoria_rls`, que es
+-- el detector que usa el proyecto para encontrar agujeros, mira políticas de
+-- TABLAS y no ve vistas: si alguien recreara esta vista sin `security_invoker`,
+-- la auditoría no diría nada. El REVOKE sí lo atajaría.
+revoke all on public.v_conversaciones from anon;
+grant select on public.v_conversaciones to authenticated, service_role;
+
+-- Mismo criterio para las otras dos vistas que el panel usa. `v_auditoria_rls`
+-- es el caso más claro: entrega el inventario completo de tablas y el predicado
+-- exacto que protege cada una, y la clave anon es pública por diseño —está en el
+-- JavaScript del panel, la lee cualquiera—.
+do $$
+begin
+  if to_regclass('public.v_auditoria_rls') is not null then
+    execute 'revoke all on public.v_auditoria_rls from anon, public';
+    execute 'grant select on public.v_auditoria_rls to authenticated, service_role';
+  end if;
+  if to_regclass('public.v_sin_respuesta') is not null then
+    execute 'revoke all on public.v_sin_respuesta from anon';
+    execute 'grant select on public.v_sin_respuesta to authenticated, service_role';
+  end if;
+end $$;

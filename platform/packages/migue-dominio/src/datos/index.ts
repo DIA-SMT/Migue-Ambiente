@@ -48,3 +48,5 @@ export {
   idDeTicket,
   type ResultadoEfecto,
 } from "./efectos.ts";
+
+export { registrarVoto, comentarVoto } from "./valoraciones.ts";

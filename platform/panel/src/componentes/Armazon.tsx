@@ -4,13 +4,12 @@ import { Salir } from "./Salir";
 import {
   Hojas,
   IconoCasos,
+  IconoConversaciones,
   IconoDocumentos,
   IconoMetricas,
   IconoPersonal,
   IconoReglas,
   IconoRespuestas,
-  IconoSinRespuesta,
-  IconoTextos,
 } from "./Botanica";
 
 /**
@@ -30,16 +29,31 @@ const GRUPOS = [
     rotulo: "Lo que Migue sabe",
     items: [
       { href: "/documentos", texto: "Documentos", Icono: IconoDocumentos, listo: true },
-      { href: "/faqs", texto: "Respuestas", Icono: IconoRespuestas, listo: true },
-      { href: "/textos", texto: "Textos del bot", Icono: IconoTextos, listo: true },
-      { href: "/reglas", texto: "Reglas", Icono: IconoReglas, listo: false },
+      // Se llamaba «Respuestas» y el nombre era ambiguo entre dos cosas casi
+      // opuestas: las respuestas que Migue DIO y las que nosotros le ESCRIBIMOS.
+      // Alguien entró buscando las primeras y encontró las segundas. Ahora las
+      // conversaciones tienen su propia sección y esta se llama por lo que es.
+      //
+      // Junta TODO lo que Migue dice y el área puede cambiar, en cuatro
+      // pestañas: lo que no supo contestar, las preguntas frecuentes, las
+      // respuestas textuales y las frases fijas con las que habla.
+      //
+      // Estaban en dos ítems del menú —«Respuestas» y «Textos del bot»— y eso
+      // obligaba a saber de antemano en cuál de los dos vivía la frase que se
+      // quería corregir. Y la primera pestaña es la lista de trabajo: una
+      // pregunta sin responder es el insumo para escribir una respuesta, así que
+      // leer la falla y arreglarla pasaron a ser la misma pantalla.
+      { href: "/conocimiento", texto: "Conocimiento", Icono: IconoRespuestas, listo: true },
+      { href: "/reglas", texto: "Reglas", Icono: IconoReglas, listo: true },
     ],
   },
   {
     rotulo: "El día a día",
     items: [
+      // Primera del grupo: es lo que se mira para saber si Migue está sirviendo.
+      // El voto del vecino se ve acá y en ningún otro lado.
+      { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
       { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
-      { href: "/sin-respuesta", texto: "No supo responder", Icono: IconoSinRespuesta, listo: false },
       { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: false },
     ],
   },

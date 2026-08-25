@@ -20,6 +20,7 @@ export interface Registro {
   readonly conversacionesAbiertas: number;
   readonly entrantes: number;
   readonly salientes: Array<{
+    id: string;
     texto: string;
     traza: TrazaMensaje;
     /** Las opciones que se le ofrecieron. Vacío si el mensaje no ofrecía ninguna. */
@@ -27,6 +28,9 @@ export interface Registro {
   }>;
   readonly efectos: Efecto[];
   readonly sinRespuesta: Array<{ pregunta: string; motivo: MotivoSinRespuesta }>;
+  readonly votos: Array<{ voto: string; mensajeId: string | null }>;
+  /** Los textos que se intentaron pegar como explicación de un voto. */
+  readonly comentariosIntentados: string[];
   readonly cierres: Array<"cerrada" | "derivada" | "abandonada">;
   readonly flujosGuardados: Array<{ flujo: string | null; paso: string | null }>;
 }
@@ -61,12 +65,14 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
     salientes: [],
     efectos: [],
     sinRespuesta: [],
+    votos: [],
+    comentariosIntentados: [],
     cierres: [],
     flujosGuardados: [],
   };
   // `conversacionesAbiertas` y `entrantes` son contadores; se mutan por
   // referencia sobre un objeto mutable interno.
-  const contadores = { conversaciones: 0, entrantes: 0 };
+  const contadores = { conversaciones: 0, entrantes: 0, salientes: 0 };
 
   const persistencia: Persistencia = {
     async abrirConversacion() {
@@ -77,12 +83,20 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
       contadores.entrantes++;
       return `msg-${contadores.entrantes}`;
     },
+    // DEVUELVE UN ID, igual que el real, y no es un detalle: el orquestador usa
+    // el id del primer saliente para pegárselo a los botones de voto. Un doble
+    // que devolvía `undefined` hacía que ese camino nunca se ejecutara en la
+    // suite, así que las pruebas no podían ver ni el bug ni el arreglo.
     async registrarSaliente(_id: string, saliente: MensajeSaliente, traza: TrazaMensaje) {
+      contadores.salientes += 1;
+      const id = `sal-${contadores.salientes}`;
       registro.salientes.push({
+        id,
         texto: saliente.texto,
         traza,
         opciones: (saliente.opciones ?? []).map((o) => ({ id: o.id, etiqueta: o.etiqueta })),
       });
+      return id;
     },
     async actualizarFlujo(_id: string, flujo: string | null, paso: string | null) {
       registro.flujosGuardados.push({ flujo, paso });
@@ -97,6 +111,20 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
     async registrarSinRespuesta(o) {
       registro.sinRespuesta.push({ pregunta: o.pregunta, motivo: o.motivo });
       return { id: "sr-1", agrupada: false };
+    },
+    async registrarVoto(_id: string, voto, mensajeId: string | null) {
+      // Se guarda el `mensajeId` para poder afirmar CONTRA QUÉ quedó el voto.
+      // Sin esto una prueba sólo puede decir que se votó, no que se votó lo que
+      // correspondía — y ese era exactamente el bug.
+      registro.votos.push({ voto, mensajeId });
+      return "v-1";
+    },
+    // El doble registra el INTENTO y devuelve false, que es el caso normal: la
+    // enorme mayoría de los mensajes no explican ningún voto. Una prueba que
+    // necesite el otro caso reemplaza este método.
+    async comentarVoto(_id: string, comentario: string) {
+      registro.comentariosIntentados.push(comentario);
+      return false;
     },
   };
 

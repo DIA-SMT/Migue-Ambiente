@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Faq, RespuestaFija } from "@/lib/tipos";
+import type { Faq, PreguntaSinResponder, RespuestaFija, TextoBot } from "@/lib/tipos";
 import {
   borrarFaq,
   borrarFija,
@@ -13,38 +13,92 @@ import {
 import { CajonFaq } from "./CajonFaq";
 import { CajonFija } from "./CajonFija";
 import { ProbarBuscador } from "./ProbarBuscador";
+import { SinResponder } from "./SinResponder";
+import { EditorTextos } from "./EditorTextos";
 
 /**
- * Las dos clases de respuesta, en pestañas.
+ * Todo lo que Migue dice y el área puede cambiar, en cuatro pestañas.
  *
- * Están separadas y no mezcladas en una lista porque son herramientas
- * distintas y se eligen por criterios distintos:
+ * «Sin responder» va PRIMERA porque es de donde sale el trabajo: son las
+ * preguntas reales que el bot no supo contestar, y responder una es escribir algo
+ * de las otras pestañas. Estuvo pensada un rato como sección aparte del panel, y
+ * era peor: obligaba a leer la falla en una pantalla y escribir el arreglo en
+ * otra, copiando la pregunta a mano.
  *
- *   FAQ            la busca el buscador y el modelo redacta con ella. Sirve
- *                  cuando la pregunta admite muchas formas de preguntarse.
- *   Respuesta fija se envía TEXTUAL, sin modelo. Sirve para lo que no admite
+ * Las otras tres son herramientas distintas y se eligen por criterios distintos.
+ * Están separadas, y no en una lista sola, porque juntarlas invitaría a elegir la
+ * primera que aparezca:
+ *
+ *   Frecuente      la busca el buscador y el modelo redacta con ella. Sirve
+ *                  cuando la misma pregunta admite muchas formas de hacerse. Es
+ *                  la plantilla que el área escribe para un tema puntual.
+ *   Textual        se envía TAL CUAL, sin modelo. Para lo que no admite
  *                  interpretación: un teléfono, una dirección, una suspensión.
+ *   Cómo habla     las frases fijas del armazón —saludo, menú, despedida, los
+ *                  pasos de cada trámite—. Son 21 claves FIJAS: el código las
+ *                  busca por nombre, así que se edita el texto y no se agregan
+ *                  ni se borran.
  *
- * Ponerlas en la misma lista invitaría a elegir la primera que aparezca.
+ * La cuarta era una sección propia del menú, «Textos del bot». Tenerla aparte
+ * obligaba a saber de antemano en cuál de los dos ítems del menú vivía la frase
+ * que se quería corregir, y la respuesta no era deducible: «sin_respuesta» —lo
+ * que Migue dice cuando no sabe— estaba en Textos, mientras que la pregunta que
+ * lo provocó estaba en Respuestas.
  */
 export function Respuestas({
   faqs,
   fijas,
+  sinResponder,
   puedePublicar,
   mensajesEntrantes,
+  gruposDeTexto,
+  textosSinAgrupar,
+  ejemplos,
 }: {
   faqs: Faq[];
   fijas: RespuestaFija[];
+  sinResponder: PreguntaSinResponder[];
   puedePublicar: boolean;
   mensajesEntrantes: number;
+  gruposDeTexto: {
+    rotulo: string;
+    explicacion: string;
+    textos: TextoBot[];
+    faltantes: string[];
+  }[];
+  textosSinAgrupar: TextoBot[];
+  ejemplos: Record<string, string>;
 }) {
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
-  const [pestana, setPestana] = useState<"faqs" | "fijas">("faqs");
+  const sinResponderPendientes = sinResponder.filter((p) => p.estado === "pendiente").length;
+
+  // Arranca en «Sin responder» sólo si hay algo que hacer ahí. Abrir siempre en
+  // una lista vacía deja la sección aparentando que no hace nada.
+  const [pestana, setPestana] = useState<"sin" | "faqs" | "fijas" | "textos">(
+    sinResponderPendientes > 0 ? "sin" : "faqs",
+  );
   const [aviso, setAviso] = useState<Resultado | null>(null);
   const [editandoFaq, setEditandoFaq] = useState<Faq | null | undefined>(undefined);
   const [editandoFija, setEditandoFija] = useState<RespuestaFija | null | undefined>(undefined);
   const [confirmando, setConfirmando] = useState<string | null>(null);
+
+  // Cuando esto tiene valor, el cajón abierto no está creando una respuesta
+  // suelta: está cerrando esta pregunta, y guarda por la RPC que hace las dos
+  // escrituras en una sola transacción.
+  const [resolviendo, setResolviendo] = useState<{ id: string; pregunta: string } | null>(null);
+
+  function responderCon(cajon: "faq" | "fija", p: PreguntaSinResponder) {
+    setResolviendo({ id: p.id, pregunta: p.pregunta });
+    if (cajon === "faq") setEditandoFaq(null);
+    else setEditandoFija(null);
+  }
+
+  function cerrarCajones() {
+    setEditandoFaq(undefined);
+    setEditandoFija(undefined);
+    setResolviendo(null);
+  }
 
   function ejecutar(accion: () => Promise<Resultado>) {
     empezar(async () => {
@@ -56,6 +110,8 @@ export function Respuestas({
 
   const borradoresFaq = faqs.filter((f) => !f.activa).length;
   const borradoresFija = fijas.filter((f) => !f.activa).length;
+  const totalTextos =
+    gruposDeTexto.reduce((n, g) => n + g.textos.length, 0) + textosSinAgrupar.length;
 
   return (
     <>
@@ -71,9 +127,18 @@ export function Respuestas({
         </div>
       )}
 
-      <ProbarBuscador />
+      {pestana !== "textos" && <ProbarBuscador />}
 
       <div className="pestanas" role="tablist">
+        <button
+          role="tab"
+          aria-selected={pestana === "sin"}
+          className={pestana === "sin" ? "activa" : ""}
+          onClick={() => setPestana("sin")}
+        >
+          Sin responder
+          <span className="cuenta">{sinResponderPendientes}</span>
+        </button>
         <button
           role="tab"
           aria-selected={pestana === "faqs"}
@@ -94,9 +159,28 @@ export function Respuestas({
           <span className="cuenta">{fijas.length}</span>
           {borradoresFija > 0 && <span className="chip curso">{borradoresFija} sin publicar</span>}
         </button>
+        <button
+          role="tab"
+          aria-selected={pestana === "textos"}
+          className={pestana === "textos" ? "activa" : ""}
+          onClick={() => setPestana("textos")}
+        >
+          Cómo habla Migue
+          <span className="cuenta">{totalTextos}</span>
+        </button>
       </div>
 
-      {pestana === "faqs" ? (
+      {pestana === "sin" ? (
+        <SinResponder
+          preguntas={sinResponder}
+          alResponderConFaq={(p) => responderCon("faq", p)}
+          alResponderConFija={(p) => responderCon("fija", p)}
+          alCambiar={(r) => {
+            setAviso(r);
+            router.refresh();
+          }}
+        />
+      ) : pestana === "faqs" ? (
         <>
           <p className="bajada" style={{ marginTop: 16 }}>
             Migue las busca y redacta la respuesta con ellas. Sirven cuando la misma pregunta se
@@ -273,14 +357,34 @@ export function Respuestas({
         </>
       )}
 
+      {pestana === "textos" && (
+        <>
+          <p className="bajada" style={{ marginTop: 16 }}>
+            Las frases con las que Migue arma cada conversación. Se envían{" "}
+            <strong>tal cual</strong>, sin que el modelo las reescriba.
+          </p>
+          <div className="aviso info">
+            Estas frases son fijas: se edita el texto, pero no se agregan ni se borran. El código
+            las busca por nombre, así que si una desapareciera el bot mandaría un aviso de error en
+            su lugar. Para responder algo nuevo, usá una pregunta frecuente.
+          </div>
+          <EditorTextos
+            grupos={gruposDeTexto}
+            sinAgrupar={textosSinAgrupar}
+            ejemplos={ejemplos}
+          />
+        </>
+      )}
+
       {editandoFaq !== undefined && (
         <CajonFaq
           faq={editandoFaq}
           puedePublicar={puedePublicar}
-          alCerrar={() => setEditandoFaq(undefined)}
+          resolviendo={resolviendo}
+          alCerrar={cerrarCajones}
           alTerminar={(r: Resultado) => {
             setAviso(r);
-            if (r.ok) setEditandoFaq(undefined);
+            if (r.ok) cerrarCajones();
             router.refresh();
           }}
         />
@@ -291,10 +395,11 @@ export function Respuestas({
           fija={editandoFija}
           puedePublicar={puedePublicar}
           mensajesEntrantes={mensajesEntrantes}
-          alCerrar={() => setEditandoFija(undefined)}
+          resolviendo={resolviendo}
+          alCerrar={cerrarCajones}
           alTerminar={(r: Resultado) => {
             setAviso(r);
-            if (r.ok) setEditandoFija(undefined);
+            if (r.ok) cerrarCajones();
             router.refresh();
           }}
         />

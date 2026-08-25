@@ -23,6 +23,8 @@ import {
   registrarEntrante,
   registrarSaliente,
   registrarSinRespuesta,
+  registrarVoto,
+  comentarVoto,
   responderConsulta,
   verificarConexion,
   type Persistencia,
@@ -71,16 +73,17 @@ async function main(): Promise<void> {
       return { id: conv.id, esNueva: conv.esNueva };
     },
     registrarEntrante: (id, entrante) => registrarEntrante(id, entrante),
-    // Se descarta el id del mensaje saliente: el orquestador no lo usa. La
-    // excepción de TypeScript para retornos `void` no alcanza cuando el valor
-    // viene envuelto en una promesa, así que hay que descartarlo explícito.
-    async registrarSaliente(id, saliente, traza) {
-      await registrarSaliente(id, saliente, traza);
-    },
+    // El id del saliente SÍ se usa: el orquestador se lo pega a los botones de
+    // voto para que un pulgar diga qué respuesta está valorando. Acá se
+    // descartaba, y con él se descartaba la única forma de saberlo sin adivinar
+    // — la base terminaba colgando todos los votos de la pregunta de cortesía.
+    registrarSaliente,
     actualizarFlujo,
     cerrarConversacion,
     aplicarEfectos,
     registrarSinRespuesta,
+    registrarVoto,
+    comentarVoto,
   };
 
   const puertos: Puertos = {

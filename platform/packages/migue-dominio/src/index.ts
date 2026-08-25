@@ -16,3 +16,12 @@ export * from "./mensajeria.ts";
 export * from "./ia/index.ts";
 export * from "./conocimiento/index.ts";
 export * from "./nucleo/index.ts";
+
+export { OPCIONES_VALORACION, votoDe, type Voto } from "./flujos/opciones.ts";
+
+export {
+  MARCADORES_POR_TEXTO,
+  MARCADORES_DE_CONFIRMACION,
+  marcadoresDe,
+  marcadoresQueNoSeResuelven,
+} from "./marcadores.ts";

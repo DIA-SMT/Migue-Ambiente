@@ -80,8 +80,13 @@ export function partirTexto(texto: string, maximo = MAX_CARACTERES): string[] {
  * material de construcción») y en un teléfono, dos por fila quedan cortadas.
  *
  * Una opción cuyo id no entra en `callback_data` se descarta en lugar de
- * hacer fallar el envío. No debería pasar —los ids son cortos— pero el costo
- * de que pase es que el vecino no recibe nada.
+ * hacer fallar el envío: el costo de que pase es que el vecino no recibe nada.
+ *
+ * Ojo que el descarte es SILENCIOSO y ya no es cierto que todos los ids sean
+ * cortos: los botones de voto llevan pegado el uuid del mensaje que se valora
+ * («voto_no_util:<uuid>» = 49 bytes de los 64). Entran, con 15 de margen, y hay
+ * una prueba en el dominio que lo verifica donde se construye el id — porque si
+ * un día no entraran, los pulgares desaparecerían del mensaje sin ningún error.
  */
 export function armarTeclado(saliente: MensajeSaliente): InlineKeyboard | undefined {
   if (!saliente.opciones || saliente.opciones.length === 0) return undefined;

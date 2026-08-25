@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { riesgoDelDisparador, type ModoDisparador, type PruebaDisparadores, type RespuestaFija } from "@/lib/tipos";
-import { guardarFija, probarDisparadores, type Resultado } from "./acciones";
+import { guardarFija, probarDisparadores, resolverConFija, type Resultado } from "./acciones";
 
 /**
  * Escribir o editar una respuesta textual.
@@ -15,17 +15,25 @@ import { guardarFija, probarDisparadores, type Resultado } from "./acciones";
  *
  * Por eso hay que probar antes de publicar, y por eso el botón de publicar
  * queda deshabilitado hasta que se probó al menos una vez.
+ *
+ * Con `resolviendo` viene de una pregunta que Migue no supo contestar. Se
+ * precarga el texto de prueba con la pregunta del vecino —el disparador tiene
+ * que atrapar ESA— pero NO los disparadores: la pregunta entera como disparador
+ * de tipo «contiene» no volvería a coincidir con nada, y hay que elegir a mano
+ * las pocas palabras que la identifican.
  */
 export function CajonFija({
   fija,
   puedePublicar,
   mensajesEntrantes,
+  resolviendo = null,
   alCerrar,
   alTerminar,
 }: {
   fija: RespuestaFija | null;
   puedePublicar: boolean;
   mensajesEntrantes: number;
+  resolviendo?: { id: string; pregunta: string } | null;
   alCerrar: () => void;
   alTerminar: (r: Resultado) => void;
 }) {
@@ -36,7 +44,7 @@ export function CajonFija({
   const [notas, setNotas] = useState(fija?.notas ?? "");
   const [activa, setActiva] = useState(fija?.activa ?? false);
 
-  const [textoPrueba, setTextoPrueba] = useState("");
+  const [textoPrueba, setTextoPrueba] = useState(resolviendo?.pregunta ?? "");
   const [prueba, setPrueba] = useState<PruebaDisparadores | null>(null);
   const [errorPrueba, setErrorPrueba] = useState<string | null>(null);
   const [probando, setProbando] = useState(false);
@@ -57,7 +65,17 @@ export function CajonFija({
   async function guardar() {
     setGuardando(true);
     alTerminar(
-      await guardarFija({ id: fija?.id ?? null, nombre, disparadores, modo, respuesta, activa, notas }),
+      resolviendo
+        ? await resolverConFija({
+            sinRespuestaId: resolviendo.id,
+            nombre,
+            disparadores,
+            modo,
+            respuesta,
+            activa,
+            notas,
+          })
+        : await guardarFija({ id: fija?.id ?? null, nombre, disparadores, modo, respuesta, activa, notas }),
     );
     setGuardando(false);
   }
@@ -75,13 +93,30 @@ export function CajonFija({
       <div className="velo" onClick={alCerrar} aria-hidden="true" />
       <aside className="cajon" role="dialog" aria-modal="true" aria-label="Respuesta textual">
         <div className="cajon-cabecera">
-          <h2>{fija ? "Editar respuesta textual" : "Nueva respuesta textual"}</h2>
+          <h2>
+            {resolviendo
+              ? "Responder con una respuesta textual"
+              : fija
+                ? "Editar respuesta textual"
+                : "Nueva respuesta textual"}
+          </h2>
           <button className="chico" onClick={alCerrar}>
             Cerrar
           </button>
         </div>
 
         <div className="cajon-cuerpo">
+          {resolviendo && (
+            <div className="cita-original">
+              <span className="rotulo">Lo que preguntó el vecino</span>
+              <blockquote>{resolviendo.pregunta}</blockquote>
+              <p className="ayuda" style={{ marginTop: 6 }}>
+                Ya está cargada como texto de prueba más abajo. Los disparadores van vacíos a
+                propósito: hay que elegir las pocas palabras que identifican el tema, porque la
+                pregunta entera no volvería a coincidir con nadie.
+              </p>
+            </div>
+          )}
           <div className="campo">
             <label htmlFor="nombre">Nombre</label>
             <input

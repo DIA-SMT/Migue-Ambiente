@@ -853,3 +853,286 @@ dl.ficha dd {
   margin: 0;
   color: var(--tinta);
 }
+
+/* --------------------------------------------------------------------------
+   Preguntas sin responder
+
+   Son tarjetas y no filas de tabla a propósito: lo que más importa de cada una
+   es el texto literal de lo que escribió el vecino, y en una celda de tabla eso
+   se corta o se aprieta. Acá la cita respira y se lee como lo que es —alguien
+   preguntando algo—, no como un dato.
+   -------------------------------------------------------------------------- */
+.lista-preguntas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tarjeta.pregunta {
+  padding: 14px 16px;
+}
+
+.tarjeta.pregunta > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.tarjeta.pregunta .marcas {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+/* El contador de repeticiones es el dato que ordena la lista, así que se lee
+   antes que el resto: son personas distintas preguntando lo mismo. */
+.tarjeta.pregunta .veces {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--alerta);
+  font-variant-numeric: tabular-nums;
+}
+
+.tarjeta.pregunta.de-baja .veces {
+  color: var(--tinta-media);
+}
+
+.tarjeta.pregunta blockquote,
+.cita-original blockquote {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--verde-medio);
+  background: var(--verde-tenue);
+  border-radius: 0 6px 6px 0;
+  color: var(--tinta);
+  font-size: 1rem;
+  line-height: 1.5;
+  /* Las preguntas llegan como las escribió el vecino: sin cortes, con saltos de
+     línea si los puso. No se normaliza nada. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tarjeta.pregunta .ayuda {
+  margin-top: 8px;
+}
+
+.tarjeta.pregunta .acciones {
+  margin-top: 12px;
+}
+
+.tarjeta.pregunta .descarte {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--linea);
+  border-radius: 8px;
+  background: var(--verde-tenue);
+}
+
+.tarjeta.pregunta .descarte label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.88rem;
+  margin-bottom: 6px;
+}
+
+/* La cita dentro de un cajón: recuerda qué se está respondiendo mientras se
+   escribe. Sin esto hay que cerrar el cajón para releer la pregunta. */
+.cita-original {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--linea);
+}
+
+.cita-original .rotulo {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tinta-media);
+  margin-bottom: 7px;
+}
+
+/* --------------------------------------------------------------------------
+   La transcripción de una conversación
+
+   Se muestra como charla de mensajería y no como tabla, aunque una tabla sería
+   más compacta. Lo que se viene a hacer acá es entender por qué un vecino votó
+   que no le sirvió, y eso se hace LEYENDO el ida y vuelta en el orden en que
+   pasó. Una tabla con columnas de dirección y hora obliga a reconstruir
+   mentalmente lo que la burbuja muestra sola.
+
+   Y se muestra COMO LO VIO EL VECINO: Migue a la izquierda en verde, el vecino a
+   la derecha. Es la misma convención que `.vista-previa` en la pantalla de
+   textos, y la que ve cualquiera que abra el chat en su teléfono. Invertirla
+   —poner al municipio a la derecha, como si el panel fuera nuestra bandeja—
+   haría que las dos pantallas mostraran el mismo mensaje de dos formas.
+   -------------------------------------------------------------------------- */
+
+/* El cajón de la charla es más ancho que el de un formulario: son párrafos para
+   leer, no campos para completar. */
+.cajon.ancho {
+  max-width: 720px;
+}
+
+.charla {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.burbuja {
+  display: flex;
+  flex-direction: column;
+  max-width: 84%;
+}
+
+.burbuja .cuerpo {
+  padding: 11px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.93rem;
+  line-height: 1.5;
+  box-shadow: var(--sombra);
+}
+
+/* Migue: verde, a la izquierda, con la muesca abajo a la izquierda. Mismo
+   lenguaje que `.vista-previa`. */
+.burbuja.saliente {
+  align-self: flex-start;
+}
+.burbuja.saliente .cuerpo {
+  background: var(--verde-medio);
+  color: #fff;
+  border-radius: 14px 14px 14px 4px;
+}
+
+/* El vecino: papel, a la derecha, con borde. El borde importa: sin él, sobre el
+   fondo claro del cajón la burbuja no se distingue del vacío. */
+.burbuja.entrante {
+  align-self: flex-end;
+}
+.burbuja.entrante .cuerpo {
+  background: var(--papel);
+  color: var(--tinta);
+  border: 1px solid var(--linea);
+  border-radius: 14px 14px 4px 14px;
+}
+
+/* La traza: de dónde salió la respuesta, con qué confianza. Es lo que convierte
+   «Migue contestó mal» en «Migue contestó con un fragmento del Plan Rector»,
+   que es lo accionable. Va chica porque se lee sólo cuando algo falló. */
+.burbuja .pie {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding: 0 4px;
+  font-size: 0.73rem;
+  color: var(--tinta-suave);
+  font-variant-numeric: tabular-nums;
+}
+.burbuja.entrante .pie {
+  justify-content: flex-end;
+}
+
+/* El voto, pegado a la burbuja que valoró y no al final de la charla: responde
+   «cuál de las cuatro respuestas falló», que es la pregunta que trae a alguien
+   a leer una conversación. */
+.burbuja .voto {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.burbuja .voto.util {
+  background: var(--ok-piso);
+  color: var(--ok);
+}
+.burbuja .voto.no_util {
+  background: var(--alerta-piso);
+  color: var(--alerta);
+}
+.burbuja .voto .pulgar {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+/* El comentario ocupa toda la fila: es una frase del vecino, no una etiqueta. */
+.burbuja .voto blockquote {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding-left: 9px;
+  border-left: 2px solid currentColor;
+  font-weight: 400;
+  font-style: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   Reglas
+
+   Cada regla es una tarjeta y no una fila de tabla, y no es una preferencia
+   estética: lo que hay que leer antes de tocar un valor es la CONSECUENCIA
+   —«esto hace que el bot se caiga en el último paso del pedido»— y eso son dos
+   renglones de prosa que en una celda no entran. Una tabla habría hecho que la
+   pantalla se vea más ordenada y que nadie lea la advertencia.
+   -------------------------------------------------------------------------- */
+
+.tarjeta.regla {
+  transition: opacity 0.12s ease;
+}
+
+.regla-cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.regla-cabecera .ayuda {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+/* La fila del control: el campo, la unidad y los botones de guardar/deshacer.
+   `align-items: center` y no `baseline` porque conviven inputs de una línea con
+   `select`, que tienen alturas distintas. */
+.regla-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+/* Un textarea dentro de la fila ocupa el ancho completo: una lista de feriados
+   o un texto de exceso no se lee en un renglón. */
+.regla-control textarea {
+  flex-basis: 100%;
+}
+
+.regla-control input,
+.regla-control select {
+  width: auto;
+}
+
+/* Los encabezados de sección dentro de una pestaña. `h3` porque el h1 es el
+   título de la pantalla y el h2 el del grupo. */
+.tarjeta h3 {
+  font-family: var(--display);
+  font-size: 1.02rem;
+  margin: 0 0 4px;
+}

@@ -130,6 +130,23 @@ export function IconoSinRespuesta({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Conversaciones: dos globos de diálogo.
+ *
+ * Se solapan a propósito, y el de atrás está incompleto: es lo que lo distingue
+ * de un globo solo —que leería como «mensaje»— y lo hace leer como «ida y
+ * vuelta». Comparte la gramática de trazo del resto: mismo viewBox, mismo
+ * grosor, mismas terminaciones redondeadas.
+ */
+export function IconoConversaciones({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <path d="M3 8.2a3 3 0 0 1 3-3h5.5a3 3 0 0 1 3 3v2.1a3 3 0 0 1-3 3H7.8L5 15.6v-2.4a3 3 0 0 1-2-2.9z" />
+      <path d="M14.9 7.4h.6a2.5 2.5 0 0 1 2.5 2.5v1.8a2.5 2.5 0 0 1-1.7 2.4v1.9l-2-1.7" />
+    </svg>
+  );
+}
+
 /** Métricas: barras. */
 export function IconoMetricas({ className }: { className?: string }) {
   return (

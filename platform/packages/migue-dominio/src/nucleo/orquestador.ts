@@ -9,9 +9,10 @@
  * Orden de resolución, y el orden es la política:
  *
  *   1. Exclusiones      un olor a gas se deriva antes de preguntar nada más
- *   2. Flujo activo     si hay una conversación a medias, se continúa
- *   3. Router           se clasifica y se decide
- *   4. Conocimiento     o se responde, o se admite que no se sabe
+ *   2. Voto             si tocó el pulgar, se registra y se contesta eso
+ *   3. Flujo activo     si hay una conversación a medias, se continúa
+ *   4. Router           se clasifica y se decide
+ *   5. Conocimiento     o se responde, o se admite que no se sabe
  *
  * Todas las dependencias con efectos —base de datos, Redis, modelos— entran
  * por parámetro. Eso hace que la suite pruebe el bucle completo, incluida la
@@ -31,7 +32,14 @@ import {
   flujoProgramaSepara,
   flujoProgramaTransforma,
 } from "../flujos/programas.ts";
-import { OPCIONES_MENU, resolverOpcion } from "../flujos/opciones.ts";
+import {
+  OPCIONES_MENU,
+  opcionesDeVoto,
+  OPCIONES_VALORACION,
+  resolverOpcion,
+  votoDe,
+  type Voto,
+} from "../flujos/opciones.ts";
 import { decidir, type Clasificacion } from "../ia/router.ts";
 import { leerConfig, leerTexto, tieneTexto, type Catalogo } from "../datos/catalogo.ts";
 import {
@@ -40,6 +48,7 @@ import {
   textoEfectivo,
   type MensajeEntrante,
   type MensajeSaliente,
+  type OpcionRespuesta,
 } from "../mensajeria.ts";
 import { almacenEnMemoria, claveDeEstado, type AlmacenEstado } from "./almacen.ts";
 import type { DefinicionFlujo, Efecto, EstadoFlujo, NombreFlujo } from "../flujos/tipos.ts";
@@ -69,7 +78,7 @@ export interface Persistencia {
     conversacionId: string,
     saliente: MensajeSaliente,
     traza: TrazaMensaje,
-  ): Promise<void>;
+  ): Promise<string>;
   actualizarFlujo(conversacionId: string, flujo: string | null, paso: string | null): Promise<void>;
   cerrarConversacion(conversacionId: string, estado: "cerrada" | "derivada" | "abandonada"): Promise<void>;
   aplicarEfectos(efectos: readonly Efecto[], procedencia: Procedencia): Promise<ResultadoEfecto[]>;
@@ -80,6 +89,20 @@ export interface Persistencia {
     mensajeId: string | null;
     confianza: number | null;
   }): Promise<unknown>;
+  /**
+   * Guarda el voto sobre la última respuesta. Devuelve null si no había nada
+   * que valorar, que pasa cuando alguien toca un botón viejo.
+   */
+  registrarVoto(
+    conversacionId: string,
+    voto: Voto,
+    mensajeId: string | null,
+  ): Promise<string | null>;
+  /**
+   * Intenta pegar este texto como explicación del último voto negativo.
+   * Devuelve si correspondía: cuando es false, el texto era otra cosa.
+   */
+  comentarVoto(conversacionId: string, comentario: string): Promise<boolean>;
 }
 
 export interface Puertos {
@@ -158,7 +181,91 @@ export async function procesarMensaje(
   }
 
   // -------------------------------------------------------------------------
-  // 2 · Flujo activo
+  // 2 · ¿Votó?
+  // -------------------------------------------------------------------------
+  // Va ANTES del flujo activo, y no es una preferencia de orden: Telegram deja
+  // los teclados en línea viejos VIVOS para siempre. El vecino puede recibir una
+  // respuesta con los botones de pulgar, después arrancar un pedido de retiro, y
+  // recién entonces subir en el historial y tocar el pulgar. Si esto estuviera
+  // después, ese toque entraría como respuesta al paso actual del flujo —
+  // «voto_util» como dirección, por ejemplo— y el vecino recibiría un «no
+  // entendí» por haber usado un botón que el bot le ofreció.
+  //
+  // Y por eso mismo el voto NO toca el estado del flujo ni lo cierra: se
+  // registra, se contesta, y la conversación a medias sigue exactamente donde
+  // estaba. El siguiente mensaje la continúa.
+  const reconocido = votoDe(entrante);
+  if (reconocido !== null) {
+    const { voto, mensajeId } = reconocido;
+    // `mensajeId` viene del botón. Si es null —emoji suelto, o un teclado de
+    // antes de este cambio— la base cae a su respaldo por conversación.
+    const idDelVoto = await puertos.persistencia.registrarVoto(
+      conversacion.id,
+      voto,
+      mensajeId,
+    );
+
+    // Tras un pulgar abajo se pide el detalle; tras uno arriba se agradece y se
+    // corta. Los dos textos son opcionales: vaciarlos desde el panel deja el
+    // voto registrándose en silencio, sin que Migue conteste nada.
+    //
+    // Si el voto NO se pudo guardar, no se agradece. Decirle «¡Buenísimo!» a
+    // alguien cuyo voto se perdió lo confirma de algo que no pasó, y para el
+    // área es una medición perdida sin ningún síntoma. Se calla y el mensaje
+    // sigue su curso normal, así que al menos el vecino recibe algo útil.
+    const clave_texto = voto === "util" ? "voto_gracias_util" : "voto_pedir_detalle";
+    const salientes =
+      idDelVoto !== null && tieneTexto(catalogo, clave_texto)
+        ? [decir(leerTexto(catalogo, clave_texto), voto === "util" ? "nada" : "texto")]
+        : [];
+
+    return await responderCon(
+      salientes,
+      {
+        conversacionId: conversacion.id,
+        origenRespuesta: "flujo",
+        // Se informa el flujo que sigue abierto, si había uno. Decir null acá
+        // haría que el panel mostrara la conversación como charla libre cuando
+        // en realidad tiene un pedido a medias.
+        flujoActivo: estadoPrevio?.flujo ?? null,
+        efectos: [],
+      },
+      { intencion: `voto_${voto}`, origenRespuesta: "flujo" },
+      puertos,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 2b · ¿Este texto explica un pulgar abajo reciente?
+  // -------------------------------------------------------------------------
+  // Se pregunta en CADA mensaje con texto y la base decide, en vez de que el bot
+  // recuerde que dejó un voto esperando. Cuesta una consulta indexada por
+  // mensaje —nada, al lado de la llamada al modelo que viene después— y a cambio
+  // no hay estado que se desincronice ni que se pierda si Redis se vacía.
+  //
+  // No se corta el procesamiento si el comentario se guardó: «yo pregunté por
+  // escombros, no por poda» es a la vez la explicación del voto Y una consulta
+  // nueva. Guardarla y contestar «gracias» dejaría al vecino sin respuesta por
+  // segunda vez, que es exactamente lo que se estaba midiendo.
+  // Dos guardas, y las dos vienen de fallas concretas:
+  //
+  //   `entrante.seleccion` — `texto` es en realidad `textoEfectivo()`, que
+  //   devuelve `seleccion ?? texto`. Un toque de botón dejaba el ID INTERNO
+  //   guardado como la explicación del vecino: «retiro_no_habitual» aparecía en
+  //   la lista de conversaciones como lo que dijo que le faltaba.
+  //
+  //   `estadoPrevio` — con un trámite abierto, el texto es la respuesta a un
+  //   paso, no una explicación. Se guardaba «Lamadrid 550» como el motivo por el
+  //   que la respuesta no sirvió: además de mentir, copiaba la dirección de un
+  //   vecino a una tabla que no es la del pedido, y de ahí a la LISTA de
+  //   conversaciones. Y consumía el cupo de comentario, así que la explicación
+  //   real, si llegaba después, ya no entraba.
+  if (texto !== "" && entrante.seleccion == null && estadoPrevio === null) {
+    await puertos.persistencia.comentarVoto(conversacion.id, texto);
+  }
+
+  // -------------------------------------------------------------------------
+  // 3 · Flujo activo
   // -------------------------------------------------------------------------
   if (estadoPrevio !== null) {
     const definicion = FLUJOS[estadoPrevio.flujo];
@@ -205,7 +312,7 @@ export async function procesarMensaje(
   }
 
   // -------------------------------------------------------------------------
-  // 3 · Media sin contexto
+  // 4 · Media sin contexto
   // -------------------------------------------------------------------------
   // Alguien manda una foto sin flujo activo y sin texto. Pasa seguido: la
   // gente saca la foto primero. Preguntarle qué necesita es mejor que mandarle
@@ -231,7 +338,7 @@ export async function procesarMensaje(
   }
 
   // -------------------------------------------------------------------------
-  // 4 · ¿Eligió del menú?
+  // 5 · ¿Eligió del menú?
   //
   // Si el vecino tocó un botón del menú o escribió su número, ya dijo qué
   // quiere: llamar al clasificador para que lo adivine sería gastar una llamada
@@ -365,19 +472,30 @@ export async function procesarMensaje(
             ? origenDeSintesis(respuesta)
             : "fallback";
 
-      // Después de responder, preguntar si sirvió. Va como mensaje APARTE y no
-      // pegado a la respuesta: así la respuesta se puede leer, copiar o reenviar
-      // sin arrastrar una pregunta de cortesía.
+      // Después de responder, preguntar si sirvió — con los dos botones de
+      // pulgar, para que la respuesta quede MEDIDA y no perdida en el texto de
+      // la charla. Antes esto era texto libre: el vecino contestaba «sí,
+      // gracias» y nadie lo contaba, así que se sabía cuántas veces habló Migue
+      // pero no si servía.
+      //
+      // Va como mensaje APARTE y no pegado a la respuesta: así la respuesta se
+      // puede leer, copiar o reenviar sin arrastrar una pregunta de cortesía, y
+      // los botones quedan junto a la pregunta y no debajo de un texto largo.
       //
       // Sólo cuando hubo respuesta de verdad. Después de un «no tengo esa
-      // información» un «¿te sirvió?» es sal en la herida, y ese texto ya dice
-      // qué hacer.
+      // información» un «¿te sirvió?» es sal en la herida, y además el voto no
+      // agregaría nada: esa falla ya quedó registrada en `sin_respuesta`.
       //
-      // Se lee con `tieneTexto`, así que vaciarlo desde el panel apaga el
-      // seguimiento sin necesidad de un deploy.
+      // Se lee con `tieneTexto`, así que vaciarlo desde el panel apaga el voto
+      // sin necesidad de un deploy.
       const cierre: MensajeSaliente[] =
         respuesta.tipo !== "sin_respuesta" && tieneTexto(catalogo, "seguimiento_tras_responder")
-          ? [decir(leerTexto(catalogo, "seguimiento_tras_responder"), "texto")]
+          ? [
+              preguntar(
+                leerTexto(catalogo, "seguimiento_tras_responder"),
+                OPCIONES_VALORACION,
+              ),
+            ]
           : [];
 
       return await responderCon(
@@ -430,14 +548,50 @@ async function responderCon(
   traza: TrazaMensaje,
   puertos: Puertos,
 ): Promise<Resultado> {
+  // El id del PRIMER saliente del turno, que es la respuesta. Los botones de
+  // voto del segundo lo llevan pegado, así que el voto no se infiere: se sabe.
+  let idDeLaRespuesta: string | null = null;
+  const enviados: MensajeSaliente[] = [];
+
   for (const [indice, saliente] of salientes.entries()) {
-    await puertos.persistencia.registrarSaliente(
+    // Los salientes que siguen al primero NO llevan origen: son cortesía, no
+    // respuestas. Antes se les copiaba `origenRespuesta` y eso rompió el voto —
+    // la migración 022 buscaba «el último saliente con origen no nulo» para
+    // saltear justamente el «¿te sirvió?», y con la columna llena en los dos el
+    // último no nulo era la propia pregunta de cortesía. Sigue siendo un
+    // respaldo y no el mecanismo principal, pero ahora es un respaldo correcto.
+    const conBotones =
+      indice === 0 || idDeLaRespuesta === null || saliente.opciones === undefined
+        ? saliente
+        : { ...saliente, opciones: conReferente(saliente.opciones, idDeLaRespuesta) };
+
+    const id = await puertos.persistencia.registrarSaliente(
       resultado.conversacionId,
-      saliente,
-      indice === 0 ? traza : { origenRespuesta: traza.origenRespuesta ?? null },
+      conBotones,
+      indice === 0 ? traza : { origenRespuesta: null },
     );
+
+    if (indice === 0) idDeLaRespuesta = id ?? null;
+    enviados.push(conBotones);
   }
-  return { ...resultado, salientes };
+
+  return { ...resultado, salientes: enviados };
+}
+
+/**
+ * Le pega el id del mensaje valorado a los botones de voto.
+ *
+ * Sólo a los de voto: el resto de las opciones —el menú, las categorías de un
+ * trámite— se resuelven por su id tal cual y agregarles un sufijo rompería
+ * `resolverOpcion`.
+ */
+function conReferente(
+  opciones: readonly OpcionRespuesta[],
+  mensajeId: string,
+): readonly OpcionRespuesta[] {
+  if (opciones.length === 0) return opciones;
+  const esVoto = opciones.every((o) => o.id === "voto_util" || o.id === "voto_no_util");
+  return esVoto ? opcionesDeVoto(mensajeId) : opciones;
 }
 
 // ---------------------------------------------------------------------------
