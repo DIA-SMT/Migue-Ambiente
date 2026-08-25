@@ -77,9 +77,9 @@ export const GRUPOS_DE_REGLAS: readonly GrupoDeReglas[] = [
         clave: "enlace_migue",
         rotulo: "Enlace o número de Migue",
         queHace:
-          "A dónde se manda al vecino. Se recomienda un enlace de WhatsApp, del tipo " +
-          "https://wa.me/549381XXXXXXX, porque abre la conversación con un toque y el vecino no " +
-          "tiene que copiar un número a mano.",
+          "El número de WhatsApp de Migue. Escribilo como lo tenés en la agenda —por ejemplo " +
+          "3812067777— y el panel arma el enlace solo. También podés pegar un enlace completo si " +
+          "preferís.",
         tipo: "texto",
         siSeRompe:
           "Mientras esté vacío el bot NO deriva: vuelve a mostrar el menú. Es a propósito — " +
@@ -450,3 +450,66 @@ export function aTexto(def: DefinicionClave, valor: unknown): string {
  * valor viejo y concluye que no se guardó.
  */
 export const SEGUNDOS_DE_CACHE = 60;
+
+/**
+ * Convierte lo que se escriba en un enlace de WhatsApp que funcione.
+ *
+ * Existe porque pedirle a alguien que arme
+ * `https://wa.me/5493812067777` a mano es pedirle que se equivoque. El formato
+ * internacional argentino para celulares tiene dos trampas que no son obvias:
+ *
+ *   · va `54` (país) y después un `9` que NO está en el número que uno marca;
+ *   · el `15` que se usa para llamar dentro del país NO va.
+ *
+ * Así que `3812067777` —como figura en una agenda— se convierte en
+ * `5493812067777`. Y si alguien pega el enlace completo, se respeta.
+ *
+ * Devuelve null si no se puede interpretar, y la pantalla lo dice en vez de
+ * guardar algo que no va a abrir ninguna conversación.
+ */
+export function enlaceDeWhatsapp(crudo: string): string | null {
+  const texto = crudo.trim();
+  if (texto === "") return null;
+
+  // Ya es un enlace: se respeta tal cual. Puede ser wa.me, api.whatsapp.com, o
+  // incluso un enlace a otra cosa si el área decide derivar a una web.
+  if (/^https?:\/\//i.test(texto)) return texto;
+
+  let d = texto.replace(/\D/g, "");
+  if (d === "") return null;
+
+  // El 0 de larga distancia nacional no va.
+  if (d.startsWith("0")) d = d.slice(1);
+
+  // Ya viene con país y el 9 de celular.
+  if (d.startsWith("549")) {
+    return d.length >= 12 ? `https://wa.me/${d}` : null;
+  }
+
+  // Viene con país pero sin el 9. Se agrega: sin eso WhatsApp no encuentra el
+  // número, y el error que da es «número inválido», que no explica nada.
+  if (d.startsWith("54")) {
+    const resto = d.slice(2).replace(/^9/, "");
+    return resto.length >= 9 ? `https://wa.me/549${resto}` : null;
+  }
+
+  // Un número nacional, con o sin el 15. `3812067777` o `38115206777`.
+  const sinQuince = d.replace(/^(\d{2,4})15/, "$1");
+  if (sinQuince.length >= 9 && sinQuince.length <= 11) {
+    return `https://wa.me/549${sinQuince}`;
+  }
+
+  return null;
+}
+
+/** El número, para mostrarlo legible al lado del enlace. */
+export function numeroDelEnlace(enlace: string): string | null {
+  const m = /wa\.me\/(\d+)/.exec(enlace);
+  if (!m) return null;
+  const d = m[1]!;
+  // 549 + area + numero. Se separa para que se pueda comparar con una agenda.
+  const nacional = d.replace(/^549/, "");
+  if (nacional.length < 9) return null;
+  const area = nacional.slice(0, nacional.length - 7);
+  return `+54 9 ${area} ${nacional.slice(-7, -4)}-${nacional.slice(-4)}`;
+}

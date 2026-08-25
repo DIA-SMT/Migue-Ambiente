@@ -419,6 +419,30 @@ export async function procesarMensaje(
         puertos,
       );
 
+    case "derivar": {
+      // El clasificador entendió el pedido y sabe que no es de Ambiente. Acá no
+      // hace falta que el vecino insista: hacerle elegir entre opciones que
+      // ninguna le sirve es hacerlo perder tiempo.
+      const derivado = await derivarAMigue(
+        conversacion.id,
+        entrante,
+        texto,
+        catalogo,
+        trazaRouter,
+        puertos,
+      );
+      if (derivado !== null) return derivado;
+
+      // Sin enlace cargado no se puede derivar: cae al menú. Mejor eso que
+      // decirle «escribile a Migue» sin decirle a dónde.
+      return await responderCon(
+        [preguntar(leerTexto(catalogo, "menu_principal"), OPCIONES_MENU)],
+        { conversacionId: conversacion.id, origenRespuesta: "fallback", flujoActivo: null, efectos: [] },
+        { ...trazaRouter, origenRespuesta: "fallback" },
+        puertos,
+      );
+    }
+
     case "mostrar_menu": {
       // ¿Ya le mostramos el menú y volvió a escribir algo que no encaja? Si es
       // así, insistir con el menú es el bucle sin salida que este bot tenía: se

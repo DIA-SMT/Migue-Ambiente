@@ -3,7 +3,9 @@
 import { useState } from "react";
 import {
   aTexto,
+  enlaceDeWhatsapp,
   GRUPOS_DE_REGLAS,
+  numeroDelEnlace,
   SEGUNDOS_DE_CACHE,
   validarValor,
   type DefinicionClave,
@@ -174,6 +176,38 @@ export function Configuracion({
             </button>
           )}
         </div>
+
+        {/* El enlace de WhatsApp: se muestra QUÉ se va a guardar y qué número es.
+            Un enlace mal armado no da error al guardar — falla recién cuando un
+            vecino lo toca, y ahí nadie se entera. */}
+        {def.clave === "enlace_migue" && valor.trim() !== "" && (
+          (() => {
+            const enlace = enlaceDeWhatsapp(valor);
+            if (enlace === null) {
+              return (
+                <div className="aviso mal" style={{ marginTop: 10 }}>
+                  No pude interpretar eso como un número ni como un enlace. Escribí el número tal
+                  como lo tenés en la agenda —por ejemplo <code>3812067777</code>— o pegá un enlace
+                  que empiece con <code>https://</code>.
+                </div>
+              );
+            }
+            const numero = numeroDelEnlace(enlace);
+            return (
+              <div className="aviso ok" style={{ marginTop: 10 }}>
+                <strong>Se va a guardar así:</strong>
+                <div style={{ marginTop: 4 }}>
+                  <code>{enlace}</code>
+                  {numero && <span className="sub-fila"> · {numero}</span>}
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  El vecino va a ver ese enlace y con un toque se le abre la conversación con Migue.
+                  Conviene probarlo desde el celular antes de guardar.
+                </div>
+              </div>
+            );
+          })()
+        )}
 
         {/* Primero el error de validación; sólo si el valor es válido se muestra
             la consecuencia. Los dos juntos sería ruido. */}

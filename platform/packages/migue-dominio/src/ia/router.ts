@@ -24,6 +24,7 @@ import type { NombreFlujo } from "../flujos/tipos.ts";
 export type Intencion =
   | NombreFlujo
   | "consulta_libre"
+  | "fuera_de_alcance"
   | "saludo"
   | "despedida"
   | "no_entendido";
@@ -52,6 +53,7 @@ const FLUJOS: readonly NombreFlujo[] = [
 const INTENCIONES: readonly Intencion[] = [
   ...FLUJOS,
   "consulta_libre",
+  "fuera_de_alcance",
   "saludo",
   "despedida",
   "no_entendido",
@@ -224,12 +226,20 @@ function instrucciones(): string {
     "programa_transforma  pide un mural, un cartel o una intervención en un espacio.",
     "programa_separa      pregunta por la recolección de reciclables en su domicilio,",
     "                     o quiere coordinar la entrega de reciclables.",
-    "consulta_libre       cualquier otra pregunta sobre temas ambientales: horarios,",
-    "                     Puntos Verdes, qué se puede reciclar, programas, normativa.",
+    "consulta_libre       cualquier otra pregunta sobre temas de Ambiente: horarios,",
+    "                     Puntos Verdes, qué se puede reciclar, programas, normativa,",
+    "                     residuos, arbolado, limpieza.",
+    "fuera_de_alcance     se entiende PERFECTAMENTE lo que pide, y NO es de la",
+    "                     Secretaría de Ambiente. Habilitaciones comerciales,",
+    "                     impuestos y tasas, licencias de conducir, multas, obras",
+    "                     particulares, bacheo, tránsito, alumbrado, agua, gas,",
+    "                     salud, catastro, becas. También cualquier tema que no",
+    "                     sea del municipio.",
     "saludo               sólo saluda, sin pedir nada.",
     "despedida            agradece o se despide.",
-    "no_entendido         el mensaje no se entiende, o no tiene nada que ver con",
-    "                     ambiente ni con el municipio.",
+    "no_entendido         NO SE ENTIENDE qué quiere. Un mensaje sin sentido, un",
+    "                     fragmento suelto, un audio transcripto mal. Esto NO es",
+    "                     para lo que no es de Ambiente: eso es fuera_de_alcance.",
     "",
     "Reglas importantes:",
     "",
@@ -243,6 +253,13 @@ function instrucciones(): string {
     "  «Quiero pedir un retiro», «necesito un camión», «quiero sacar unos",
     "  escombros» son retiro_no_habitual. No hace falta que describa el síntoma",
     "  para que se entienda qué quiere.",
+    "- LA DISTINCIÓN MÁS IMPORTANTE: `no_entendido` es «no sé qué me pediste».",
+    "  `fuera_de_alcance` es «sé perfectamente qué me pediste y no es mío». Con la",
+    "  primera el bot muestra las opciones de Ambiente; con la segunda lo manda al",
+    "  asistente general del municipio, que sí lo puede ayudar. Confundirlas hace",
+    "  que alguien con un pedido claro reciba un menú que no le sirve.",
+    "  «Necesito una habilitación comercial» es fuera_de_alcance con confianza",
+    "  ALTA: está clarísimo, y no es de Ambiente. «asdfgh» es no_entendido.",
     "- Si además de saludar pide algo, clasificá el pedido y no el saludo.",
     "- La confianza refleja cuán claro está el mensaje, no cuán probable te parece",
     "  la intención. Un mensaje ambiguo lleva confianza baja aunque tengas una",
@@ -332,6 +349,7 @@ export type Decision =
   | { readonly tipo: "consultar_conocimiento" }
   | { readonly tipo: "saludar" }
   | { readonly tipo: "despedir" }
+  | { readonly tipo: "derivar" }
   | { readonly tipo: "mostrar_menu" };
 
 /**
@@ -346,6 +364,13 @@ export type Decision =
  * la cadena de conocimiento. Es la regla de «responder antes de preguntar»: la
  * cadena ya sabe admitir cuando no encuentra material, y es mejor intentar
  * responder y fallar que devolverle un menú a quien hizo una pregunta concreta.
+ *
+ * Y `fuera_de_alcance` con confianza alta deriva DIRECTO, sin pasar por el menú.
+ * La diferencia con `no_entendido` es la que motivó separar las dos intenciones:
+ * antes «necesito una habilitación comercial» caía en la misma etiqueta que
+ * «asdfgh», y el modelo daba 0.2 o 0.95 para la MISMA frase según cómo estuviera
+ * escrita — porque dudaba entre «no es de ambiente» (no_entendido) y «es del
+ * municipio» (consulta_libre). Medido en producción con esas dos versiones.
  */
 export function decidir(
   clasificacion: Clasificacion,
@@ -363,6 +388,22 @@ export function decidir(
 
     case "no_entendido":
       return { tipo: "mostrar_menu" };
+
+    case "fuera_de_alcance":
+      // Se entendió qué pide y no es de Ambiente. Con confianza ALTA se deriva
+      // de una: hacerle elegir entre opciones que ninguna le sirve es hacerlo
+      // perder tiempo.
+      //
+      // Con confianza baja NO. El área pidió que el menú actúe de red contra
+      // NUESTROS errores de clasificación, y la confianza es exactamente la
+      // medida de eso: si el modelo duda, puede ser un pedido de Ambiente mal
+      // leído, y derivarlo sería echar a un vecino por una falla propia.
+      //
+      // Y si no hay enlace cargado, `derivarAMigue` devuelve null y el
+      // orquestador cae al menú igual.
+      return clasificacion.confianza >= umbral
+        ? { tipo: "derivar" }
+        : { tipo: "mostrar_menu" };
 
     case "consulta_libre":
       return responderPrimero

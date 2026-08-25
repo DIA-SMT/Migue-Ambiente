@@ -23,6 +23,7 @@ import { revalidatePath } from "next/cache";
 import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
 import {
   DEFINICIONES,
+  enlaceDeWhatsapp,
   validarValor,
   type DefinicionClave,
 } from "@/lib/reglas";
@@ -113,9 +114,28 @@ export async function guardarConfig(clave: string, crudo: string): Promise<Resul
   const v = validarValor(def, crudo);
   if (!v.ok) return { ok: false, mensaje: v.mensaje };
 
+  // El enlace se NORMALIZA antes de guardar, no se guarda lo que se escribió.
+  // El bot interpola este valor tal cual en el mensaje al vecino, así que si acá
+  // entrara «3812067777» el vecino recibiría ese texto suelto en lugar de un
+  // enlace que abre la conversación. Y un enlace mal armado no falla al guardar:
+  // falla cuando alguien lo toca, y ahí nadie se entera.
+  let valorFinal = v.valor;
+  if (clave === "enlace_migue" && typeof v.valor === "string" && v.valor.trim() !== "") {
+    const enlace = enlaceDeWhatsapp(v.valor);
+    if (enlace === null) {
+      return {
+        ok: false,
+        mensaje:
+          "No pude interpretar eso como un número de WhatsApp ni como un enlace. Escribí el " +
+          "número como lo tenés en la agenda (3812067777) o pegá un enlace que empiece con https://",
+      };
+    }
+    valorFinal = enlace;
+  }
+
   const { error, data } = await acceso.supabase
     .from("configuracion")
-    .update({ valor: v.valor, actualizado_por: acceso.persona.usuarioId })
+    .update({ valor: valorFinal, actualizado_por: acceso.persona.usuarioId })
     .eq("clave", clave)
     .select("clave");
 
