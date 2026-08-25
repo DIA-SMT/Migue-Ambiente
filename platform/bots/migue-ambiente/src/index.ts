@@ -22,6 +22,7 @@ import {
   obtenerOAbrirConversacion,
   registrarEntrante,
   registrarSaliente,
+  ultimoOrigenSaliente,
   registrarSinRespuesta,
   registrarVoto,
   comentarVoto,
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
     // descartaba, y con él se descartaba la única forma de saberlo sin adivinar
     // — la base terminaba colgando todos los votos de la pregunta de cortesía.
     registrarSaliente,
+    ultimoOrigenSaliente,
     actualizarFlujo,
     cerrarConversacion,
     aplicarEfectos,

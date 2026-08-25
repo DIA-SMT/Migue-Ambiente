@@ -66,6 +66,45 @@ const MODOS_SLA = [
 
 export const GRUPOS_DE_REGLAS: readonly GrupoDeReglas[] = [
   {
+    rotulo: "A dónde se deriva lo que no es de Ambiente",
+    explicacion:
+      "Este bot es de la Secretaría de Ambiente. Cuando un vecino insiste con algo que no es " +
+      "nuestro, en lugar de repetirle el menú se lo manda a Migue, el asistente general del " +
+      "municipio. Es el grupo más importante de esta pantalla: sin el enlace cargado, la " +
+      "derivación no funciona y el bot vuelve al menú.",
+    claves: [
+      {
+        clave: "enlace_migue",
+        rotulo: "Enlace o número de Migue",
+        queHace:
+          "A dónde se manda al vecino. Se recomienda un enlace de WhatsApp, del tipo " +
+          "https://wa.me/549381XXXXXXX, porque abre la conversación con un toque y el vecino no " +
+          "tiene que copiar un número a mano.",
+        tipo: "texto",
+        siSeRompe:
+          "Mientras esté vacío el bot NO deriva: vuelve a mostrar el menú. Es a propósito — " +
+          "decirle «escribile a Migue» sin decirle a dónde lo deja peor que antes.",
+        consecuencia: "alta",
+      },
+      {
+        clave: "derivar_tras_intentos",
+        rotulo: "Cuántas veces mostrar el menú antes de derivar",
+        queHace:
+          "Con 1, el vecino ve el menú una vez y si insiste con algo que no encaja se lo deriva. " +
+          "Con 0 se deriva en el primer mensaje que no se entienda.",
+        tipo: "entero",
+        minimo: 0,
+        maximo: 3,
+        unidad: "veces",
+        siSeRompe:
+          "En 0, cada error de clasificación se convierte en una derivación injusta: un vecino " +
+          "que preguntó algo que SÍ era nuestro se va a otro número porque el bot lo leyó mal. " +
+          "El menú actúa de red.",
+        consecuencia: "alta",
+      },
+    ],
+  },
+  {
     rotulo: "El plazo que Migue promete",
     explicacion:
       "Con esto se calcula la fecha que el bot le dice al vecino cuando toma un pedido. Es lo " +

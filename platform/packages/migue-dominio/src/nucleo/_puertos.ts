@@ -98,6 +98,14 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
       });
       return id;
     },
+    // Devuelve el origen del ULTIMO saliente registrado, leyendo el mismo
+    // registro que las pruebas inspeccionan. Un doble que devolviera null fijo
+    // haria que la rama de derivacion no se ejecutara nunca en la suite — el
+    // mismo error que ya tuvo `registrarSaliente` cuando no devolvia id.
+    async ultimoOrigenSaliente(_id: string) {
+      const ultimo = registro.salientes.at(-1);
+      return ultimo?.traza.origenRespuesta ?? null;
+    },
     async actualizarFlujo(_id: string, flujo: string | null, paso: string | null) {
       registro.flujosGuardados.push({ flujo, paso });
     },

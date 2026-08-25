@@ -44,6 +44,9 @@ export const MARCADORES_POR_TEXTO: Readonly<Record<string, readonly string[]>> =
   retiro_confirmacion: MARCADORES_DE_CONFIRMACION,
   // `reclamoRecoleccion.ts`, paso de confirmación.
   reclamo_confirmacion: MARCADORES_DE_CONFIRMACION,
+  // `orquestador.ts`, rama de derivación. `{migue}` es el enlace al asistente
+  // general del municipio, que sale de `configuracion.enlace_migue`.
+  derivar_a_migue: ["{migue}"],
 };
 
 /** Los marcadores que acepta esta clave. Vacío si no acepta ninguno. */

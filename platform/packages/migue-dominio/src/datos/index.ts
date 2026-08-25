@@ -26,6 +26,7 @@ export {
   obtenerOAbrirConversacion,
   registrarEntrante,
   registrarSaliente,
+  ultimoOrigenSaliente,
   actualizarFlujo,
   cerrarConversacion,
   ErrorDeEscritura,

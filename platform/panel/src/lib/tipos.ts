@@ -440,8 +440,11 @@ export function datosFaltantes(t: Ticket): string[] {
  *                      escribir una respuesta o cargar el documento.
  *   confianza_baja     encontró algo pero flojo. Suele significar que existe la
  *                      información pero está redactada con otras palabras.
- *   fuera_de_alcance   no es de Ambiente. No hay nada que escribir; se descarta,
- *                      y si se repite mucho conviene una respuesta que derive.
+ *   fuera_de_alcance   se DERIVÓ a Migue, el asistente general del municipio.
+ *                      Desde la 026 el bot no repite el menú: si el vecino
+ *                      insiste con algo que no es de Ambiente, lo manda al otro
+ *                      número y registra la pregunta acá. Lo que hay que decidir
+ *                      no es qué escribir, es si estuvo bien derivado.
  *   error_modelo       falló el proveedor. No es un problema de contenido y no
  *                      hay que responderlo: es para mirar en Métricas.
  */
@@ -489,10 +492,20 @@ export const MOTIVOS_SIN_RESPUESTA: Record<
     accionable: true,
   },
   fuera_de_alcance: {
-    etiqueta: "no es de Ambiente",
+    etiqueta: "derivada a Migue",
     tono: "pend",
+    // EL REENCUADRE DE LA 026. Antes esto decía «no hay nada que responder».
+    // Ahora el bot ya derivó al vecino al asistente general del municipio, y la
+    // pregunta que le queda al área es distinta —y más útil— que «hay que
+    // escribir esto»: es si la derivación estuvo bien.
+    //
+    // Importa porque las dos respuestas correctas son OPUESTAS: escribir la
+    // respuesta, o no hacer nada. Presentarlo como «falta escribir esto» empuja
+    // a redactar una pregunta frecuente sobre licencias de conducir.
     queHacer:
-      "No hay nada que responder. Si se repite, conviene una respuesta textual que derive al área que corresponde.",
+      "El bot ya lo mandó a Migue, el asistente general. La pregunta acá es otra: ¿esto era " +
+      "nuestro y lo derivamos mal? Si era nuestro, escribí la respuesta y la próxima vez lo " +
+      "atendemos. Si no era nuestro, marcalo como bien derivado.",
     accionable: true,
   },
   error_modelo: {

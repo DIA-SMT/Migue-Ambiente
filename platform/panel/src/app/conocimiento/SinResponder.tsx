@@ -220,7 +220,20 @@ export function SinResponder({
                     </div>
                   ) : (
                     <div className="acciones">
-                      {motivo.accionable ? (
+                      {p.motivo === "fuera_de_alcance" ? (
+                        // Una derivación tiene DOS respuestas correctas y son
+                        // opuestas, así que la etiqueta del botón principal
+                        // cambia. «Responder con una frecuente» acá empujaría a
+                        // escribir una FAQ sobre licencias de conducir.
+                        <>
+                          <button className="primario chico" onClick={() => alResponderConFaq(p)}>
+                            Era nuestro: escribir la respuesta
+                          </button>
+                          <button className="chico" onClick={() => alResponderConFija(p)}>
+                            Respuesta textual
+                          </button>
+                        </>
+                      ) : motivo.accionable ? (
                         <>
                           <button className="primario chico" onClick={() => alResponderConFaq(p)}>
                             Responder con una frecuente
@@ -238,10 +251,17 @@ export function SinResponder({
                         className="chico"
                         onClick={() => {
                           setDescartando(p.id);
-                          setMotivoDescarte("");
+                          // Para una derivación, descartar significa «estuvo bien
+                          // derivado», que es la respuesta correcta en la mayoría
+                          // de los casos. Se precarga el motivo: escribirlo a
+                          // mano cada vez desalienta revisar la lista, y una
+                          // lista que nadie revisa no sirve de nada.
+                          setMotivoDescarte(
+                            p.motivo === "fuera_de_alcance" ? "Estuvo bien derivado a Migue" : "",
+                          );
                         }}
                       >
-                        Descartar
+                        {p.motivo === "fuera_de_alcance" ? "Estuvo bien derivado" : "Descartar"}
                       </button>
                     </div>
                   ))}

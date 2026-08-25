@@ -42,6 +42,7 @@ import {
 } from "../flujos/opciones.ts";
 import { decidir, type Clasificacion } from "../ia/router.ts";
 import { leerConfig, leerTexto, tieneTexto, type Catalogo } from "../datos/catalogo.ts";
+import { interpolar } from "../texto.ts";
 import {
   decir,
   preguntar,
@@ -79,6 +80,17 @@ export interface Persistencia {
     saliente: MensajeSaliente,
     traza: TrazaMensaje,
   ): Promise<string>;
+  /**
+   * El `origen_respuesta` del último saliente de la conversación, o null si no
+   * hay ninguno.
+   *
+   * Se usa para saber si ya se mostró el menú y el vecino insistió. Se lee de la
+   * BASE y no de un contador en Redis a propósito: el estado del flujo vive en
+   * Redis con vencimiento, y un contador que se pierde al vencer haría que el
+   * bot vuelva a mostrar el menú para siempre — que es exactamente el bucle que
+   * la derivación viene a cortar. La base ya tiene el dato.
+   */
+  ultimoOrigenSaliente(conversacionId: string): Promise<string | null>;
   actualizarFlujo(conversacionId: string, flujo: string | null, paso: string | null): Promise<void>;
   cerrarConversacion(conversacionId: string, estado: "cerrada" | "derivada" | "abandonada"): Promise<void>;
   aplicarEfectos(efectos: readonly Efecto[], procedencia: Procedencia): Promise<ResultadoEfecto[]>;
@@ -407,18 +419,41 @@ export async function procesarMensaje(
         puertos,
       );
 
-    case "mostrar_menu":
-      // Con opciones de verdad y no como texto suelto. Dos motivos: en Telegram
-      // aparecen como botones, y si el vecino igual escribe el número, el
-      // resolutor lo entiende. Antes el menú era texto numerado y contestar «1»
-      // no hacía nada: el clasificador no reconocía el número y el bot volvía a
-      // mostrar el menú. El vecino repetía el número creyendo que no llegaba.
+    case "mostrar_menu": {
+      // ¿Ya le mostramos el menú y volvió a escribir algo que no encaja? Si es
+      // así, insistir con el menú es el bucle sin salida que este bot tenía: se
+      // deriva a Migue, el asistente general del municipio.
+      //
+      // El menú va PRIMERO y la derivación segunda por una razón que está en los
+      // datos: de los tres mensajes reales que cayeron acá, uno era `/start`,
+      // otro un número de menú y el tercero un reclamo que el clasificador leyó
+      // mal. Derivando al primer fallo, ese tercer vecino habría sido mandado a
+      // otro número por un error NUESTRO. El menú es la red: si elige una
+      // opción, era nuestro.
+      const yaVioElMenu =
+        (await puertos.persistencia.ultimoOrigenSaliente(conversacion.id)) === "fallback";
+
+      if (yaVioElMenu) {
+        const derivado = await derivarAMigue(
+          conversacion.id,
+          entrante,
+          texto,
+          catalogo,
+          trazaRouter,
+          puertos,
+        );
+        if (derivado !== null) return derivado;
+        // Sin enlace cargado no se puede derivar: cae al menú. Mejor repetirlo
+        // que decirle «escribile a Migue» sin decirle a dónde.
+      }
+
       return await responderCon(
         [preguntar(leerTexto(catalogo, "menu_principal"), OPCIONES_MENU)],
         { conversacionId: conversacion.id, origenRespuesta: "fallback", flujoActivo: null, efectos: [] },
         { ...trazaRouter, origenRespuesta: "fallback" },
         puertos,
       );
+    }
 
     case "iniciar_flujo": {
       const definicion = FLUJOS[decision.flujo];
@@ -592,6 +627,69 @@ function conReferente(
   if (opciones.length === 0) return opciones;
   const esVoto = opciones.every((o) => o.id === "voto_util" || o.id === "voto_no_util");
   return esVoto ? opcionesDeVoto(mensajeId) : opciones;
+}
+
+/**
+ * Deriva a Migue, el asistente general del municipio.
+ *
+ * Devuelve null si NO se puede derivar, y el llamador cae al menú. Hay dos
+ * motivos para que no se pueda, y los dos son legítimos:
+ *
+ *   · `enlace_migue` está vacío. Arranca así a propósito: hasta que el área
+ *     cargue el enlace en Reglas, decirle al vecino «escribile a Migue» sin
+ *     decirle a dónde es peor que repetir el menú.
+ *   · el texto `derivar_a_migue` está vacío. Es la forma de APAGAR la derivación
+ *     desde el panel, sin un deploy.
+ *
+ * Y registra la pregunta en `sin_respuesta` con motivo `fuera_de_alcance`. Eso no
+ * es para escribir una respuesta: es para que el área pueda contestar la pregunta
+ * que importa —«¿esto era nuestro y lo derivamos mal?»— mirando lo que de verdad
+ * pasó y no lo que suponemos.
+ */
+async function derivarAMigue(
+  conversacionId: string,
+  entrante: MensajeEntrante,
+  texto: string,
+  catalogo: Catalogo,
+  trazaRouter: TrazaMensaje,
+  puertos: Puertos,
+): Promise<Resultado | null> {
+  const enlace = leerConfig(catalogo, "enlace_migue", "").trim();
+  if (enlace === "" || !tieneTexto(catalogo, "derivar_a_migue")) return null;
+
+  const mensaje = interpolar(leerTexto(catalogo, "derivar_a_migue"), { migue: enlace });
+
+  // Se registra ANTES de contestar: si la escritura falla, el vecino igual
+  // recibe la derivación. Al revés perderíamos el dato Y el mensaje.
+  //
+  // Y se excluye el toque de botón. `texto` es en realidad `textoEfectivo()`,
+  // que devuelve `seleccion ?? texto`, así que un botón dejaba el ID INTERNO
+  // guardado como la pregunta del vecino: la lista se habría llenado de
+  // «reclamo_recoleccion» en lugar de preguntas. Es el mismo error que ya se
+  // cometió con el comentario del voto, y lo encontró la prueba de esta función.
+  if (texto.trim() !== "" && entrante.seleccion == null) {
+    await puertos.persistencia.registrarSinRespuesta({
+      conversacionId,
+      pregunta: texto,
+      motivo: "fuera_de_alcance",
+      // No hay un mensaje al que colgarla —la derivación no cita nada— ni una
+      // confianza del buscador, porque no se llegó a buscar.
+      mensajeId: null,
+      confianza: null,
+    });
+  }
+
+  return await responderCon(
+    [decir(mensaje, "nada")],
+    {
+      conversacionId,
+      origenRespuesta: "exclusion",
+      flujoActivo: null,
+      efectos: [],
+    },
+    { ...trazaRouter, origenRespuesta: "exclusion", intencion: "derivada_a_migue" },
+    puertos,
+  );
 }
 
 // ---------------------------------------------------------------------------

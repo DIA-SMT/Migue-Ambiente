@@ -136,6 +136,37 @@ export async function registrarEntrante(
   });
 }
 
+/**
+ * El `origen_respuesta` del último saliente de la conversación.
+ *
+ * Lo usa el orquestador para saber si ya mostró el menú y el vecino insistió, y
+ * entonces derivar a Migue en lugar de repetir el menú — que era un bucle sin
+ * salida.
+ *
+ * Se lee de la BASE y no de un contador en Redis a propósito: el estado del flujo
+ * vive en Redis con vencimiento, y un contador que se pierde al vencer haría que
+ * el bot vuelva a mostrar el menú para siempre, que es exactamente lo que la
+ * derivación viene a cortar. Acá el dato ya está.
+ *
+ * Devuelve null si la conversación no tiene salientes todavía. Ante un error de
+ * lectura devuelve null también, y no lanza: el peor caso es mostrar el menú una
+ * vez de más, que es infinitamente mejor que romperle la conversación al vecino
+ * por no poder leer una columna.
+ */
+export async function ultimoOrigenSaliente(conversacionId: string): Promise<string | null> {
+  const { data, error } = await obtenerCliente()
+    .from("mensajes")
+    .select("origen_respuesta")
+    .eq("conversacion_id", conversacionId)
+    .eq("direccion", "saliente")
+    .order("creado_en", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return null;
+  return (data?.origen_respuesta as string | null) ?? null;
+}
+
 /** Registra lo que respondió el bot. */
 export async function registrarSaliente(
   conversacionId: string,

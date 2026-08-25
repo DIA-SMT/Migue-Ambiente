@@ -152,6 +152,13 @@ const TEXTOS = new Map<string, string>([
   // comportamiento que ningún vecino recibe.
   ["reclamo_info_turnos", ""],
   ["despedida", "¡De nada! Cualquier otra cosa, escribime."],
+  // La derivación a Migue, el asistente general del municipio. Con el marcador
+  // {migue}, que sale de `configuracion.enlace_migue`.
+  [
+    "derivar_a_migue",
+    "Eso no lo atiende la Secretaría de Ambiente, pero no te quedes sin respuesta: escribile a Migue, el asistente general de la Municipalidad." +
+      "\n\n{migue}",
+  ],
 ]);
 
 /**
@@ -185,6 +192,10 @@ const CONFIG = new Map<string, unknown>([
   ["sla_sabado_habil", true],
   ["empresa_recoleccion", "Transporte 9 de Julio"],
   ["foto_obligatoria_retiro", true],
+  // VACÍO, igual que en producción: hasta que el área cargue el enlace en
+  // Reglas el bot no deriva y vuelve a mostrar el menú. Que el fixture arranque
+  // vacío hace que las pruebas midan ese camino, que es el que corre hoy.
+  ["enlace_migue", ""],
 ]);
 
 export function catalogoPrueba(sobreescribir: Partial<Catalogo> = {}): Catalogo {
