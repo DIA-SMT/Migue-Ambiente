@@ -151,6 +151,15 @@ const TEXTOS = new Map<string, string>([
   // tuviera texto, las pruebas del flujo de reclamo estarían midiendo un
   // comportamiento que ningún vecino recibe.
   ["reclamo_info_turnos", ""],
+  // La encuesta al terminar un trámite. Pregunta por el PROCESO, no por el
+  // contenido: un pulgar abajo acá se arregla cambiando los pasos del flujo,
+  // no escribiendo una respuesta mejor.
+  ["seguimiento_tras_tramite", "¿Te resultó fácil hacer el pedido?"],
+  [
+    "voto_tramite_detalle",
+    "Gracias por decirme. ¿Qué te resultó complicado? Con eso podemos simplificarlo." +
+      "\n\nSi querés no me contestes, ya lo registré.",
+  ],
   ["despedida", "¡De nada! Cualquier otra cosa, escribime."],
   // La derivación a Migue, el asistente general del municipio. Con el marcador
   // {migue}, que sale de `configuracion.enlace_migue`.

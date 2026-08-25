@@ -154,26 +154,51 @@ else {
   if (vacios.length) console.log(`  vacios: ${vacios.map((t) => t.clave).join(", ")}`);
 }
 
-// Los marcadores se leen de la base, no de una constante del panel: duplicarlos
-// haria que el panel ofrezca marcadores que el bot no resuelve.
 const { data: cfg } = await supabase
   .from("configuracion")
   .select("clave, valor")
-  .in("clave", ["marcadores_disponibles", "sla_horas_habiles", "empresa_recoleccion"]);
+  .in("clave", ["sla_horas_habiles", "empresa_recoleccion"]);
 const porClave = new Map((cfg ?? []).map((c) => [c.clave, c.valor]));
-const marcadores = String(porClave.get("marcadores_disponibles") ?? "")
-  .replace(/"/g, "").split(",").map((m) => m.trim()).filter((m) => m.startsWith("{"));
-console.log(`MARCADORES parseados: ${marcadores.join(" ") || "(ninguno)"}`);
-if (marcadores.length === 0) mal("no pude parsear marcadores_disponibles");
 
-// Que todo marcador usado en un texto sea uno que el bot resuelve. Un {palzo}
-// mal escrito se le envia LITERAL al vecino, con las llaves.
+// Que todo marcador escrito en un texto sea uno que ESA CLAVE va a resolver. Un
+// {palzo} mal escrito se le envia LITERAL al vecino, con las llaves.
+//
+// La validacion se hace con `marcadoresQueNoSeResuelven()` del dominio, que es
+// la misma funcion que usa el panel antes de guardar. Este script antes leia
+// `configuracion.marcadores_disponibles` y comparaba contra esa lista global, y
+// eso estaba mal de dos formas a la vez:
+//
+//   - Daba FALSOS POSITIVOS. Gritaba «derivar_a_migue usa marcadores que el bot
+//     no resuelve: {migue}», y el bot si lo resuelve: el orquestador llama a
+//     `interpolar(..., { migue: enlace })` en la rama de derivacion. La lista
+//     global no lo incluia porque solo tenia los cuatro de confirmacion.
+//   - Y habria dado FALSOS NEGATIVOS, que es peor: un {plazo} escrito en
+//     `bienvenida` pasaba el chequeo, porque el nombre estaba en la lista,
+//     aunque `bienvenida` nunca pasa por `interpolar`. Ese es exactamente el bug
+//     que hizo nacer `marcadores.ts`.
+//
+// `marcadores_disponibles` ya no lo lee nadie. Sigue en la tabla y el panel la
+// muestra en Reglas marcada como huerfana, con la explicacion.
+const { marcadoresQueNoSeResuelven, marcadoresDe } = await import(
+  "@migue/dominio/compartido"
+);
+
+let textosConMarcadores = 0;
 for (const t of textos ?? []) {
-  const usados = [...String(t.texto).matchAll(/\{[a-zA-Z_]+\}/g)].map((m) => m[0]);
-  const malos = usados.filter((u) => !marcadores.includes(u));
-  if (malos.length) mal(`${t.clave} usa marcadores que el bot no resuelve: ${malos.join(", ")}`);
+  const malos = marcadoresQueNoSeResuelven(t.clave, String(t.texto));
+  if (malos.length) {
+    const admite = marcadoresDe(t.clave);
+    mal(
+      `${t.clave} usa ${malos.join(", ")} y no los resuelve. ` +
+        (admite.length ? `Solo admite ${admite.join(", ")}` : "No admite ninguno"),
+    );
+  } else if (marcadoresDe(t.clave).length > 0) {
+    textosConMarcadores++;
+  }
 }
-console.log("MARCADORES en uso: todos validos");
+console.log(
+  `MARCADORES: ${textosConMarcadores} texto(s) con marcadores, todos validos para su clave`,
+);
 
 
 // --- 8 · La bandeja de pedidos y reclamos ---
@@ -186,7 +211,12 @@ const { data: tks, error: eTk } = await supabase
 
 if (eTk) mal(`tickets: ${eTk.message}`);
 else {
-  const { situacionSla, datosFaltantes, esEstadoHeredado, estaCerrado } = await import("../src/lib/tipos.ts");
+  // Ojo con el nombre: antes acá se importaba `esEstadoHeredado`, que ya no
+  // existe. Lo renombré a `esEstadoConocido` —con el sentido INVERTIDO— cuando
+  // se borraron los tickets del bot anterior, y este script quedó llamando a una
+  // función inexistente. Reventaba con «esEstadoHeredado is not a function» y no
+  // me di cuenta porque no lo volví a correr hasta hoy.
+  const { situacionSla, datosFaltantes, esEstadoConocido, estaCerrado } = await import("../src/lib/tipos.ts");
   const ahora = Date.now();
 
   const porUrgencia = [...tks].sort(
@@ -202,7 +232,7 @@ else {
     console.log(
       "  " +
         `[${s.tono}] ${s.etiqueta}`.padEnd(21) +
-        (t.status + (esEstadoHeredado(t.status) ? " (heredado)" : "")).padEnd(30) +
+        (t.status + (esEstadoConocido(t.status) ? "" : " (DESCONOCIDO)")).padEnd(30) +
         (f.length ? f.join(", ") : "—"),
     );
   }
@@ -217,8 +247,11 @@ else {
   // aunque no los ofrezca.
   const estados = [...new Set(tks.map((t) => t.status))];
   console.log(`  estados presentes: ${estados.join(" | ")}`);
-  const heredados = estados.filter(esEstadoHeredado);
-  if (heredados.length) console.log(`  de esos, heredados del bot anterior: ${heredados.join(" | ")}`);
+  // Un estado que el panel no conoce ya no es «heredado»: los tickets del bot
+  // anterior se borraron. Hoy significa que algo escribió un estado que el panel
+  // no sabe mostrar, y eso es un error, no data vieja.
+  const desconocidos = estados.filter((e) => !esEstadoConocido(e));
+  if (desconocidos.length) mal(`estados que el panel no conoce: ${desconocidos.join(" | ")}`);
 }
 
 const { data: prg, error: ePr } = await supabase

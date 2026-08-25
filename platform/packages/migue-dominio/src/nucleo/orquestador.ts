@@ -35,7 +35,10 @@ import {
 import {
   OPCIONES_MENU,
   opcionesDeVoto,
+  opcionesDeVotoTramite,
   OPCIONES_VALORACION,
+  OPCIONES_VALORACION_TRAMITE,
+  type SobreQue,
   resolverOpcion,
   votoDe,
   type Voto,
@@ -109,6 +112,7 @@ export interface Persistencia {
     conversacionId: string,
     voto: Voto,
     mensajeId: string | null,
+    sobre: SobreQue,
   ): Promise<string | null>;
   /**
    * Intenta pegar este texto como explicación del último voto negativo.
@@ -208,13 +212,14 @@ export async function procesarMensaje(
   // estaba. El siguiente mensaje la continúa.
   const reconocido = votoDe(entrante);
   if (reconocido !== null) {
-    const { voto, mensajeId } = reconocido;
+    const { voto, sobre, mensajeId } = reconocido;
     // `mensajeId` viene del botón. Si es null —emoji suelto, o un teclado de
     // antes de este cambio— la base cae a su respaldo por conversación.
     const idDelVoto = await puertos.persistencia.registrarVoto(
       conversacion.id,
       voto,
       mensajeId,
+      sobre,
     );
 
     // Tras un pulgar abajo se pide el detalle; tras uno arriba se agradece y se
@@ -225,7 +230,15 @@ export async function procesarMensaje(
     // alguien cuyo voto se perdió lo confirma de algo que no pasó, y para el
     // área es una medición perdida sin ningún síntoma. Se calla y el mensaje
     // sigue su curso normal, así que al menos el vecino recibe algo útil.
-    const clave_texto = voto === "util" ? "voto_gracias_util" : "voto_pedir_detalle";
+    // Tras un pulgar abajo la pregunta depende de QUÉ se calificó. «¿Qué te falta
+    // saber?» no tiene sentido cuando lo que estuvo difícil fue el trámite: ahí
+    // lo que hace falta saber es qué paso se complicó.
+    const clave_texto =
+      voto === "util"
+        ? "voto_gracias_util"
+        : sobre === "tramite"
+          ? "voto_tramite_detalle"
+          : "voto_pedir_detalle";
     const salientes =
       idDelVoto !== null && tieneTexto(catalogo, clave_texto)
         ? [decir(leerTexto(catalogo, clave_texto), voto === "util" ? "nada" : "texto")]
@@ -309,8 +322,36 @@ export async function procesarMensaje(
 
       const efectos = await puertos.persistencia.aplicarEfectos(avance.efectos, procedencia);
 
+      // ¿El trámite se COMPLETÓ? Se pregunta por los efectos y no por
+      // `avance.estado === null`, que también es null cuando el vecino cancela o
+      // abandona — y preguntarle «¿te resultó fácil?» a alguien que se fue a la
+      // mitad es peor que no preguntar nada.
+      //
+      // Si se creó el ticket o la solicitud, el trámite salió. Es el único
+      // momento en que la pregunta tiene sentido: el vecino acaba de pasar por
+      // cinco pasos y sabe mejor que nadie si el camino fue claro.
+      const seCompleto =
+        avance.estado === null &&
+        efectos.some(
+          (e) =>
+            e.ok && (e.efecto === "crear_ticket" || e.efecto === "crear_solicitud_programa"),
+        );
+
+      // Va como mensaje APARTE, igual que la del voto de respuestas: la
+      // confirmación del pedido se tiene que poder reenviar o guardar sin
+      // arrastrar una pregunta de cortesía.
+      const encuesta: MensajeSaliente[] =
+        seCompleto && tieneTexto(catalogo, "seguimiento_tras_tramite")
+          ? [
+              preguntar(
+                leerTexto(catalogo, "seguimiento_tras_tramite"),
+                OPCIONES_VALORACION_TRAMITE,
+              ),
+            ]
+          : [];
+
       return await responderCon(
-        avance.salientes,
+        [...avance.salientes, ...encuesta],
         {
           conversacionId: conversacion.id,
           origenRespuesta: "flujo",
@@ -649,8 +690,17 @@ function conReferente(
   mensajeId: string,
 ): readonly OpcionRespuesta[] {
   if (opciones.length === 0) return opciones;
-  const esVoto = opciones.every((o) => o.id === "voto_util" || o.id === "voto_no_util");
-  return esVoto ? opcionesDeVoto(mensajeId) : opciones;
+  const esVotoRespuesta = opciones.every(
+    (o) => o.id === "voto_util" || o.id === "voto_no_util",
+  );
+  if (esVotoRespuesta) return opcionesDeVoto(mensajeId);
+
+  const esVotoTramite = opciones.every(
+    (o) => o.id === "voto_tramite_util" || o.id === "voto_tramite_no_util",
+  );
+  if (esVotoTramite) return opcionesDeVotoTramite(mensajeId);
+
+  return opciones;
 }
 
 /**

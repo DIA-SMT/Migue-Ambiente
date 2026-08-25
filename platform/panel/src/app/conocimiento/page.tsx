@@ -49,9 +49,17 @@ const GRUPOS: { rotulo: string; explicacion: string; claves: string[] }[] = [
   {
     rotulo: "Cuando el vecino vota",
     explicacion:
-      "Después de cada respuesta Migue pregunta si sirvió. Vaciar el primero apaga el voto: " +
-      "el bot deja de preguntar y deja de haber pulgares en Conversaciones.",
-    claves: ["seguimiento_tras_responder", "voto_gracias_util", "voto_pedir_detalle"],
+      "Migue pregunta dos cosas distintas: después de una respuesta, si sirvió; y al terminar " +
+      "un trámite, si resultó fácil. Son mediciones separadas porque los arreglos son opuestos " +
+      "—una respuesta mala se corrige escribiendo, un trámite difícil se corrige cambiando los " +
+      "pasos—. Vaciar cada pregunta apaga esa encuesta sin apagar la otra.",
+    claves: [
+      "seguimiento_tras_responder",
+      "voto_gracias_util",
+      "voto_pedir_detalle",
+      "seguimiento_tras_tramite",
+      "voto_tramite_detalle",
+    ],
   },
   {
     rotulo: "Cuando no corresponde o no sabe",

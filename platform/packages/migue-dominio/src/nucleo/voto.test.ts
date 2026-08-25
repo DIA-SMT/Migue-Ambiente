@@ -92,20 +92,32 @@ describe("votoDe", () => {
   // «¿te sirvió?», porque `responderCon` le ponía la columna a los dos.
   it("extrae el mensaje valorado del id del botón", () => {
     const r = votoDe({ seleccion: "voto_util:11111111-2222-3333-4444-555555555555" });
-    assert.deepEqual(r, { voto: "util", mensajeId: "11111111-2222-3333-4444-555555555555" });
+    assert.deepEqual(r, {
+      voto: "util",
+      sobre: "respuesta",
+      mensajeId: "11111111-2222-3333-4444-555555555555",
+    });
 
     const n = votoDe({ seleccion: "voto_no_util:abc-def" });
-    assert.deepEqual(n, { voto: "no_util", mensajeId: "abc-def" });
+    assert.deepEqual(n, { voto: "no_util", sobre: "respuesta", mensajeId: "abc-def" });
   });
 
   // Un teclado de antes de este cambio sigue funcionando: el voto se registra y
   // la base cae a su respaldo. Peor que exacto, mejor que perderlo.
   it("un botón viejo sin referente sigue votando, con mensajeId null", () => {
-    assert.deepEqual(votoDe({ seleccion: "voto_util" }), { voto: "util", mensajeId: null });
+    assert.deepEqual(votoDe({ seleccion: "voto_util" }), {
+      voto: "util",
+      sobre: "respuesta",
+      mensajeId: null,
+    });
   });
 
   it("un id con dos puntos y nada atrás no inventa un mensaje", () => {
-    assert.deepEqual(votoDe({ seleccion: "voto_util:" }), { voto: "util", mensajeId: null });
+    assert.deepEqual(votoDe({ seleccion: "voto_util:" }), {
+      voto: "util",
+      sobre: "respuesta",
+      mensajeId: null,
+    });
   });
 
   it("acepta el emoji suelto, que hay gente que lo manda en vez de tocar", () => {
@@ -229,14 +241,18 @@ describe("cuando el vecino vota", () => {
   it("un pulgar arriba se registra y Migue agradece", async () => {
     const { puertos } = await conversar([{ seleccion: "voto_util" }]);
 
-    assert.deepEqual(puertos.registro.votos, [{ voto: "util", mensajeId: null }]);
+    assert.deepEqual(puertos.registro.votos, [
+      { voto: "util", sobre: "respuesta", mensajeId: null },
+    ]);
     assert.match(puertos.registro.salientes.at(-1)!.texto, /Buenísimo/i);
   });
 
   it("un pulgar abajo se registra y Migue pregunta qué faltó", async () => {
     const { puertos } = await conversar([{ seleccion: "voto_no_util" }]);
 
-    assert.deepEqual(puertos.registro.votos, [{ voto: "no_util", mensajeId: null }]);
+    assert.deepEqual(puertos.registro.votos, [
+      { voto: "no_util", sobre: "respuesta", mensajeId: null },
+    ]);
     assert.match(puertos.registro.salientes.at(-1)!.texto, /Qué te falta saber/i);
   });
 
@@ -270,7 +286,9 @@ describe("cuando el vecino vota", () => {
       { intencion: "retiro_no_habitual", confianza: 0.95 },
     );
 
-    assert.deepEqual(puertos.registro.votos, [{ voto: "util", mensajeId: null }]);
+    assert.deepEqual(puertos.registro.votos, [
+      { voto: "util", sobre: "respuesta", mensajeId: null },
+    ]);
 
     // El flujo sigue vivo: ni el estado se borró ni el paso avanzó.
     assert.equal(ultimo.flujoActivo, "retiro_no_habitual");
@@ -294,7 +312,9 @@ describe("cuando el vecino vota", () => {
     // hubiera borrado el estado, «Lamadrid 250» habría ido al router.
     assert.equal(ultimo.origenRespuesta, "flujo");
     assert.equal(ultimo.flujoActivo, "retiro_no_habitual");
-    assert.deepEqual(puertos.registro.votos, [{ voto: "no_util", mensajeId: null }]);
+    assert.deepEqual(puertos.registro.votos, [
+      { voto: "no_util", sobre: "respuesta", mensajeId: null },
+    ]);
   });
 });
 
@@ -347,8 +367,8 @@ describe("el comentario que explica un pulgar abajo", () => {
     ]);
     assert.deepEqual(puertos.registro.comentariosIntentados, []);
     assert.deepEqual(puertos.registro.votos, [
-      { voto: "no_util", mensajeId: null },
-      { voto: "util", mensajeId: null },
+      { voto: "no_util", sobre: "respuesta", mensajeId: null },
+      { voto: "util", sobre: "respuesta", mensajeId: null },
     ]);
   });
 });
@@ -402,7 +422,7 @@ describe("los botones de voto llevan el mensaje que se valora", () => {
       [{ seleccion: "voto_no_util:11111111-2222-3333-4444-555555555555" }],
     );
     assert.deepEqual(puertos.registro.votos, [
-      { voto: "no_util", mensajeId: "11111111-2222-3333-4444-555555555555" },
+      { voto: "no_util", sobre: "respuesta", mensajeId: "11111111-2222-3333-4444-555555555555" },
     ]);
   });
 

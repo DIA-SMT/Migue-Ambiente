@@ -221,6 +221,24 @@ export function opcionesDeVoto(mensajeId: string | null): readonly OpcionElegibl
 }
 
 /**
+ * Los botones para calificar un TRÁMITE, con etiquetas propias.
+ *
+ * «¿Sí, me sirvió?» no aplica a un pedido de retiro: lo que se pregunta es si el
+ * camino fue claro. Y los ids llevan otro prefijo para que el voto quede
+ * registrado como `tramite` y no como `respuesta` — el arreglo de cada uno es
+ * distinto y mezclarlos deja al área con un número que no dice qué hacer.
+ */
+export const OPCIONES_VALORACION_TRAMITE: readonly OpcionElegible[] = [
+  { id: "voto_tramite_util", etiqueta: "👍 Sí, fue fácil" },
+  { id: "voto_tramite_no_util", etiqueta: "👎 Fue complicado" },
+];
+
+export function opcionesDeVotoTramite(mensajeId: string | null): readonly OpcionElegible[] {
+  if (mensajeId === null) return OPCIONES_VALORACION_TRAMITE;
+  return OPCIONES_VALORACION_TRAMITE.map((o) => ({ ...o, id: `${o.id}:${mensajeId}` }));
+}
+
+/**
  * Quita los modificadores de un emoji para poder compararlo.
  *
  * `👍🏽` no es `👍`: es `👍` más un modificador de tono de piel (U+1F3FB a
@@ -234,9 +252,24 @@ function sinModificadores(texto: string): string {
   return texto.replace(/[\u{1F3FB}-\u{1F3FF}\u{FE0E}\u{FE0F}\u{200D}]/gu, "");
 }
 
+/**
+ * Qué califica el voto.
+ *
+ *   respuesta  «¿te sirvió lo que te contesté?». Un pulgar abajo se arregla
+ *              escribiendo una respuesta mejor.
+ *   tramite    «¿te resultó fácil el pedido?». Un pulgar abajo se arregla
+ *              cambiando los pasos o los textos del flujo.
+ *
+ * Son dos arreglos distintos y los hace gente distinta, así que van separados en
+ * lugar de sumar a un solo porcentaje que no le dice al área qué hacer.
+ */
+export type SobreQue = "respuesta" | "tramite";
+
 /** Un voto reconocido, con el mensaje al que corresponde si el botón lo traía. */
 export interface VotoReconocido {
   readonly voto: Voto;
+  /** Qué califica. Sale del prefijo del botón, no se infiere. */
+  readonly sobre: SobreQue;
   /**
    * El saliente que se está valorando, o null si el botón no lo traía.
    *
@@ -275,8 +308,14 @@ export function votoDe(entrante: {
     const corte = sel.indexOf(":");
     const clave = corte === -1 ? sel : sel.slice(0, corte);
     const mensajeId = corte === -1 ? null : sel.slice(corte + 1) || null;
-    if (clave === "voto_util") return { voto: "util", mensajeId };
-    if (clave === "voto_no_util") return { voto: "no_util", mensajeId };
+
+    // El prefijo dice sobre qué es. Los de trámite van primero: `voto_util` es
+    // prefijo de nada, pero si el orden fuera al revés y algún día apareciera un
+    // id como `voto_util_algo`, el más corto lo atraparía por error.
+    if (clave === "voto_tramite_util") return { voto: "util", sobre: "tramite", mensajeId };
+    if (clave === "voto_tramite_no_util") return { voto: "no_util", sobre: "tramite", mensajeId };
+    if (clave === "voto_util") return { voto: "util", sobre: "respuesta", mensajeId };
+    if (clave === "voto_no_util") return { voto: "no_util", sobre: "respuesta", mensajeId };
   }
 
   // El emoji suelto: inequívoco, y hay gente que lo manda en vez de tocar. Acá
@@ -287,8 +326,19 @@ export function votoDe(entrante: {
   const util = sinModificadores(normalizar(OPCIONES_VALORACION[0]!.etiqueta));
   const noUtil = sinModificadores(normalizar(OPCIONES_VALORACION[1]!.etiqueta));
 
-  if (t === "👍" || t === util) return { voto: "util", mensajeId: null };
-  if (t === "👎" || t === noUtil) return { voto: "no_util", mensajeId: null };
+  // Las del trámite también, por si alguien copia el texto del botón en vez de
+  // tocarlo. Van antes que el emoji suelto porque son más específicas.
+  if (t === sinModificadores(normalizar(OPCIONES_VALORACION_TRAMITE[0]!.etiqueta))) {
+    return { voto: "util", sobre: "tramite", mensajeId: null };
+  }
+  if (t === sinModificadores(normalizar(OPCIONES_VALORACION_TRAMITE[1]!.etiqueta))) {
+    return { voto: "no_util", sobre: "tramite", mensajeId: null };
+  }
+
+  // Un emoji suelto no dice sobre qué es, así que cuenta como respuesta — el
+  // caso más frecuente. Y sin mensaje al que colgarlo, resuelve la base.
+  if (t === "👍" || t === util) return { voto: "util", sobre: "respuesta", mensajeId: null };
+  if (t === "👎" || t === noUtil) return { voto: "no_util", sobre: "respuesta", mensajeId: null };
 
   return null;
 }

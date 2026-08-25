@@ -1523,12 +1523,66 @@ begin
     raise exception 'la transcripcion le dio % mensajes a alguien fuera del padron', n;
   end if;
 
-  -- 15 - Los tres textos del voto quedaron cargados y son opcionales los que
-  --      tienen que serlo: vaciarlos desde el panel es como se apaga el voto.
+  -- 15 - Los textos del voto quedaron cargados y son opcionales los que tienen
+  --      que serlo: vaciarlos desde el panel es como se apaga cada encuesta.
+  --      Son CINCO desde la 028, porque la del tramite se apaga por separado.
   select count(*) into n from public.textos_bot
-   where clave in ('seguimiento_tras_responder','voto_gracias_util','voto_pedir_detalle')
+   where clave in ('seguimiento_tras_responder','voto_gracias_util','voto_pedir_detalle',
+                   'seguimiento_tras_tramite','voto_tramite_detalle')
      and opcional = true;
-  if n <> 3 then raise exception 'faltan textos del voto o no son opcionales: %', n; end if;
+  if n <> 5 then raise exception 'faltan textos del voto o no son opcionales: %', n; end if;
+
+  -- 16 - LO QUE AGREGO LA 028: hay dos encuestas distintas y la vista las tiene
+  --      que separar. Salio de probar el bot: se completo un pedido de retiro
+  --      entero y no pregunto nada, porque el voto solo existia despues de una
+  --      RESPUESTA.
+  --
+  --      Se separan porque los arreglos son opuestos y los hace gente distinta:
+  --      una respuesta mala se corrige escribiendo; un tramite dificil se
+  --      corrige sacando un paso del flujo. Sumadas en un solo porcentaje, el
+  --      area recibe un numero que no le dice que hacer.
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta)
+  values (v_conv, 'saliente', 'Solicitud registrada. Numero AMB-1.', 'flujo')
+  returning id into v_mensaje;
+
+  select public.registrar_voto(v_conv, 'no_util', v_mensaje, 'tramite') into v_voto;
+  if v_voto is null then raise exception 'no se registro el voto del tramite'; end if;
+
+  select sobre into v_texto from public.valoraciones where id = v_voto;
+  if v_texto <> 'tramite' then
+    raise exception 'el voto del tramite quedo guardado como «%»', v_texto;
+  end if;
+
+  --      Y la vista los reparte. Con las dos clases mezcladas el panel muestra
+  --      «no le sirvio la respuesta» cuando el vecino en realidad dijo que el
+  --      tramite le costo, y manda al area a reescribir una respuesta que
+  --      estaba bien.
+  select votos_no_utiles into n from public.v_conversaciones where id = v_conv;
+  if n <> 2 then raise exception 'la vista conto % pulgares abajo, esperaba 2', n; end if;
+
+  select votos_respuesta_mala into n from public.v_conversaciones where id = v_conv;
+  if n <> 1 then raise exception 'la vista conto % respuestas malas, esperaba 1', n; end if;
+
+  select votos_tramite_dificil into n from public.v_conversaciones where id = v_conv;
+  if n <> 1 then raise exception 'la vista conto % tramites dificiles, esperaba 1', n; end if;
+
+  -- 17 - Un `sobre` inventado se rechaza. Es la misma defensa que el voto
+  --      invalido: si entra basura, la separacion de arriba deja de valer.
+  begin
+    perform public.registrar_voto(v_conv, 'util', v_mensaje, 'mas_o_menos');
+    raise exception 'acepto un «sobre» invalido';
+  exception when others then
+    if sqlerrm not like 'sobre invalido%' then raise; end if;
+  end;
+
+  -- 18 - Y sin el cuarto argumento sigue siendo 'respuesta'. Esto es lo que
+  --      hace que el bot ya desplegado no se rompa cuando se aplica la 028:
+  --      todas sus llamadas de hoy pasan tres argumentos.
+  perform public.registrar_voto(v_conv, 'util', v_mensaje);
+  select sobre into v_texto from public.valoraciones where mensaje_id = v_mensaje;
+  if v_texto <> 'respuesta' then
+    raise exception 'el default de `sobre` quedo en «%» en vez de respuesta', v_texto;
+  end if;
 
   perform set_config('request.jwt.claim.sub', '', true);
   delete from public.conversaciones where id in (v_conv, v_otra);

@@ -17,7 +17,7 @@
  * el menor de los dos males.
  */
 import { obtenerCliente } from "./cliente.ts";
-import type { Voto } from "../flujos/opciones.ts";
+import type { SobreQue, Voto } from "../flujos/opciones.ts";
 
 /**
  * Registra el voto sobre la última respuesta de la conversación.
@@ -29,10 +29,15 @@ export async function registrarVoto(
   conversacionId: string,
   voto: Voto,
   mensajeId: string | null = null,
+  sobre: SobreQue = "respuesta",
 ): Promise<string | null> {
   const { data, error } = await obtenerCliente().rpc("registrar_voto", {
     p_conversacion_id: conversacionId,
     p_voto: voto,
+    // Explícito y no inferido del mensaje votado. Se podría deducir del
+    // `origen_respuesta` —los pasos de un trámite son 'flujo'— pero este
+    // proyecto ya se quemó confiando en esa columna para esto.
+    p_sobre: sobre,
     // Cuando el botón trae el mensaje, la base NO infiere nada. El respaldo por
     // conversación sigue existiendo para el emoji suelto y para los teclados
     // viejos, pero es el camino excepcional y no el normal.

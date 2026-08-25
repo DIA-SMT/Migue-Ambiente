@@ -586,6 +586,16 @@ export interface Conversacion {
   ultima_actividad_en: string;
   votos_utiles: number;
   votos_no_utiles: number;
+  /**
+   * De los pulgares abajo, cuántos califican una RESPUESTA.
+   *
+   * Se arregla escribiendo una respuesta mejor. Va separado del de trámite
+   * porque los dos arreglos son opuestos y los hace gente distinta: mezclarlos
+   * en un solo porcentaje deja al área con un número que no dice qué hacer.
+   */
+  votos_respuesta_mala: number;
+  /** De los pulgares abajo, cuántos dicen que el TRÁMITE fue complicado. */
+  votos_tramite_dificil: number;
   ultimo_comentario: string | null;
   primer_mensaje: string | null;
   /**
@@ -641,6 +651,35 @@ export function comoLeFue(c: Conversacion): {
   tono: string;
   urgencia: number;
 } {
+  // Un pulgar abajo sobre una RESPUESTA es lo más urgente: el vecino dijo que
+  // lo que le contestamos no le sirvió, y se arregla escribiendo.
+  if (c.votos_respuesta_mala > 0) {
+    return {
+      etiqueta:
+        c.votos_respuesta_mala === 1
+          ? "no le sirvió la respuesta"
+          : `no le sirvieron ${c.votos_respuesta_mala} respuestas`,
+      tono: "alerta",
+      urgencia: 0,
+    };
+  }
+
+  // Un trámite difícil es otra cosa: la gestión salió —hay un ticket— pero el
+  // camino costó. Se arregla cambiando los pasos o los textos del flujo, no
+  // escribiendo una respuesta, así que va aparte y con menos urgencia.
+  if (c.votos_tramite_dificil > 0) {
+    return {
+      etiqueta:
+        c.votos_tramite_dificil === 1
+          ? "el trámite le costó"
+          : `${c.votos_tramite_dificil} trámites le costaron`,
+      tono: "curso",
+      urgencia: 1,
+    };
+  }
+
+  // Un pulgar abajo que no cae en ninguna de las dos: viene de antes de que se
+  // separaran, o de un emoji suelto. Se muestra igual en vez de esconderlo.
   if (c.votos_no_utiles > 0) {
     return {
       etiqueta:
@@ -662,13 +701,13 @@ export function comoLeFue(c: Conversacion): {
           ? "quedó una sin responder"
           : `quedaron ${c.preguntas_pendientes} sin responder`,
       tono: "curso",
-      urgencia: 1,
+      urgencia: 2,
     };
   }
   // Falló y ya se arregló. Vale distinguirlo de una charla que salió bien de
   // entrada: no es una tarea, pero tampoco es un éxito.
   if (c.preguntas_falladas > 0 && c.votos_no_utiles === 0) {
-    return { etiqueta: "falló y se resolvió", tono: "pend", urgencia: 2 };
+    return { etiqueta: "falló y se resolvió", tono: "pend", urgencia: 3 };
   }
   if (c.votos_utiles > 0) {
     return {

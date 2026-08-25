@@ -28,7 +28,7 @@ export interface Registro {
   }>;
   readonly efectos: Efecto[];
   readonly sinRespuesta: Array<{ pregunta: string; motivo: MotivoSinRespuesta }>;
-  readonly votos: Array<{ voto: string; mensajeId: string | null }>;
+  readonly votos: Array<{ voto: string; sobre: string; mensajeId: string | null }>;
   /** Los textos que se intentaron pegar como explicación de un voto. */
   readonly comentariosIntentados: string[];
   readonly cierres: Array<"cerrada" | "derivada" | "abandonada">;
@@ -120,11 +120,11 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
       registro.sinRespuesta.push({ pregunta: o.pregunta, motivo: o.motivo });
       return { id: "sr-1", agrupada: false };
     },
-    async registrarVoto(_id: string, voto, mensajeId: string | null) {
+    async registrarVoto(_id: string, voto, mensajeId: string | null, sobre: string) {
       // Se guarda el `mensajeId` para poder afirmar CONTRA QUÉ quedó el voto.
       // Sin esto una prueba sólo puede decir que se votó, no que se votó lo que
       // correspondía — y ese era exactamente el bug.
-      registro.votos.push({ voto, mensajeId });
+      registro.votos.push({ voto, sobre, mensajeId });
       return "v-1";
     },
     // El doble registra el INTENTO y devuelve false, que es el caso normal: la
