@@ -1136,3 +1136,48 @@ dl.ficha dd {
   font-size: 1.02rem;
   margin: 0 0 4px;
 }
+
+/* --------------------------------------------------------------------------
+   La lista de cuentas para dar de alta
+
+   Radios y no un desplegable: cada cuenta trae tres datos que importan para
+   decidir —cuándo se creó, si está confirmada, si alguna vez entró— y en un
+   `<option>` eso no entra. Una cuenta creada hace tres meses que nunca entró
+   probablemente sea un error de tipeo en el correo, y conviene verlo antes de
+   darle acceso al panel.
+   -------------------------------------------------------------------------- */
+.lista-cuentas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--linea);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--verde-tenue);
+}
+
+.lista-cuentas label {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 11px;
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 400;
+  margin: 0;
+}
+
+.lista-cuentas label:hover { border-color: var(--verde-medio); }
+.lista-cuentas label.elegida {
+  border-color: var(--azul);
+  box-shadow: 0 0 0 2px var(--azul-piso);
+}
+
+.lista-cuentas input[type="radio"] { width: auto; margin-top: 3px; }
+.lista-cuentas span { display: block; min-width: 0; }
+.lista-cuentas .sub-fila { margin-top: 2px; }

@@ -723,22 +723,41 @@ begin
 
   -- Dado de baja, vuelve a decir que no. Es lo que pasa el dia que alguien deja
   -- el area: se desactiva la fila y pierde el acceso sin borrar el registro.
+  --
+  -- OJO CON EL CLAIM. Este bloque tiene `request.jwt.claim.sub` puesto en
+  -- `v_uid` para poder evaluar `es_personal_panel()` como esa persona. Pero eso
+  -- hace que `auth.uid()` devuelva `v_uid`, y el trigger de la 027 —que impide
+  -- que alguien se saque a si mismo el acceso— dispara y bloquea el UPDATE.
+  --
+  -- El trigger tiene razon: si un panel hiciera esto, seria alguien
+  -- desactivandose a si mismo. Pero aca es PREPARACION de la prueba, no una
+  -- accion de usuario, asi que se limpia el claim para hacer el cambio y se
+  -- vuelve a poner para medir. La distincion importa y por eso queda escrita:
+  -- confundir «armar el escenario» con «lo que hace un usuario» es como se
+  -- escriben pruebas que miden otra cosa.
+  perform set_config('request.jwt.claim.sub', '', true);
   update public.personal_panel set activo = false where usuario_id = v_uid;
+  perform set_config('request.jwt.claim.sub', v_uid::text, true);
   if public.es_personal_panel() then
     raise exception 'un usuario dado de baja siguio teniendo acceso';
   end if;
 
   -- Un operador no es admin: no puede tocar el padron.
+  perform set_config('request.jwt.claim.sub', '', true);
   update public.personal_panel set activo = true, rol = 'operador' where usuario_id = v_uid;
+  perform set_config('request.jwt.claim.sub', v_uid::text, true);
   if public.es_admin_panel() then
     raise exception 'un operador quedo con permisos de admin';
   end if;
 
+  perform set_config('request.jwt.claim.sub', '', true);
   update public.personal_panel set rol = 'admin' where usuario_id = v_uid;
+  perform set_config('request.jwt.claim.sub', v_uid::text, true);
   if not public.es_admin_panel() then
     raise exception 'un admin no fue reconocido como admin';
   end if;
 
+  perform set_config('request.jwt.claim.sub', '', true);
   delete from public.personal_panel where usuario_id = v_uid;
   delete from auth.users where id = v_uid;
   perform set_config('request.jwt.claim.sub', '', true);
@@ -1604,6 +1623,179 @@ begin
   reset role;
 end $$;
 \echo '   OK: cero funciones abiertas, RLS conserva las suyas y el worker la cola'
+
+-- ---------------------------------------------------------------------------
+-- BLOQUE P - El padron: nadie se bloquea a si mismo (027)
+-- ---------------------------------------------------------------------------
+-- Se verifico ANTES de escribir el trigger que las tres operaciones pasaban: el
+-- unico admin podia bajarse el rol, darse de baja y borrarse, y despues no podia
+-- revertir ninguna. El panel quedaba sin nadie que lo administre.
+--
+-- Este bloque prueba las DOS direcciones, y la segunda importa tanto como la
+-- primera: que el trigger bloquee, y que NO bloquee al SQL Editor. Un trigger
+-- que cierra la puerta de salida convierte un problema recuperable en uno que
+-- necesita soporte de Supabase.
+\echo ' P. El padron: nadie se saca a si mismo el acceso'
+
+do $$
+declare
+  v_admin uuid := '11111111-aaaa-1111-aaaa-111111111111';
+  v_otro  uuid := '22222222-bbbb-2222-bbbb-222222222222';
+  n int;
+  v_rol text;
+  v_activo boolean;
+begin
+  insert into auth.users (id, email, email_confirmed_at) values
+    (v_admin, 'admin.padron@smt.gob.ar', now()),
+    (v_otro,  'otro.padron@smt.gob.ar',  now())
+  on conflict (id) do nothing;
+  insert into public.personal_panel (usuario_id, correo, nombre, rol) values
+    (v_admin, 'admin.padron@smt.gob.ar', 'Admin', 'admin'),
+    (v_otro,  'otro.padron@smt.gob.ar',  'Otro',  'operador')
+  on conflict (usuario_id) do update set rol = excluded.rol, activo = true;
+
+  -- 1 - No puede bajarse el rol a si mismo.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  set local role authenticated;
+  begin
+    update public.personal_panel set rol = 'operador' where usuario_id = v_admin;
+    reset role;
+    raise exception 'el admin se bajo el rol a si mismo: el panel puede quedar sin administrador';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+  select rol into v_rol from public.personal_panel where usuario_id = v_admin;
+  if v_rol <> 'admin' then raise exception 'el rol cambio igual: quedo en «%»', v_rol; end if;
+
+  -- 2 - No puede darse de baja a si mismo.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  set local role authenticated;
+  begin
+    update public.personal_panel set activo = false where usuario_id = v_admin;
+    reset role;
+    raise exception 'el admin se dio de baja a si mismo';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+  select activo into v_activo from public.personal_panel where usuario_id = v_admin;
+  if not v_activo then raise exception 'la baja se aplico igual'; end if;
+
+  -- 3 - No puede borrarse a si mismo.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  set local role authenticated;
+  begin
+    delete from public.personal_panel where usuario_id = v_admin;
+    reset role;
+    raise exception 'el admin se borro a si mismo';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+  select count(*) into n from public.personal_panel where usuario_id = v_admin;
+  if n <> 1 then raise exception 'la fila del admin desaparecio'; end if;
+
+  -- 4 - LO QUE SI TIENE QUE PODER: cambiarle el rol a OTRO. Sin esto el trigger
+  --     seria una tranca y no una guarda: la pantalla no serviria para nada.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  set local role authenticated;
+  update public.personal_panel set rol = 'supervisor' where usuario_id = v_otro;
+  reset role;
+  select rol into v_rol from public.personal_panel where usuario_id = v_otro;
+  if v_rol <> 'supervisor' then
+    raise exception 'un admin no pudo cambiarle el rol a otro: la pantalla no sirve';
+  end if;
+
+  -- 5 - Y darlo de baja.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  set local role authenticated;
+  update public.personal_panel set activo = false where usuario_id = v_otro;
+  reset role;
+  select activo into v_activo from public.personal_panel where usuario_id = v_otro;
+  if v_activo then raise exception 'un admin no pudo dar de baja a otro'; end if;
+
+  -- 6 - Editarse el NOMBRE propio si se puede. Nadie se bloquea corrigiendo su
+  --     apellido, y prohibirlo seria una guarda de mas.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  set local role authenticated;
+  update public.personal_panel set nombre = 'Admin Corregido' where usuario_id = v_admin;
+  reset role;
+
+  -- 7 - LA PUERTA DE SALIDA. Con service_role, `auth.uid()` es null y el trigger
+  --     no dispara. Es lo que permite arreglar un bloqueo desde el SQL Editor.
+  --     Si esto fallara, el trigger habria convertido un problema recuperable en
+  --     uno que necesita soporte de Supabase.
+  perform set_config('request.jwt.claim.sub', '', true);
+  set local role service_role;
+  update public.personal_panel set rol = 'operador' where usuario_id = v_admin;
+  reset role;
+  select rol into v_rol from public.personal_panel where usuario_id = v_admin;
+  if v_rol <> 'operador' then
+    raise exception 'service_role no pudo cambiar el rol: se cerro la puerta de salida';
+  end if;
+  update public.personal_panel set rol = 'admin' where usuario_id = v_admin;
+
+  -- 8 - `cuentas_sin_padron`: resuelve correo -> cuenta, y SOLO para un admin.
+  insert into auth.users (id, email, email_confirmed_at) values
+    ('33333333-cccc-3333-cccc-333333333333', 'nuevo.sin.padron@smt.gob.ar', now())
+  on conflict (id) do nothing;
+
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  select count(*) into n from public.cuentas_sin_padron()
+   where correo = 'nuevo.sin.padron@smt.gob.ar';
+  if n <> 1 then raise exception 'cuentas_sin_padron no devolvio la cuenta nueva'; end if;
+
+  -- Y NO devuelve a los que ya estan en el padron: es lo que la hace inutil
+  -- para enumerar usuarios.
+  select count(*) into n from public.cuentas_sin_padron() where usuario_id = v_admin;
+  if n <> 0 then raise exception 'cuentas_sin_padron devolvio a alguien que ya esta en el padron'; end if;
+
+  -- 9 - Un operador NO la puede llamar: ahi salen correos.
+  --
+  -- El claim se limpia para PREPARAR y se pone para MEDIR, igual que en el
+  -- bloque J: con el claim puesto, este update seria `v_otro` reactivandose a si
+  -- mismo y el trigger lo bloquea. Es preparacion, no una accion de usuario.
+  perform set_config('request.jwt.claim.sub', '', true);
+  update public.personal_panel set activo = true, rol = 'operador' where usuario_id = v_otro;
+  perform set_config('request.jwt.claim.sub', v_otro::text, true);
+  begin
+    perform public.cuentas_sin_padron();
+    raise exception 'un operador pudo listar las cuentas de auth.users';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- 10 - Y NO devuelve nada que permita autenticarse. Se comprueba sobre la
+  --      firma: si alguien agrega una columna sensible, esto falla.
+  select count(*) into n
+    from information_schema.routines r
+    join information_schema.parameters p
+      on p.specific_name = r.specific_name
+   where r.routine_schema = 'public'
+     and r.routine_name = 'cuentas_sin_padron'
+     and p.parameter_mode = 'OUT'
+     and p.parameter_name in ('encrypted_password','confirmation_token','recovery_token',
+                              'raw_app_meta_data','raw_user_meta_data','phone');
+  if n > 0 then
+    raise exception 'cuentas_sin_padron devuelve % columna(s) sensible(s) de auth.users', n;
+  end if;
+
+  -- 11 - Un correo activo, una sola fila.
+  perform set_config('request.jwt.claim.sub', '', true);
+  begin
+    insert into public.personal_panel (usuario_id, correo, nombre, rol, activo)
+    values ('44444444-dddd-4444-dddd-444444444444', 'ADMIN.PADRON@smt.gob.ar', 'Duplicado', 'operador', true);
+    raise exception 'entraron dos filas activas con el mismo correo';
+  exception when unique_violation then null;
+  end;
+
+  -- Limpieza. El claim se limpia primero: con `v_otro` puesto, este DELETE
+  -- incluiria su propia fila y el trigger lo bloquearia. Ya me paso una vez.
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.personal_panel
+   where usuario_id in (v_admin, v_otro, '44444444-dddd-4444-dddd-444444444444');
+  delete from auth.users
+   where id in (v_admin, v_otro, '33333333-cccc-3333-cccc-333333333333',
+                '44444444-dddd-4444-dddd-444444444444');
+end $$;
+\echo '   OK: nadie se autobloquea, el SQL Editor sigue pudiendo arreglar, y solo un admin ve las cuentas'
 
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'

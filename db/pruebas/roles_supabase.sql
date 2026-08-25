@@ -34,12 +34,29 @@ end $$;
 -- ---------------------------------------------------------------------------
 create schema if not exists auth;
 
+-- Las columnas de `auth.users` que el proyecto LEE. No es el esquema completo de
+-- Supabase —tiene decenas— sino las que aparecen en alguna consulta nuestra, y
+-- por eso hay que agregar acá cualquiera nueva que se use: `cuentas_sin_padron`
+-- falló contra esta base por pedir `last_sign_in_at`, que en Supabase existe y
+-- acá no estaba.
+--
+-- Y las que NO están son deliberadas: `encrypted_password`,
+-- `confirmation_token`, `recovery_token` y `raw_app_meta_data` no se agregan. Si
+-- una función nuestra alguna vez las pidiera, tiene que fallar acá y no pasar
+-- desapercibida hasta producción.
 create table if not exists auth.users (
   id                 uuid primary key default gen_random_uuid(),
   email              text unique,
   email_confirmed_at timestamptz,
+  last_sign_in_at    timestamptz,
+  deleted_at         timestamptz,
   created_at         timestamptz not null default now()
 );
+
+-- Idempotente: si la tabla ya existía de una corrida anterior, se le suman las
+-- columnas que falten en vez de fallar.
+alter table auth.users add column if not exists last_sign_in_at timestamptz;
+alter table auth.users add column if not exists deleted_at      timestamptz;
 
 create or replace function auth.uid()
 returns uuid

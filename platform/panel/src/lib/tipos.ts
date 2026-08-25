@@ -803,3 +803,86 @@ export interface FilaZona {
   observaciones: string | null;
   activo: boolean;
 }
+
+/* ------------------------------------------------------------- personal --- */
+
+export type RolPanel = "operador" | "supervisor" | "admin";
+
+/** Una fila de `personal_panel` (migraciones 017 y 027). */
+export interface Persona {
+  usuario_id: string;
+  correo: string;
+  nombre: string | null;
+  rol: RolPanel;
+  activo: boolean;
+  creado_en: string;
+  creado_por: string | null;
+  actualizado_en: string;
+  notas: string | null;
+}
+
+/** Una cuenta de Supabase que todavía no está en el padrón (`cuentas_sin_padron`). */
+export interface CuentaSinPadron {
+  usuario_id: string;
+  correo: string;
+  creada_en: string;
+  confirmada: boolean;
+  ultimo_ingreso: string | null;
+}
+
+/**
+ * Qué puede hacer cada rol, en palabras del área.
+ *
+ * El orden de las claves es el de menor a mayor permiso, y los textos describen
+ * lo que la persona VA A PODER, no la implementación. Quien asigna un rol tiene
+ * que poder decidir sin leer las políticas de RLS.
+ */
+export const ROLES_PANEL: Record<
+  RolPanel,
+  { rotulo: string; puede: string; tono: string }
+> = {
+  operador: {
+    rotulo: "Operador",
+    puede:
+      "Escribe respuestas y las deja como borrador. Ve los pedidos, los documentos y las " +
+      "conversaciones. No publica ni borra.",
+    tono: "pend",
+  },
+  supervisor: {
+    rotulo: "Supervisor",
+    puede:
+      "Todo lo del operador, y además PUBLICA: lo que apruebe empieza a recibirlo un vecino. " +
+      "También cambia las reglas del bot.",
+    tono: "curso",
+  },
+  admin: {
+    rotulo: "Administrador",
+    puede:
+      "Todo lo anterior, más borrar respuestas y administrar quién entra al panel. Es el único " +
+      "rol que puede dar de alta o de baja a alguien.",
+    tono: "alerta",
+  },
+};
+
+/**
+ * Por qué esta persona no se puede editar desde acá.
+ *
+ * Devuelve null si sí se puede. El motivo lo decide la base con un trigger
+ * (migración 027) y esto sólo lo anticipa en la interfaz: dejar el botón activo
+ * para que falle con un error de Postgres es peor que explicarlo antes.
+ *
+ * La regla es que nadie se toca a sí mismo el rol ni el estado. Verificado que
+ * sin eso el único admin podía bajarse el rol, darse de baja y borrarse, y
+ * después no podía revertir ninguna de las tres.
+ */
+export function porQueNoSePuedeEditar(
+  persona: Persona,
+  yoSoy: string,
+): string | null {
+  if (persona.usuario_id !== yoSoy) return null;
+  return (
+    "Sos vos. Nadie puede cambiarse el rol ni darse de baja a sí mismo: si fueras el único " +
+    "administrador, el panel quedaría sin nadie que lo administre y no habría forma de " +
+    "arreglarlo desde acá. Pedile a otro administrador que lo haga."
+  );
+}

@@ -59,7 +59,7 @@ const GRUPOS = [
   },
   {
     rotulo: "Administración",
-    items: [{ href: "/personal", texto: "Personal", Icono: IconoPersonal, listo: false }],
+    items: [{ href: "/personal", texto: "Personal", Icono: IconoPersonal, listo: true }],
   },
 ] as const;
 
