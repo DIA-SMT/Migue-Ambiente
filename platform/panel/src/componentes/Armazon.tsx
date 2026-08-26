@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { PersonaDelPanel } from "@/lib/supabase-servidor";
 import { Salir } from "./Salir";
+import { Tema } from "./Tema";
 import {
   Hojas,
   IconoCasos,
@@ -132,6 +133,7 @@ export function Armazon({
             <strong>{persona.nombre ?? persona.correo}</strong>
             <span>{persona.rol}</span>
           </div>
+          <Tema />
           <Salir />
         </div>
 

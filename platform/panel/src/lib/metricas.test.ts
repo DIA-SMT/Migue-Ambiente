@@ -15,6 +15,10 @@ import assert from "node:assert/strict";
 import {
   DIAS_PARA_COTIZACION_VIEJA,
   convertirAPesos,
+  haceCuanto,
+  medirGasto,
+  medirPunteria,
+  ultimaActividad,
   medirVotos,
   pesos,
   repartoPorIntencion,
@@ -292,5 +296,180 @@ describe("pesos", () => {
     assert.equal(pesos(0), "$ 0,00");
     assert.ok(pesos(5000).startsWith("$ "));
     assert.ok(!pesos(5000).includes(" "));
+  });
+});
+
+describe("medirGasto", () => {
+  it("corta el mes en hora de Tucumán y no en UTC", () => {
+    // 01:30 UTC del 1 de septiembre son las 22:30 del 31 de AGOSTO en Tucumán.
+    // Con el corte en UTC ese gasto se contaría en septiembre y el mes cerraría
+    // con plata que no le corresponde.
+    const g = medirGasto(
+      [
+        msg({ creado_en: "2026-09-01T01:30:00.000Z", costo_usd: 0.5 }),
+        msg({ creado_en: "2026-08-26T15:00:00.000Z", costo_usd: 0.25 }),
+      ],
+      AHORA,
+    );
+    assert.equal(g.mesUsd, 0.75);
+    assert.equal(g.etiquetaDelMes, "agosto de 2026");
+  });
+
+  it("el histórico incluye meses anteriores y el del mes no", () => {
+    const g = medirGasto(
+      [
+        msg({ creado_en: "2026-08-26T15:00:00.000Z", costo_usd: 1 }),
+        msg({ creado_en: "2026-05-10T15:00:00.000Z", costo_usd: 10 }),
+      ],
+      AHORA,
+    );
+    assert.equal(g.mesUsd, 1);
+    assert.equal(g.historicoUsd, 11);
+  });
+
+  it("no cuenta lo que escribió el vecino: la traza vive en el saliente", () => {
+    const g = medirGasto(
+      [msg({ direccion: "entrante", creado_en: "2026-08-26T15:00:00.000Z", costo_usd: 9 })],
+      AHORA,
+    );
+    assert.equal(g.mesUsd, 0);
+    assert.equal(g.salientesDelMes, 0);
+  });
+
+  it("informa la cobertura del mes, porque el total es un piso", () => {
+    const g = medirGasto(
+      [
+        msg({ creado_en: "2026-08-26T15:00:00.000Z", costo_usd: 1 }),
+        msg({ creado_en: "2026-08-26T15:00:00.000Z", costo_usd: null }),
+      ],
+      AHORA,
+    );
+    assert.equal(g.salientesDelMes, 2);
+    assert.equal(g.conDatoEnElMes, 1);
+  });
+
+  it("sin mensajes da cero y una etiqueta válida, no NaN", () => {
+    const g = medirGasto([], AHORA);
+    assert.equal(g.mesUsd, 0);
+    assert.equal(g.historicoUsd, 0);
+    assert.equal(g.etiquetaDelMes, "agosto de 2026");
+  });
+});
+
+describe("medirPunteria", () => {
+  it("un saludo NO cuenta como que Migue acertó", () => {
+    // El caso que hace que este número no mienta. `origen_respuesta = 'flujo'`
+    // se escribe en ocho lugares del orquestador y etiqueta cinco cosas: paso
+    // de trámite, saludo, despedida, acuse de voto y arranque de flujo. Contar
+    // las cinco como acierto convierte cada «hola» en un éxito.
+    const p = medirPunteria([
+      msg({ origen_respuesta: "flujo", intencion: "saludo" }),
+      msg({ origen_respuesta: "flujo", intencion: "despedida" }),
+      msg({ origen_respuesta: "flujo", intencion: "voto_util" }),
+    ]);
+    assert.equal(p.guio, 0);
+    assert.equal(p.decisiones, 0, "la mecánica de la charla no es una decisión");
+  });
+
+  it("un paso de trámite SÍ cuenta: su intención es el nombre del flujo", () => {
+    const p = medirPunteria([
+      msg({ origen_respuesta: "flujo", intencion: "retiro_no_habitual" }),
+      msg({ origen_respuesta: "flujo", intencion: "reclamo_recoleccion" }),
+    ]);
+    assert.equal(p.guio, 2);
+    assert.equal(p.decisiones, 2);
+  });
+
+  it("separa encontrar material de guiar un trámite y de derivar", () => {
+    const p = medirPunteria([
+      msg({ origen_respuesta: "faq" }),
+      msg({ origen_respuesta: "documentos" }),
+      msg({ origen_respuesta: "respuesta_fija" }),
+      msg({ origen_respuesta: "flujo", intencion: "programa_separa" }),
+      msg({ origen_respuesta: "exclusion" }),
+      msg({ origen_respuesta: "fallback" }),
+    ]);
+    assert.equal(p.encontro, 3);
+    assert.equal(p.guio, 1);
+    assert.equal(p.derivo, 1);
+    assert.equal(p.cayoAlMenu, 1);
+    assert.equal(p.decisiones, 6);
+  });
+
+  it("derivar a otra área es una respuesta correcta, no una falla", () => {
+    // Mandar «hay olor a gas» al área que corresponde es lo que hay que hacer.
+    const p = medirPunteria([msg({ origen_respuesta: "exclusion" })]);
+    assert.equal(p.derivo, 1);
+    assert.equal(p.cayoAlMenu, 0);
+  });
+
+  it("los mensajes de cortesía quedan fuera del denominador", () => {
+    // El «¿te sirvió?» y el «gracias» se guardan con origen en null desde la
+    // 022. Si entraran, el denominador sería «mensajes que mandó el bot» y no
+    // «veces que tuvo que decidir algo».
+    const p = medirPunteria([
+      msg({ origen_respuesta: "faq" }),
+      msg({ origen_respuesta: null }),
+      msg({ origen_respuesta: null }),
+    ]);
+    assert.equal(p.decisiones, 1);
+  });
+
+  it("las partes suman el total, sin filtraciones", () => {
+    const p = medirPunteria([
+      msg({ origen_respuesta: "faq" }),
+      msg({ origen_respuesta: "flujo", intencion: "retiro_no_habitual" }),
+      msg({ origen_respuesta: "exclusion" }),
+      msg({ origen_respuesta: "fallback" }),
+      msg({ origen_respuesta: "flujo", intencion: "saludo" }),
+    ]);
+    assert.equal(p.encontro + p.guio + p.derivo + p.cayoAlMenu, p.decisiones);
+  });
+
+  it("un origen que el panel no conoce entra al denominador igual", () => {
+    // Perderlo en silencio haría que los porcentajes cierren sobre un total
+    // que no es el real.
+    const p = medirPunteria([msg({ origen_respuesta: "algo_nuevo" as never })]);
+    assert.equal(p.decisiones, 1);
+  });
+
+  it("ignora los entrantes", () => {
+    const p = medirPunteria([msg({ direccion: "entrante", origen_respuesta: "faq" })]);
+    assert.equal(p.decisiones, 0);
+  });
+});
+
+describe("ultimaActividad y haceCuanto", () => {
+  it("toma el mensaje más nuevo aunque la lista venga desordenada", () => {
+    const a = ultimaActividad(
+      [
+        msg({ creado_en: "2026-08-20T10:00:00.000Z" }),
+        msg({ creado_en: "2026-08-26T14:00:00.000Z" }),
+        msg({ creado_en: "2026-08-01T10:00:00.000Z" }),
+      ],
+      AHORA,
+    );
+    assert.equal(a.haceMs, 3_600_000);
+  });
+
+  it("sin mensajes no inventa una fecha", () => {
+    assert.deepEqual(ultimaActividad([], AHORA), { ultimoEn: null, haceMs: null });
+  });
+
+  it("nunca da un tiempo negativo si un mensaje viene del futuro", () => {
+    // Pasa con relojes desincronizados. «hace -4 minutos» es peor que «recién».
+    const a = ultimaActividad([msg({ creado_en: "2026-08-26T15:04:00.000Z" })], AHORA);
+    assert.equal(a.haceMs, 0);
+  });
+
+  it("redacta el tiempo en singular y plural", () => {
+    assert.equal(haceCuanto(null), "nunca");
+    assert.equal(haceCuanto(30_000), "recién");
+    assert.equal(haceCuanto(60_000), "hace 1 minuto");
+    assert.equal(haceCuanto(120_000), "hace 2 minutos");
+    assert.equal(haceCuanto(3_600_000), "hace 1 hora");
+    assert.equal(haceCuanto(7_200_000), "hace 2 horas");
+    assert.equal(haceCuanto(86_400_000), "hace 1 día");
+    assert.equal(haceCuanto(5 * 86_400_000), "hace 5 días");
   });
 });

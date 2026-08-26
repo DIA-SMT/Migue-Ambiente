@@ -4,71 +4,267 @@
  * DIRECCIÓN VISUAL
  *
  * Dos identidades que hay que respetar a la vez: la del municipio, que es azul
- * (#0066FF, el mismo de toda la comunicación de San Miguel de Tucumán), y la del
- * área, que es Ambiente. Meter los dos colores al mismo nivel produce una
- * ensalada, así que cada uno tiene su ZONA:
+ * (el mismo de toda la comunicación de San Miguel de Tucumán), y la del área,
+ * que es Ambiente. Meter los dos colores al mismo nivel produce una ensalada,
+ * así que cada uno tiene su ZONA:
  *
- *   · El verde es territorio. La barra lateral es verde profundo y el fondo de
- *     la página tiene un tinte verde muy claro. Es el ambiente en el que se
- *     trabaja, literalmente.
+ *   · El verde es territorio. La barra lateral es verde profundo y la pantalla
+ *     de ingreso también. Es el ambiente en el que se trabaja, literalmente.
  *   · El azul es acción. Botones primarios, enlaces, el estado activo. Aparece
- *     sólo sobre el papel blanco de las tarjetas, nunca dentro de la barra.
+ *     sólo sobre el papel de las tarjetas, nunca dentro de la barra.
  *
  * Los grises tiran a verde y no a azul: un gris neutro al lado de una barra
- * verde se lee como gris de plantilla. Están construidos mezclando el verde
- * profundo con blanco.
+ * verde se lee como gris de plantilla.
  *
  * El verde elegido es apagado, de eucalipto, no el verde saturado de «reciclaje»
  * que sale por defecto cuando uno piensa en ambiente. Esto se mira ocho horas
  * por día.
  *
- * Un solo tema, claro: es una herramienta de escritorio para una oficina. Un
- * tema oscuro sería superficie de mantenimiento a cambio de nada acá.
+ * ---------------------------------------------------------------------------
+ * DOS TEMAS, Y LA REGLA QUE LOS HACE POSIBLES
+ * ---------------------------------------------------------------------------
+ *
+ * Acá decía que el panel tenía un solo tema, claro, y que uno oscuro sería
+ * superficie de mantenimiento a cambio de nada. Se decidió lo contrario: hay
+ * tema claro y oscuro, y cada persona elige con el interruptor del pie de la
+ * barra. Lo que sigue es lo que hace que eso no se rompa.
+ *
+ * LA REGLA: si el nombre de una variable dice de qué COLOR es, no puede cambiar
+ * con el tema; si dice para qué SIRVE, sí. Por eso hay dos bloques.
+ *
+ *   · PIGMENTOS — la identidad. `--verde-profundo`, `--azul`, `--verde-vivo`.
+ *     Valen lo mismo en los dos temas. Son los colores de las marcas.
+ *   · ROLES — la superficie. `--fondo`, `--papel`, `--tinta`, `--linea`.
+ *     Cambian enteros según el tema.
+ *
+ * El error que esta regla evita ya estaba en el archivo: `--verde-profundo` se
+ * usaba de fondo en la barra (donde tiene que ser oscuro) Y de color de texto
+ * en los números grandes del tablero (donde sobre fondo oscuro es ilegible). Un
+ * solo valor no puede servir para las dos cosas. Ahora el texto usa
+ * `--tinta-fuerte`, que es un rol.
+ *
+ * TRES RELACIONES QUE HAY QUE SOSTENER al retocar cualquier tema. Si se rompe
+ * una, se rompe una pantalla entera y el typecheck no dice nada:
+ *
+ *   1. `--papel` siempre más claro que `--fondo`. Y `--hundida` más oscura que
+ *      el papel en claro, pero MÁS CLARA que el papel en oscuro: hundir un
+ *      encabezado de tabla sobre fondo oscuro lo mete en un pozo negro.
+ *   2. Cada par `--X` y `--X-piso` tiene que dar 4,5:1 entre sí en los dos
+ *      temas. Son los chips y los avisos: si se desincronizan, el cartel de
+ *      error queda rojo sobre rojo.
+ *   3. En claro la tarjeta se separa del fondo por SOMBRA. En oscuro la sombra
+ *      casi no existe: se separa por superficie más clara y por `--linea`
+ *      visible. Subirle el alfa a la sombra no alcanza.
+ *
+ * QUÉ NO SIGUE AL TEMA, a propósito: la barra lateral y la pantalla de ingreso
+ * quedan verde profundo en los dos. Son territorio, no papel — y además el
+ * ingreso se ve antes de que exista ninguna preferencia guardada, y el crédito
+ * de la Dirección de IA es un PNG horneado para fondo oscuro.
  */
 
 :root {
-  /* --- Identidad del municipio: acción --- */
+  /* ======================= PIGMENTOS · iguales en los dos temas ========= */
+
+  /* --- Identidad del municipio --- */
   --azul: #0066ff;
   --azul-hover: #0052d6;
-  --azul-piso: #e8f0ff;
+  --celeste: #2eb1ff;
+  --amarillo: #f4dc00;
 
-  /* --- Identidad del área: territorio --- */
+  /* --- Identidad del área. La barra y el ingreso viven acá. --- */
   --verde-profundo: #0e3b2a;
   --verde-barra: #114532;
   --verde-medio: #1b5e43;
   --verde-vivo: #2e9e6b;
-  --verde-claro: #e4efe7;
-  --verde-tenue: #f2f7f3;
 
-  /* --- Tinta: neutros con sesgo verde --- */
-  --tinta: #10231c;
-  --tinta-media: #3c5349;
-  --tinta-suave: #6d857a;
+  /* --- Sobre el verde: la escala de tinta de la barra y del héroe. Tres
+         jerarquías, no las catorce opacidades sueltas que había antes. --- */
+  --sobre-verde-fuerte: #ffffff;
+  --sobre-verde: #dcebe2;
+  --sobre-verde-suave: rgba(220, 235, 226, 0.55);
+  --sobre-verde-tenue: rgba(220, 235, 226, 0.34);
+  --linea-barra: rgba(255, 255, 255, 0.09);
+  --realce-barra: rgba(255, 255, 255, 0.07);
+  --barra-boton: rgba(255, 255, 255, 0.08);
+  --barra-boton-borde: rgba(255, 255, 255, 0.16);
+  --barra-boton-hover: rgba(255, 255, 255, 0.15);
+  --barra-boton-borde-hover: rgba(255, 255, 255, 0.3);
 
+  /* --- Rellenos de gráfico, separados de las tintas semánticas: una barra y
+         un texto no piden lo mismo. `--curso` es un ocre para LEER y como
+         relleno se veía barroso, por eso existía un literal suelto acá. --- */
+  --serie-ok: #2e9e6b;
+  --serie-curso: #d6a51f;
+  --serie-pend: #6d857a;
+  --serie-alerta: #c74438;
+
+  /* --- Paleta categórica de la torta. Tonos medios a propósito: se tienen que
+         distinguir sobre papel blanco Y sobre papel oscuro sin cambiar. --- */
+  --cat-1: #2e9e6b;
+  --cat-2: #2eb1ff;
+  --cat-3: #d6a51f;
+  --cat-4: #8a7fd8;
+  --cat-5: #4d8f7b;
+  --cat-6: #e07a3f;
+  --cat-7: #5f87a6;
+  --cat-8: #9aa8a0;
+
+  /* ======================= ROLES · cambian con el tema ================== */
+
+  --fondo: #f2f7f3;
   --papel: #ffffff;
   --papel-2: #f6faf7;
+  --hundida: #f2f7f3;
   --linea: #d7e5db;
   --linea-suave: #e9f1ec;
+  --riel: #e4efe7;
 
-  /* --- Semánticos, separados de las dos identidades --- */
+  --tinta: #10231c;
+  --tinta-media: #3c5349;
+  /* Era #6d857a y daba 3,97:1 sobre papel blanco: por debajo de AA desde que
+     se escribió la hoja. Lo encontró `herramientas/verificar-contraste.mjs`, no
+     el ojo — un texto de ayuda gris claro se lee perfecto cuando uno ya sabe
+     qué dice. Oscurecido a 5,05:1. */
+  --tinta-suave: #5c7568;
+  /* Los números grandes del tablero. Era `--verde-profundo`, que es pigmento
+     y no se puede aclarar sin romper la barra. */
+  --tinta-fuerte: #0e3b2a;
+
+  --azul-piso: #e8f0ff;
+  /* `--azul` sobre `--azul-piso` da 4,2:1, apenas por debajo de AA. El aviso
+     informativo necesita este azul más oscuro para cuerpo de texto. Es la
+     única tinta semántica con variable propia: `--ok`, `--curso` y `--alerta`
+     sí pasan sobre su piso, así que usan su propio valor. */
+  --azul-tinta: #00408f;
+
   --ok: #0f7a52;
   --ok-piso: #e2f4ec;
   --curso: #8a6100;
   --curso-piso: #fcf3dd;
-  --pend: #6d857a;
+  /* Mismo caso, y peor: 3,44:1 contra su propio piso. Va un punto más oscuro
+     que `--tinta-suave` porque tiene que pasar contra `--pend-piso`, que es
+     más claro que el papel. Antes las dos variables tenían el MISMO valor con
+     dos nombres, así que retocar una desincronizaba la otra en silencio. */
+  --pend: #567064;
   --pend-piso: #eaf0ec;
   --alerta: #b8322b;
   --alerta-piso: #fbe9e7;
+  --alerta-borde: #e8c4c1;
+
+  --velo: rgba(16, 35, 28, 0.42);
+  --foco-anillo: #e8f0ff;
 
   --sombra: 0 1px 2px rgba(16, 35, 28, 0.04), 0 6px 20px rgba(16, 35, 28, 0.06);
   --sombra-alta: 0 4px 12px rgba(16, 35, 28, 0.08), 0 20px 48px rgba(16, 35, 28, 0.12);
-  --radio: 12px;
+  /* Va entera y no sólo el color: en oscuro conviene cambiarle también el
+     desplazamiento, no sólo la opacidad. */
+  --sombra-figura: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
 
+  --radio: 12px;
   --texto: "Asap", "Segoe UI", system-ui, -apple-system, sans-serif;
   --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-
   --ancho-barra: 244px;
+
+  color-scheme: light;
+}
+
+/* ===========================================================================
+ * TEMA OSCURO
+ * ===========================================================================
+ * Sólo se redefinen ROLES. Ni un pigmento cambia acá abajo: si alguna vez hace
+ * falta tocar uno, es señal de que ese valor era un rol disfrazado.
+ *
+ * Los dos selectores dicen cosas distintas y hacen falta los dos:
+ *
+ *   · `[data-tema="oscuro"]` — alguien lo eligió con el interruptor.
+ *   · la media query         — nadie eligió nada y la máquina está en oscuro.
+ *
+ * La media query se excluye a sí misma cuando hay una elección explícita de
+ * claro. Sin ese `:not`, quien elige claro en una máquina configurada en oscuro
+ * toca el botón y no ve ningún cambio.
+ * =========================================================================== */
+
+:root[data-tema="oscuro"] {
+  --fondo: #0b1512;
+  --papel: #14231d;
+  --papel-2: #1a2b24;
+  /* Más CLARA que el papel, al revés que en claro: acá hundir es hacer un pozo. */
+  --hundida: #1e3129;
+  --linea: #2c4739;
+  --linea-suave: #233a30;
+  --riel: #24382f;
+
+  --tinta: #dfeae3;
+  --tinta-media: #a4bbae;
+  --tinta-suave: #7f978a;
+  --tinta-fuerte: #edf6f0;
+
+  --azul-piso: #10233c;
+  --azul-tinta: #b9d4ff;
+
+  --ok: #4cc790;
+  --ok-piso: #0f2b21;
+  --curso: #e0b449;
+  --curso-piso: #2e2409;
+  --pend: #90a89b;
+  --pend-piso: #1d2a24;
+  --alerta: #f2796f;
+  --alerta-piso: #341613;
+  --alerta-borde: #5c2b26;
+
+  --velo: rgba(0, 0, 0, 0.62);
+  --foco-anillo: rgba(92, 156, 255, 0.42);
+
+  /* En oscuro la profundidad la dan la superficie y el borde. La sombra queda
+     corta y oscura, sólo para despegar el cajón y el modal del fondo. */
+  --sombra: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.38);
+  --sombra-alta: 0 6px 18px rgba(0, 0, 0, 0.55), 0 24px 56px rgba(0, 0, 0, 0.5);
+  --sombra-figura: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --fondo: #0b1512;
+    --papel: #14231d;
+    --papel-2: #1a2b24;
+    /* Más CLARA que el papel, al revés que en claro: acá hundir es hacer un pozo. */
+    --hundida: #1e3129;
+    --linea: #2c4739;
+    --linea-suave: #233a30;
+    --riel: #24382f;
+
+    --tinta: #dfeae3;
+    --tinta-media: #a4bbae;
+    --tinta-suave: #7f978a;
+    --tinta-fuerte: #edf6f0;
+
+    --azul-piso: #10233c;
+    --azul-tinta: #b9d4ff;
+
+    --ok: #4cc790;
+    --ok-piso: #0f2b21;
+    --curso: #e0b449;
+    --curso-piso: #2e2409;
+    --pend: #90a89b;
+    --pend-piso: #1d2a24;
+    --alerta: #f2796f;
+    --alerta-piso: #341613;
+    --alerta-borde: #5c2b26;
+
+    --velo: rgba(0, 0, 0, 0.62);
+    --foco-anillo: rgba(92, 156, 255, 0.42);
+
+    /* En oscuro la profundidad la dan la superficie y el borde. La sombra queda
+       corta y oscura, sólo para despegar el cajón y el modal del fondo. */
+    --sombra: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.38);
+    --sombra-alta: 0 6px 18px rgba(0, 0, 0, 0.55), 0 24px 56px rgba(0, 0, 0, 0.5);
+    --sombra-figura: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
+
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -81,7 +277,7 @@ body {
   font-size: 15px;
   line-height: 1.55;
   color: var(--tinta);
-  background: var(--verde-tenue);
+  background: var(--fondo);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -130,7 +326,11 @@ a:hover {
 
 .barra {
   background: var(--verde-profundo);
-  color: #dcebe2;
+  /* La barra no tenía borde: se recortaba contra la página sólo porque era
+     mucho más oscura que ella. En tema oscuro la página también es oscura, y
+     sin esto la barra pierde la silueta. */
+  border-right: 1px solid var(--linea-barra);
+  color: var(--sobre-verde);
   display: flex;
   flex-direction: column;
   position: sticky;
@@ -142,7 +342,7 @@ a:hover {
 
 .barra-marca {
   padding: 22px 20px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  border-bottom: 1px solid var(--linea-barra);
   position: relative;
   z-index: 1;
 }
@@ -161,7 +361,7 @@ a:hover {
   font-family: var(--display);
   font-weight: 700;
   font-size: 1.16rem;
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   line-height: 1.2;
   letter-spacing: -0.02em;
 }
@@ -173,7 +373,7 @@ a:hover {
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.09em;
-  color: rgba(220, 235, 226, 0.55);
+  color: var(--sobre-verde-suave);
   margin-top: 3px;
 }
 
@@ -196,26 +396,26 @@ a:hover {
   padding: 9px 12px;
   border-radius: 9px;
   font-size: 0.925rem;
-  color: rgba(220, 235, 226, 0.82);
+  color: var(--sobre-verde);
   transition: background 0.12s, color 0.12s;
 }
 
 .barra-nav a:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
+  background: var(--realce-barra);
+  color: var(--sobre-verde-fuerte);
   text-decoration: none;
 }
 
 .barra-nav a[aria-current="page"] {
   background: var(--verde-medio);
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   font-weight: 600;
 }
 
 /* Las secciones que todavía no existen se listan igual, atenuadas: el área ve
    el alcance completo y no parece que falten cosas por olvido. */
 .barra-nav .pendiente {
-  color: rgba(220, 235, 226, 0.32);
+  color: var(--sobre-verde-tenue);
   cursor: default;
 }
 
@@ -237,14 +437,14 @@ a:hover {
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.11em;
-  color: rgba(220, 235, 226, 0.38);
+  color: var(--sobre-verde-tenue);
   padding: 16px 12px 6px;
   font-weight: 600;
 }
 
 .barra-pie {
   padding: 14px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 1px solid var(--linea-barra);
   position: relative;
   z-index: 1;
   display: flex;
@@ -258,7 +458,7 @@ a:hover {
 }
 .barra-pie .quien strong {
   display: block;
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
@@ -267,20 +467,20 @@ a:hover {
 }
 .barra-pie .quien span {
   font-size: 0.75rem;
-  color: rgba(220, 235, 226, 0.5);
+  color: var(--sobre-verde-suave);
   text-transform: capitalize;
 }
 
 .barra-pie button {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #dcebe2;
+  background: var(--barra-boton);
+  border-color: var(--barra-boton-borde);
+  color: var(--sobre-verde);
   padding: 5px 11px;
   font-size: 0.82rem;
 }
 .barra-pie button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--barra-boton-hover);
+  border-color: var(--barra-boton-borde-hover);
 }
 
 /* La marca de agua: hojas grandes, muy tenues, ancladas abajo y recortadas por
@@ -405,7 +605,7 @@ main {
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  color: var(--verde-profundo);
+  color: var(--tinta-fuerte);
 }
 .resumen .r {
   font-size: 0.76rem;
@@ -437,7 +637,7 @@ thead th {
   letter-spacing: 0.07em;
   color: var(--tinta-suave);
   border-bottom: 1px solid var(--linea);
-  background: var(--verde-tenue);
+  background: var(--hundida);
   white-space: nowrap;
   font-weight: 700;
 }
@@ -511,7 +711,7 @@ tr.de-baja td {
   border-left: 3px solid var(--alerta);
   border-radius: 0 7px 7px 0;
   font-size: 0.85rem;
-  color: #7d211c;
+  color: var(--alerta);
   max-width: 62ch;
 }
 
@@ -532,7 +732,7 @@ button,
 }
 button:hover:not(:disabled),
 .boton:hover {
-  background: var(--verde-tenue);
+  background: var(--hundida);
   border-color: var(--tinta-suave);
   text-decoration: none;
 }
@@ -545,7 +745,7 @@ button.primario,
 .boton.primario {
   background: var(--azul);
   border-color: var(--azul);
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   font-weight: 600;
 }
 button.primario:hover:not(:disabled),
@@ -556,7 +756,7 @@ button.primario:hover:not(:disabled),
 
 button.peligro {
   color: var(--alerta);
-  border-color: #e8c4c1;
+  border-color: var(--alerta-borde);
 }
 button.peligro:hover:not(:disabled) {
   background: var(--alerta-piso);
@@ -611,7 +811,7 @@ textarea:focus,
 select:focus {
   border-color: var(--azul);
   outline: none;
-  box-shadow: 0 0 0 3px var(--azul-piso);
+  box-shadow: 0 0 0 3px var(--foco-anillo);
 }
 
 textarea {
@@ -628,7 +828,7 @@ textarea {
 .velo {
   position: fixed;
   inset: 0;
-  background: rgba(16, 35, 28, 0.42);
+  background: var(--velo);
   z-index: 40;
   backdrop-filter: blur(1px);
 }
@@ -667,7 +867,7 @@ textarea {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  background: var(--verde-tenue);
+  background: var(--hundida);
 }
 
 /* =============================================================== avisos === */
@@ -680,7 +880,7 @@ textarea {
 }
 .aviso.info {
   background: var(--azul-piso);
-  color: #00408f;
+  color: var(--azul-tinta);
 }
 .aviso.ok {
   background: var(--ok-piso);
@@ -688,11 +888,11 @@ textarea {
 }
 .aviso.mal {
   background: var(--alerta-piso);
-  color: #7d211c;
+  color: var(--alerta);
 }
 .aviso.atencion {
   background: var(--curso-piso);
-  color: #6d4b00;
+  color: var(--curso);
 }
 
 .vacio {
@@ -713,7 +913,7 @@ textarea {
   /* Verde profundo con un halo, para que la primera pantalla ya diga de qué
      área es esto antes de leer una palabra. */
   background:
-    radial-gradient(1100px 620px at 50% -18%, #1b5e43 0%, transparent 62%),
+    radial-gradient(1100px 620px at 50% -18%, var(--verde-medio) 0%, transparent 62%),
     var(--verde-profundo);
 }
 
@@ -784,14 +984,14 @@ textarea {
   border-bottom-color: var(--linea);
 }
 .pestanas button.activa {
-  color: var(--verde-profundo);
+  color: var(--tinta-fuerte);
   border-bottom-color: var(--verde-vivo);
 }
 
 .pestanas .cuenta {
   font-variant-numeric: tabular-nums;
-  background: var(--verde-claro);
-  color: var(--verde-profundo);
+  background: var(--riel);
+  color: var(--tinta-fuerte);
   border-radius: 999px;
   padding: 1px 8px;
   font-size: 0.8rem;
@@ -800,7 +1000,7 @@ textarea {
 code {
   font-family: var(--mono);
   font-size: 0.88em;
-  background: var(--verde-claro);
+  background: var(--riel);
   padding: 1px 5px;
   border-radius: 4px;
 }
@@ -813,7 +1013,7 @@ code {
 .texto-actual {
   margin-top: 8px;
   padding: 11px 14px;
-  background: var(--verde-tenue);
+  background: var(--hundida);
   border-radius: 9px;
   white-space: pre-wrap;
   font-size: 0.93rem;
@@ -826,7 +1026,7 @@ code {
 .vista-previa {
   padding: 12px 15px;
   background: var(--verde-medio);
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   border-radius: 14px 14px 14px 4px;
   white-space: pre-wrap;
   font-size: 0.93rem;
@@ -923,7 +1123,7 @@ dl.ficha dd {
   margin: 0;
   padding: 10px 14px;
   border-left: 3px solid var(--verde-medio);
-  background: var(--verde-tenue);
+  background: var(--hundida);
   border-radius: 0 6px 6px 0;
   color: var(--tinta);
   font-size: 1rem;
@@ -947,7 +1147,7 @@ dl.ficha dd {
   padding: 12px;
   border: 1px solid var(--linea);
   border-radius: 8px;
-  background: var(--verde-tenue);
+  background: var(--hundida);
 }
 
 .tarjeta.pregunta .descarte label {
@@ -1026,7 +1226,7 @@ dl.ficha dd {
 }
 .burbuja.saliente .cuerpo {
   background: var(--verde-medio);
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   border-radius: 14px 14px 14px 4px;
 }
 
@@ -1172,7 +1372,7 @@ dl.ficha dd {
   border: 1px solid var(--linea);
   border-radius: 8px;
   padding: 8px;
-  background: var(--verde-tenue);
+  background: var(--hundida);
 }
 
 .lista-cuentas label {
@@ -1192,7 +1392,7 @@ dl.ficha dd {
 .lista-cuentas label:hover { border-color: var(--verde-medio); }
 .lista-cuentas label.elegida {
   border-color: var(--azul);
-  box-shadow: 0 0 0 2px var(--azul-piso);
+  box-shadow: 0 0 0 2px var(--foco-anillo);
 }
 
 .lista-cuentas input[type="radio"] { width: auto; margin-top: 3px; }
@@ -1257,7 +1457,7 @@ dl.ficha dd {
    que le dispute la atención a la navegación. */
 .barra-credito {
   padding: 13px 16px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 1px solid var(--linea-barra);
   position: relative;
   z-index: 1;
   display: flex;
@@ -1270,7 +1470,7 @@ dl.ficha dd {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: rgba(220, 235, 226, 0.42);
+  color: var(--sobre-verde-tenue);
 }
 
 .barra-credito img {
@@ -1306,7 +1506,7 @@ dl.ficha dd {
     radial-gradient(820px 460px at 8% -40%, var(--verde-medio) 0%, transparent 66%),
     var(--verde-profundo);
   box-shadow: var(--sombra);
-  color: #dcebe2;
+  color: var(--sobre-verde);
 }
 
 .portada-hola .dicho {
@@ -1317,14 +1517,14 @@ dl.ficha dd {
 
 .portada-hola h1 {
   font-size: 1.9rem;
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   margin-bottom: 9px;
 }
 
 .portada-hola p {
   margin: 0;
   max-width: 54ch;
-  color: rgba(220, 235, 226, 0.8);
+  color: var(--sobre-verde);
 }
 
 /* Migue apoyado en el borde de abajo de la tarjeta y no flotando en el medio:
@@ -1336,7 +1536,7 @@ dl.ficha dd {
   flex: 0 0 auto;
   width: 182px;
   height: auto;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
+  filter: var(--sombra-figura);
 }
 
 .portada-atencion {
@@ -1367,7 +1567,7 @@ dl.ficha dd {
   font-weight: 700;
   line-height: 1.05;
   font-variant-numeric: tabular-nums;
-  color: var(--verde-profundo);
+  color: var(--tinta-fuerte);
 }
 
 /* Un caso vencido es una fecha que el bot ya le prometió a alguien y que pasó.
@@ -1457,7 +1657,7 @@ dl.ficha dd {
   font-size: 1.6rem;
   font-weight: 700;
   line-height: 1.1;
-  color: #fff;
+  color: var(--sobre-verde-fuerte);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1466,7 +1666,7 @@ dl.ficha dd {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: rgba(220, 235, 226, 0.55);
+  color: var(--sobre-verde-suave);
   margin-top: 2px;
 }
 
@@ -1493,7 +1693,7 @@ dl.ficha dd {
   border-radius: var(--radio);
   border-left: 4px solid var(--curso);
   background: var(--curso-piso);
-  color: #6d4b00;
+  color: var(--curso);
   font-size: 0.9rem;
 }
 
@@ -1587,7 +1787,7 @@ dl.ficha dd {
 .ranking .riel {
   height: 9px;
   border-radius: 999px;
-  background: var(--verde-claro);
+  background: var(--riel);
   overflow: hidden;
 }
 
@@ -1595,16 +1795,16 @@ dl.ficha dd {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--pend);
+  background: var(--serie-pend);
 }
 .ranking .relleno.ok {
-  background: var(--verde-vivo);
+  background: var(--serie-ok);
 }
 .ranking .relleno.curso {
-  background: #d6a51f;
+  background: var(--serie-curso);
 }
 .ranking .relleno.alerta {
-  background: var(--alerta);
+  background: var(--serie-alerta);
 }
 
 .ranking .n {
@@ -1645,7 +1845,7 @@ dl.ficha dd {
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  color: var(--verde-profundo);
+  color: var(--tinta-fuerte);
 }
 
 .plata .r {
@@ -1671,7 +1871,7 @@ dl.ficha dd {
 
 .portada-cifras .eq {
   font-size: 0.82rem;
-  color: rgba(220, 235, 226, 0.72);
+  color: var(--sobre-verde-suave);
 }
 
 .plata .eq {
@@ -1744,5 +1944,51 @@ dl.ficha dd {
      roba el lugar al rótulo, que sí se lee. */
   .ranking .riel {
     display: none;
+  }
+}
+
+/* ============================================== el interruptor de tema === */
+
+/*
+ * Qué ícono se ve NO lo decide JavaScript, lo decide el CSS.
+ *
+ * El botón renderiza los dos —luna y sol— y acá se esconde el que no va. Es a
+ * propósito: el servidor no puede saber qué tema tiene la máquina de quien abre
+ * la página, así que cualquier ícono elegido durante el render sería distinto en
+ * el servidor y en el navegador, y eso es un error de hidratación.
+ *
+ * Se muestra el ícono del destino, no el del estado: en tema claro se ve la
+ * luna, porque es a lo que se va al tocarlo.
+ */
+.tema-boton {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  line-height: 0;
+}
+
+.tema-boton svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.tema-boton .a-claro {
+  display: none;
+}
+
+:root[data-tema="oscuro"] .tema-boton .a-oscuro {
+  display: none;
+}
+:root[data-tema="oscuro"] .tema-boton .a-claro {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) .tema-boton .a-oscuro {
+    display: none;
+  }
+  :root:not([data-tema="claro"]) .tema-boton .a-claro {
+    display: block;
   }
 }

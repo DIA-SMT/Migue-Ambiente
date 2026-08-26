@@ -595,6 +595,21 @@ const INTENCIONES: Record<string, { rotulo: string; tono: string; tema: boolean 
 };
 
 /**
+ * Si una intención es un TEMA por el que alguien escribió, o mecánica de la
+ * conversación —un saludo, una despedida, el acuse de un voto—.
+ *
+ * Sale del mismo catálogo que usa el ranking, y eso importa: si el tablero
+ * dijera que `saludo` es un tema y el ranking dijera que no, las dos secciones
+ * de la MISMA pantalla contarían distinto sobre las mismas filas.
+ *
+ * Una clave desconocida se toma como tema. Es el lado seguro: una intención
+ * nueva que alguien agregue en el bot aparece contada, no desaparece.
+ */
+export function esTema(intencion: string): boolean {
+  return INTENCIONES[intencion]?.tema ?? true;
+}
+
+/**
  * De qué le hablaron a Migue.
  *
  * Se cuenta sobre los mensajes que Migue ENVIÓ, no sobre los del vecino. No es
@@ -747,4 +762,209 @@ export function pesos(ars: number, decimales = Math.abs(ars) < 100 ? 2 : 0): str
     minimumFractionDigits: decimales,
     maximumFractionDigits: decimales,
   }).format(ars)}`;
+}
+
+/* ------------------------------------------------- el gasto, por mes --- */
+
+/**
+ * Los meses en castellano, escritos a mano.
+ *
+ * `Intl.DateTimeFormat` con `month: "long"` los daría solo, pero el nombre
+ * viaja al HTML que renderiza el servidor y después lo hidrata el navegador: si
+ * el ICU de Node y el de Chrome difieren en una letra, es un error de
+ * hidratación. Doce cadenas fijas no pueden diferir.
+ */
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+] as const;
+
+export interface Gasto {
+  /** Lo que va del mes en curso. */
+  readonly mesUsd: number;
+  /** Todo lo que hay. Ojo: acotado por `LIMITE_FILAS` como el resto. */
+  readonly historicoUsd: number;
+  /** «agosto de 2026». */
+  readonly etiquetaDelMes: string;
+  readonly conDatoEnElMes: number;
+  readonly salientesDelMes: number;
+}
+
+/**
+ * El gasto del mes separado del histórico.
+ *
+ * Son dos preguntas distintas y por eso van separadas: el histórico dice cuánto
+ * salió el proyecto hasta hoy, y el del mes es el único que sirve para
+ * presupuestar. Un total acumulado creciendo solo no le dice a nadie si este mes
+ * se gastó más o menos que el anterior.
+ *
+ * El corte del mes se hace en hora de TUCUMÁN. Con el corte en UTC, los mensajes
+ * de las últimas tres horas del 31 caerían en el mes siguiente.
+ */
+export function medirGasto(mensajes: readonly MensajeMedido[], ahora: number): Gasto {
+  const formato = formateadorDeDia();
+  // "2026-08-26" -> "2026-08". El formateador ya resolvió la zona horaria.
+  const mesActual = formato.format(new Date(ahora)).slice(0, 7);
+
+  let mesUsd = 0;
+  let historicoUsd = 0;
+  let conDatoEnElMes = 0;
+  let salientesDelMes = 0;
+
+  for (const m of mensajes) {
+    if (m.direccion !== "saliente") continue;
+    const costo = m.costo_usd === null ? null : Number(m.costo_usd);
+    if (costo !== null) historicoUsd += costo;
+
+    if (formato.format(new Date(m.creado_en)).slice(0, 7) !== mesActual) continue;
+    salientesDelMes += 1;
+    if (costo !== null) {
+      mesUsd += costo;
+      conDatoEnElMes += 1;
+    }
+  }
+
+  const [anio, mes] = mesActual.split("-");
+  const nombre = MESES[Number(mes) - 1] ?? mes;
+
+  return {
+    mesUsd,
+    historicoUsd,
+    etiquetaDelMes: `${nombre} de ${anio}`,
+    conDatoEnElMes,
+    salientesDelMes,
+  };
+}
+
+/* -------------------------------------------------------- la puntería --- */
+
+export interface Punteria {
+  /** Encontró material: una FAQ, un documento o una respuesta textual. */
+  readonly encontro: number;
+  /** Llevó adelante un paso de un trámite real. */
+  readonly guio: number;
+  /** Lo mandó al área que corresponde. Es una respuesta correcta, no una falla. */
+  readonly derivo: number;
+  /** No entendió y mostró el menú. */
+  readonly cayoAlMenu: number;
+  /** Turnos con decisión registrada. Es el denominador honesto. */
+  readonly decisiones: number;
+}
+
+/**
+ * Qué hizo Migue cada vez que tuvo que decidir algo.
+ *
+ * NO se llama «tasa de resolución» y no devuelve un porcentaje único, y las dos
+ * cosas son a propósito. Resolver es que el vecino se haya ido con su problema
+ * resuelto, y eso esta base no lo sabe: lo más cerca que estamos es el pulgar
+ * del vecino. Esto mide algo más chico y verificable.
+ *
+ * EL DETALLE QUE HACE QUE ESTO NO MIENTA. `origen_respuesta` parece partir el
+ * mundo en «resolvió» y «no resolvió», y no lo hace: `flujo` se escribe en ocho
+ * lugares distintos del orquestador y etiqueta cinco cosas —un paso de trámite,
+ * un saludo, una despedida, el acuse de un voto y el arranque de un flujo—.
+ * Contarlas todas como acierto convierte cada «hola» en un éxito, que es
+ * exactamente el número inflado que uno esperaría de un tablero que quiere
+ * quedar bien.
+ *
+ * Lo que desambigua es la intención: un paso de trámite lleva el nombre del
+ * flujo, que en el catálogo es un TEMA; un saludo o un acuse de voto llevan una
+ * intención de mecánica. Así que un `flujo` cuenta como trabajo real sólo si su
+ * intención es un tema.
+ *
+ * Los salientes de cortesía —el «¿te sirvió?» y el «gracias»— se guardan con
+ * `origen_respuesta` en null desde la 022, así que quedan afuera del
+ * denominador solos. Por eso `decisiones` es una decisión por turno y no la
+ * cantidad de mensajes que mandó el bot.
+ *
+ * QUÉ SIGUE SIN SER EXACTO, y conviene que esté escrito: `fallback` incluye el
+ * caso «mandó una foto sin texto», donde Migue contesta bien preguntando qué
+ * necesita. Están contados como si no hubiera entendido. Son pocos, pero el
+ * número es un piso de la puntería, no su medida exacta.
+ */
+export function medirPunteria(mensajes: readonly MensajeMedido[]): Punteria {
+  let encontro = 0;
+  let guio = 0;
+  let derivo = 0;
+  let cayoAlMenu = 0;
+  let decisiones = 0;
+
+  for (const m of mensajes) {
+    if (m.direccion !== "saliente" || m.origen_respuesta === null) continue;
+
+    switch (m.origen_respuesta) {
+      case "faq":
+      case "documentos":
+      case "respuesta_fija":
+        encontro += 1;
+        decisiones += 1;
+        break;
+      case "exclusion":
+        derivo += 1;
+        decisiones += 1;
+        break;
+      case "fallback":
+        cayoAlMenu += 1;
+        decisiones += 1;
+        break;
+      case "flujo":
+        // El único que hay que mirar dos veces. Ver el comentario de arriba.
+        if (m.intencion !== null && esTema(m.intencion)) {
+          guio += 1;
+          decisiones += 1;
+        }
+        break;
+      default:
+        // Un origen que el panel no conoce todavía. Entra al denominador
+        // igual: perderlo en silencio haría que los porcentajes cierren sobre
+        // un total que no es el real.
+        decisiones += 1;
+    }
+  }
+
+  return { encontro, guio, derivo, cayoAlMenu, decisiones };
+}
+
+/* ----------------------------------------------------- ¿está vivo? --- */
+
+export interface Actividad {
+  readonly ultimoEn: string | null;
+  readonly haceMs: number | null;
+}
+
+/**
+ * Cuándo fue el último mensaje que pasó por Migue.
+ *
+ * Esto NO dice si el bot está corriendo, y el tablero no lo presenta como si lo
+ * dijera. Un bot sano en una noche sin consultas se vería igual que uno caído, y
+ * un cartel verde de «en línea» sacado de este dato sería falso justo cuando más
+ * caro sale: cuando de verdad se cayó y nadie escribió todavía.
+ *
+ * Para un indicador de verdad hace falta que el bot escriba un latido cada tanto.
+ * Mientras no exista, esto es un hecho —la hora del último mensaje— y se muestra
+ * como hecho.
+ */
+export function ultimaActividad(
+  mensajes: readonly MensajeMedido[],
+  ahora: number,
+): Actividad {
+  let ultimo = -Infinity;
+  for (const m of mensajes) {
+    const t = new Date(m.creado_en).getTime();
+    if (Number.isFinite(t) && t > ultimo) ultimo = t;
+  }
+  if (ultimo === -Infinity) return { ultimoEn: null, haceMs: null };
+  return { ultimoEn: new Date(ultimo).toISOString(), haceMs: Math.max(0, ahora - ultimo) };
+}
+
+/** «hace 3 minutos», «hace 2 horas», «hace 5 días». */
+export function haceCuanto(ms: number | null): string {
+  if (ms === null) return "nunca";
+  const minutos = Math.floor(ms / 60_000);
+  if (minutos < 1) return "recién";
+  if (minutos < 60) return `hace ${minutos} ${minutos === 1 ? "minuto" : "minutos"}`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `hace ${horas} ${horas === 1 ? "hora" : "horas"}`;
+  const dias = Math.floor(horas / 24);
+  return `hace ${dias} ${dias === 1 ? "día" : "días"}`;
 }
