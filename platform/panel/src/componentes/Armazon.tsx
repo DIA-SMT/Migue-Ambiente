@@ -10,6 +10,7 @@ import {
   IconoPersonal,
   IconoReglas,
   IconoRespuestas,
+  IconoTablero,
 } from "./Botanica";
 
 /**
@@ -80,7 +81,7 @@ export function Armazon({
             sección, es dónde uno cae al entrar—. Sin este enlace, desde
             cualquier pantalla sólo se volvía con el botón de atrás. */}
         <div className="barra-marca">
-          <Link href="/" aria-current={actual === "/" ? "page" : undefined}>
+          <Link href="/">
             <div className="nombre">
               Migue <em>Ambiente</em>
             </div>
@@ -89,6 +90,19 @@ export function Armazon({
         </div>
 
         <nav className="barra-nav" aria-label="Secciones del panel">
+          {/* El tablero va suelto y sin rótulo de grupo: no es una sección más
+              —no administra nada—, es la pantalla a la que uno vuelve y la
+              primera que ve al entrar.
+
+              Se compara por IGUALDAD y no con `startsWith` como el resto. Es la
+              única ruta donde importa: "/" es prefijo de todas las demás, así
+              que con `startsWith` el tablero quedaría marcado como la sección
+              activa estando parado en cualquier pantalla del panel. */}
+          <Link href="/" aria-current={actual === "/" ? "page" : undefined}>
+            <IconoTablero className="icono" />
+            Tablero
+          </Link>
+
           {GRUPOS.map((grupo) => (
             <div key={grupo.rotulo}>
               <div className="rotulo-grupo">{grupo.rotulo}</div>

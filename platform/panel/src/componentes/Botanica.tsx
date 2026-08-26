@@ -168,3 +168,21 @@ export function IconoPersonal({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Tablero: un panel dividido en zonas.
+ *
+ * A propósito NO son barras: ese dibujo ya lo usa Métricas, y dos íconos de
+ * barras en el mismo menú obligan a leer el texto para distinguirlos, que es
+ * justo lo que un ícono tiene que evitar. Este muestra la FORMA de la pantalla
+ * —un panel partido en bloques— y no lo que hay adentro.
+ */
+export function IconoTablero({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <rect x="3" y="3.5" width="14" height="13" rx="2.2" />
+      <path d="M8.6 3.5v13" />
+      <path d="M8.6 10h8.4" />
+    </svg>
+  );
+}

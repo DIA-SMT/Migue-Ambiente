@@ -226,6 +226,13 @@ a:hover {
   opacity: 0.85;
 }
 
+/* El tablero es el único ítem suelto del menú, antes del primer rótulo de
+   grupo. El margen lo despega para que no se lea como parte de «Lo que Migue
+   sabe». */
+.barra-nav > a:first-child {
+  margin-bottom: 6px;
+}
+
 .barra-nav .rotulo-grupo {
   font-size: 0.68rem;
   text-transform: uppercase;
