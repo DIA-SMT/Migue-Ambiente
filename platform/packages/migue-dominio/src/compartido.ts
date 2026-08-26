@@ -41,4 +41,6 @@ export {
   MARCADORES_DE_CONFIRMACION,
   marcadoresDe,
   marcadoresQueNoSeResuelven,
+  marcadoresQueNoResuelveUnaFija,
+  MARCADORES_DE_RESPUESTA_FIJA,
 } from "./marcadores.ts";

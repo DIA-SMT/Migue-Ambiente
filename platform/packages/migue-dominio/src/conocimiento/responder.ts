@@ -11,7 +11,12 @@
  * funciona mucho peor que darle un lugar donde declararlo.
  */
 import { chat, parsearJson } from "../ia/cliente.ts";
-import { leerConfig, leerTexto, type Catalogo } from "../datos/catalogo.ts";
+import {
+  leerConfig,
+  leerTexto,
+  valoresDeRespuestaFija,
+  type Catalogo,
+} from "../datos/catalogo.ts";
 import { obtenerCliente } from "../datos/cliente.ts";
 import {
   armarContexto,
@@ -21,7 +26,7 @@ import {
   idsDeFaqs,
   type Coincidencia,
 } from "./buscar.ts";
-import { recortar } from "../texto.ts";
+import { interpolar, recortar } from "../texto.ts";
 import type { MotivoSinRespuesta } from "../datos/registros.ts";
 
 export interface TrazaRespuesta {
@@ -156,7 +161,15 @@ export async function responderConsulta(
     void incrementarUsoFija(fija.id);
     return {
       tipo: "fija",
-      texto: fija.respuesta,
+      // Se interpola contra el catálogo. Es lo que permite que una fija diga
+      // «{puntos_verdes}» en vez de tener las tres direcciones copiadas
+      // adentro: el dato vive UNA vez, en la tabla que el área edita en Reglas.
+      //
+      // `interpolar` deja intacto lo que no sabe resolver, así que un marcador
+      // inventado le llega al vecino con las llaves. Es feo y es a propósito:
+      // el panel lo rechaza antes de guardar, y si igual llegara, un texto
+      // visiblemente roto se reporta — uno silenciosamente vacío, no.
+      texto: interpolar(fija.respuesta, valoresDeRespuestaFija(catalogo)),
       respuestaFijaId: fija.id,
       traza: { ...TRAZA_VACIA, confianza: 1 },
     };

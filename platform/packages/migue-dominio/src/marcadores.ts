@@ -49,6 +49,45 @@ export const MARCADORES_POR_TEXTO: Readonly<Record<string, readonly string[]>> =
   derivar_a_migue: ["{migue}"],
 };
 
+/**
+ * Los marcadores que resuelve una RESPUESTA FIJA.
+ *
+ * Las fijas son otra tabla y otro camino: no se leen con `leerTexto()` sino que
+ * las encuentra `buscarRespuestaFija()` por disparador, y se envían textuales
+ * sin pasar por el modelo. Por eso tienen su propia lista.
+ *
+ * Sólo entran valores que salen del CATÁLOGO, o sea de tablas que el área edita
+ * desde el panel. `{plazo}` no está y no puede estar: es una fecha calculada
+ * contra el momento del pedido, y una fija no tiene pedido del cual calcularla.
+ *
+ * Esto existe para no duplicar datos. Las tres direcciones de los Puntos Verdes
+ * ya viven en la tabla `puntos_verdes`, editable en Reglas; escribirlas también
+ * adentro del texto de una fija habría creado dos fuentes de verdad, y el día
+ * que cambie un Punto Verde Reglas diría una cosa y el bot otra. Este proyecto
+ * ya pagó ese error dos veces.
+ *
+ * Las FAQs NO interpolan, y la asimetría es a propósito: una fija se envía tal
+ * cual y sabemos exactamente qué sale; una FAQ entra al modelo como material y
+ * lo que el modelo haga con un `{marcador}` —copiarlo, parafrasearlo, ignorarlo—
+ * no está bajo nuestro control.
+ */
+export const MARCADORES_DE_RESPUESTA_FIJA = ["{puntos_verdes}", "{empresa}"] as const;
+
+/**
+ * Los marcadores escritos en una respuesta fija que el bot NO va a resolver.
+ *
+ * Es lo que el panel tiene que rechazar antes de guardar, igual que
+ * `marcadoresQueNoSeResuelven` para los textos del bot.
+ */
+export function marcadoresQueNoResuelveUnaFija(texto: string): string[] {
+  const usados = [...texto.matchAll(/\{[a-zA-Z_]+\}/g)].map((m) => m[0]);
+  return [
+    ...new Set(
+      usados.filter((u) => !(MARCADORES_DE_RESPUESTA_FIJA as readonly string[]).includes(u)),
+    ),
+  ];
+}
+
 /** Los marcadores que acepta esta clave. Vacío si no acepta ninguno. */
 export function marcadoresDe(clave: string): readonly string[] {
   return MARCADORES_POR_TEXTO[clave] ?? [];

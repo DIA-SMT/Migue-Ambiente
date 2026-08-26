@@ -235,6 +235,27 @@ export function describirPuntosVerdes(catalogo: Catalogo, maximo = 5): string {
 }
 
 /**
+ * Los valores con los que se resuelven los marcadores de una respuesta fija.
+ *
+ * Todos salen del catálogo, o sea de tablas que el área edita desde el panel.
+ * Esa es la razón de ser de esto: las direcciones de los Puntos Verdes se
+ * escriben UNA vez, en Reglas, y el texto de la fija las referencia. Sin esto,
+ * quien escriba la respuesta tendría que copiar las tres direcciones adentro
+ * del texto y mantenerlas sincronizadas a mano.
+ *
+ * Las claves van SIN llaves porque `interpolar` captura el nombre de adentro.
+ * La lista de cuáles son válidas vive en `marcadores.ts`, y hay una prueba que
+ * verifica que las dos coincidan: agregar un marcador en un lado y olvidarlo en
+ * el otro es la forma en que esto se rompe en silencio.
+ */
+export function valoresDeRespuestaFija(catalogo: Catalogo): Record<string, string> {
+  return {
+    puntos_verdes: describirPuntosVerdes(catalogo),
+    empresa: String(leerConfig(catalogo, "empresa_recoleccion", "la empresa de recolección")),
+  };
+}
+
+/**
  * ¿Existe este texto cargado?
  *
  * `leerTexto` devuelve un marcador visible cuando falta, que sirve para

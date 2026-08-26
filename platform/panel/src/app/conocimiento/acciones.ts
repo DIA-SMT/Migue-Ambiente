@@ -10,7 +10,12 @@
  */
 import { revalidatePath } from "next/cache";
 import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
-import { marcadoresDe, marcadoresQueNoSeResuelven } from "@migue/dominio/compartido";
+import {
+  MARCADORES_DE_RESPUESTA_FIJA,
+  marcadoresDe,
+  marcadoresQueNoResuelveUnaFija,
+  marcadoresQueNoSeResuelven,
+} from "@migue/dominio/compartido";
 import type { Coincidencia, ModoDisparador, PruebaDisparadores } from "@/lib/tipos";
 
 export interface Resultado {
@@ -44,18 +49,12 @@ function refrescar() {
 }
 
 /**
- * Rechaza los marcadores en una respuesta escrita por el área.
+ * Rechaza los marcadores en una PREGUNTA FRECUENTE.
  *
- * Ni las preguntas frecuentes ni las respuestas textuales pasan por
- * `interpolar()`: eso ocurre en dos pasos de flujo y en ningún otro lado. Una
- * textual se envía tal cual, así que `{empresa}` le llega al vecino con las
- * llaves; una frecuente entra al modelo como material y puede salir copiada
- * igual.
- *
- * La validación se agrega ahora porque las cuatro cosas quedaron en la misma
- * pantalla: alguien va a ver `{empresa}` en un mensaje de confirmación y probarlo
- * acá, razonablemente. Mejor decirle que no funciona que dejarlo descubrir por
- * un vecino.
+ * Una FAQ no se interpola nunca, y no es un olvido: entra al modelo como
+ * material, y lo que el modelo haga con un `{marcador}` —copiarlo tal cual,
+ * parafrasearlo, ignorarlo— no está bajo nuestro control. Una respuesta fija sí
+ * se interpola, porque se envía textual y sabemos exactamente qué sale.
  */
 function sinMarcadores(texto: string): Resultado | null {
   const usados = [...new Set([...texto.matchAll(/\{[a-zA-Z_]+\}/g)].map((m) => m[0]))];
@@ -63,9 +62,30 @@ function sinMarcadores(texto: string): Resultado | null {
   return {
     ok: false,
     mensaje:
-      `${usados.join(", ")} no se reemplaza en una respuesta: se le enviaría al vecino con las ` +
-      `llaves puestas. Los marcadores sólo funcionan en los mensajes de confirmación de un ` +
-      `trámite, en «Cómo habla Migue».`,
+      `${usados.join(", ")} no se reemplaza en una pregunta frecuente: el texto entra al modelo ` +
+      `como material y puede salir copiado con las llaves. Si necesitás un dato que se actualice ` +
+      `solo, escribilo como respuesta textual, que sí los reemplaza.`,
+  };
+}
+
+/**
+ * Rechaza sólo los marcadores que una respuesta TEXTUAL no sabe resolver.
+ *
+ * Las textuales se envían sin pasar por el modelo y se interpolan contra el
+ * catálogo, así que aceptan los de `MARCADORES_DE_RESPUESTA_FIJA`. La lista
+ * vive en el dominio y no acá: es una propiedad del código del bot —qué valores
+ * sabe resolver `valoresDeRespuestaFija`— y una copia en el panel se
+ * desincronizaría en el primer marcador nuevo. En este proyecto eso ya pasó
+ * tres veces.
+ */
+function marcadoresValidosEnFija(texto: string): Resultado | null {
+  const invalidos = marcadoresQueNoResuelveUnaFija(texto);
+  if (invalidos.length === 0) return null;
+  return {
+    ok: false,
+    mensaje:
+      `${invalidos.join(", ")} no se reemplaza: se le enviaría al vecino con las llaves puestas. ` +
+      `Una respuesta textual sólo sabe resolver ${MARCADORES_DE_RESPUESTA_FIJA.join(", ")}.`,
   };
 }
 
@@ -173,7 +193,7 @@ export async function guardarFija(entrada: {
     return { ok: false, mensaje: "El nombre y la respuesta no pueden quedar vacías." };
   }
 
-  const conLlaves = sinMarcadores(respuesta);
+  const conLlaves = marcadoresValidosEnFija(respuesta);
   if (conLlaves) return conLlaves;
   if (disparadores.length === 0) {
     // La tabla tiene un check que lo exige; validarlo acá da un mensaje legible.
