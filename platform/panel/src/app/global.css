@@ -2387,3 +2387,31 @@ dl.ficha dd {
   width: auto;
   margin: 0;
 }
+
+/* ================================== los pasos del alta de una persona === */
+
+/*
+ * Numerados y con aire. Dar de alta a alguien se hace cinco o diez veces en la
+ * vida del sistema: nadie se acuerda del procedimiento, así que tiene que
+ * leerse como una receta y no como un párrafo de advertencia.
+ */
+.pasos-alta {
+  margin: 10px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pasos-alta li {
+  padding-left: 3px;
+}
+
+/* Un enlace adentro de un aviso hereda el color del aviso, que está elegido
+   para leerse sobre su piso. Sin esto el «Abrir Supabase» queda del mismo tono
+   que el texto y deja de parecer un enlace. */
+.aviso a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}

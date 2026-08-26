@@ -266,6 +266,19 @@ export function describirLimites(catalogo: Catalogo): string {
     .join("\n");
 }
 
+/**
+ * Los días, escritos como se leen.
+ *
+ * La base los guarda sin acento porque es lo que se compara; el vecino lee
+ * la respuesta, así que ahí van con acento. En minúscula: caen en medio de
+ * una oración. Si apareciera un día que no está en la tabla, se muestra tal
+ * cual vino en vez de desaparecer.
+ */
+const DIA_LEGIBLE: Record<string, string> = {
+  miercoles: "miércoles",
+  sabado: "sábado",
+};
+
 /** Los días de recolección por zona. */
 export function describirZonas(catalogo: Catalogo): string {
   // Sin filtro por activo: el catálogo ya trae sólo las activas, y el tipo del
@@ -274,7 +287,7 @@ export function describirZonas(catalogo: Catalogo): string {
   const activas = catalogo.zonas;
   if (activas.length === 0) return "No tengo las zonas de recolección cargadas en este momento.";
   return activas
-    .map((z) => `• ${z.nombre}: ${enumerar(z.dias)}${z.horaSacar ? `, sacar a las ${z.horaSacar}` : ""}`)
+    .map((z) => `• ${z.nombre}: ${enumerar(z.dias.map((d) => DIA_LEGIBLE[d] ?? d))}${z.horaSacar ? `, sacar a las ${z.horaSacar}` : ""}`)
     .join("\n");
 }
 

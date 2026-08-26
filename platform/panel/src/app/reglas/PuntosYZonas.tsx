@@ -5,11 +5,11 @@ import type { FilaLimite, FilaPuntoVerde, FilaZona } from "@/lib/tipos";
 import {
   borrarPuntoVerde,
   borrarZona,
-  DIAS_SEMANA,
   guardarPuntoVerde,
   guardarZona,
   type Resultado,
 } from "./acciones";
+import { DIA_LEGIBLE, DIAS_SEMANA } from "@/lib/reglas";
 
 /**
  * Puntos Verdes y zonas de recolección.
@@ -510,7 +510,7 @@ function CajonZona({
                       )
                     }
                   />
-                  {d}
+                  {DIA_LEGIBLE[d]}
                 </label>
               ))}
             </div>

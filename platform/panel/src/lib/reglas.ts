@@ -604,3 +604,38 @@ export function numeroDelEnlace(enlace: string): string | null {
   const area = nacional.slice(0, nacional.length - 7);
   return `+54 9 ${area} ${nacional.slice(-7, -4)}-${nacional.slice(-4)}`;
 }
+
+/*
+ * Vive acá y no en `app/reglas/acciones.ts` por la misma regla de Next que
+ * rompió la pantalla de Personal: un módulo `"use server"` sólo puede
+ * exportar funciones async. Cualquier otra cosa que exporte llega al
+ * navegador como una referencia al servidor, y `.map` sobre eso revienta la
+ * pantalla entera al abrirla. El typecheck y el build no lo ven.
+ */
+/** Los días válidos, en el orden en que se leen. Coinciden con lo que guarda la base. */
+export const DIAS_SEMANA = [
+  "lunes",
+  "martes",
+  "miercoles",
+  "jueves",
+  "viernes",
+  "sabado",
+  "domingo",
+] as const;
+
+/**
+ * Cómo se escribe cada día cuando se lee.
+ *
+ * `DIAS_SEMANA` guarda los valores sin acento porque es lo que hay en la
+ * base y con lo que se compara. Pero al vecino y a quien carga la zona hay
+ * que mostrarles «miércoles» y «sábado», no el valor crudo.
+ */
+export const DIA_LEGIBLE: Record<(typeof DIAS_SEMANA)[number], string> = {
+  lunes: "Lunes",
+  martes: "Martes",
+  miercoles: "Miércoles",
+  jueves: "Jueves",
+  viernes: "Viernes",
+  sabado: "Sábado",
+  domingo: "Domingo",
+};

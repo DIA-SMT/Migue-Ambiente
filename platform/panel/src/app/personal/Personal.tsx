@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   fechaLegible,
+  LO_QUE_NO_SE_PUEDE,
   porQueNoSePuedeEditar,
   ROLES_PANEL,
   type CuentaSinPadron,
@@ -15,7 +16,6 @@ import {
   cambiarRol,
   cuentasSinPadron,
   darDeAlta,
-  LO_QUE_NO_SE_PUEDE,
   type Resultado,
 } from "./acciones";
 
@@ -33,6 +33,24 @@ import {
  *    hay un campo de correo libre, porque escribir un correo que no existe en
  *    `auth.users` da un error de clave foránea que no le dice nada a nadie.
  */
+/**
+ * El enlace directo a la pantalla de Supabase donde se crea la cuenta.
+ *
+ * Se arma del `NEXT_PUBLIC_SUPABASE_URL`, que ya viaja al navegador: la URL del
+ * proyecto es `https://<ref>.supabase.co` y el tablero vive en
+ * `dashboard/project/<ref>/auth/users`.
+ *
+ * Existe porque «andá a Supabase → Authentication → Users → Add user» escrito en
+ * prosa obliga a alguien que entra dos veces por año a buscar cuatro pantallas.
+ * Si el formato de la URL cambiara, devuelve null y el texto queda igual de
+ * correcto, sólo que sin atajo.
+ */
+function enlaceASupabase(): string | null {
+  const url = process.env["NEXT_PUBLIC_SUPABASE_URL"] ?? "";
+  const ref = /^https:\/\/([a-z0-9]+)\.supabase\.co/.exec(url)?.[1];
+  return ref ? `https://supabase.com/dashboard/project/${ref}/auth/users` : null;
+}
+
 export function Personal({
   padron,
   yoSoy,
@@ -265,18 +283,62 @@ export function Personal({
             </div>
 
             <div className="cajon-cuerpo">
+              {/* Numerado y con el atajo, no en prosa: dar de alta a alguien se
+                  hace cinco o diez veces en la vida del sistema, o sea que nadie
+                  se lo va a acordar. El paso 1 vive en Supabase porque crear una
+                  cuenta necesita la clave de servicio, y el panel no la tiene a
+                  propósito — es lo que hace que un bug acá devuelva cero filas en
+                  vez de toda la base. */}
               <div className="aviso info">
-                Esto <strong>no crea la cuenta</strong>. La cuenta se crea en Supabase →
-                Authentication → Users → Add user, marcando «Auto Confirm». Acá se le habilita el
-                acceso al panel a alguien que ya la tiene.
+                <strong>Esto no crea la cuenta.</strong> Son dos pasos y el primero es en Supabase.
+                <ol className="pasos-alta">
+                  <li>
+                    Creá la cuenta con el correo institucional y una contraseña temporal, marcando
+                    <strong> Auto Confirm</strong>.
+                    {enlaceASupabase() && (
+                      <>
+                        {" "}
+                        <a href={enlaceASupabase() ?? ""} target="_blank" rel="noreferrer">
+                          Abrir Supabase ↗
+                        </a>
+                      </>
+                    )}
+                  </li>
+                  <li>
+                    Volvé acá, tocá <strong>Buscar de nuevo</strong> y aparece en la lista para
+                    ponerle nombre y rol.
+                  </li>
+                </ol>
+                Pasale la contraseña por un canal aparte. No hay recuperación por correo: si la
+                pierde, se la cambiás vos desde la misma pantalla de Supabase.
               </div>
 
               {cargando ? (
                 <p className="ayuda">Buscando cuentas sin acceso…</p>
               ) : cuentas === null ? null : cuentas.length === 0 ? (
                 <div className="tarjeta vacio">
-                  Todas las cuentas de Supabase ya están en el padrón. Si querés dar acceso a
-                  alguien nuevo, primero creale la cuenta en Supabase y volvé.
+                  <p style={{ margin: 0 }}>
+                    Todas las cuentas de Supabase ya tienen acceso. Para sumar a alguien, hacé el
+                    paso 1 de arriba y volvé.
+                  </p>
+                  {/* El botón importa: sin él hay que cerrar el cajón y volver a
+                      abrirlo para que se vuelva a consultar, y desde acá no se ve
+                      que eso sea lo que hay que hacer. */}
+                  <div className="acciones" style={{ justifyContent: "center", marginTop: 14 }}>
+                    {enlaceASupabase() && (
+                      <a
+                        className="boton"
+                        href={enlaceASupabase() ?? ""}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Abrir Supabase ↗
+                      </a>
+                    )}
+                    <button className="primario" onClick={() => void abrirAlta()} disabled={cargando}>
+                      {cargando ? "Buscando…" : "Buscar de nuevo"}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="campo">

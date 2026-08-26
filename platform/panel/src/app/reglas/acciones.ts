@@ -20,6 +20,8 @@
  * en `buscar_conocimiento` en vez de copiarla.
  */
 import { revalidatePath } from "next/cache";
+
+import { DIAS_SEMANA } from "@/lib/reglas";
 import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
 import {
   DEFINICIONES,
@@ -514,17 +516,6 @@ export async function borrarPuntoVerde(id: string): Promise<Resultado> {
   refrescar();
   return { ok: true, mensaje: "Borrado. Migue deja de nombrarlo dentro de un minuto." };
 }
-
-/** Los días válidos, en el orden en que se leen. Coinciden con lo que guarda la base. */
-export const DIAS_SEMANA = [
-  "lunes",
-  "martes",
-  "miercoles",
-  "jueves",
-  "viernes",
-  "sabado",
-  "domingo",
-] as const;
 
 export async function guardarZona(entrada: {
   id: string | null;

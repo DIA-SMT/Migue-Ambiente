@@ -215,39 +215,3 @@ export async function guardarNotas(usuarioId: string, notas: string): Promise<Re
   refrescar();
   return { ok: true, mensaje: "Guardado." };
 }
-
-/**
- * Lo que esta pantalla NO hace, y por qué.
- *
- * Se exporta para mostrarlo en la interfaz. Son los límites reales, y decirlos
- * evita que alguien busque un botón que no existe o tome una decisión que rompe
- * el registro.
- */
-export const LO_QUE_NO_SE_PUEDE: readonly { que: string; porQue: string }[] = [
-  {
-    que: "Crear una cuenta",
-    porQue:
-      "Se hace en Supabase → Authentication → Users → Add user, marcando «Auto Confirm». El " +
-      "registro público está deshabilitado a propósito: fue el agujero que dejaba a cualquiera " +
-      "leer datos de vecinos. Una vez creada la cuenta, aparece acá para darle acceso.",
-  },
-  {
-    que: "Cambiar una contraseña",
-    porQue:
-      "También es de Supabase. El panel nunca ve ni guarda contraseñas, y no debería empezar a " +
-      "hacerlo.",
-  },
-  {
-    que: "Cambiarte el rol a vos mismo, o darte de baja",
-    porQue:
-      "Lo impide la base. Si fueras el único administrador, el panel quedaría sin nadie que lo " +
-      "administre y no habría forma de arreglarlo desde acá. Otro administrador sí puede.",
-  },
-  {
-    que: "Borrar a alguien del padrón",
-    porQue:
-      "Se da de baja, no se borra: la fila es el registro de que esa persona tuvo acceso, y sin " +
-      "eso el control de acceso no es auditable. Y OJO — borrar la cuenta en Supabase SÍ se lleva " +
-      "esta fila con ella. La regla es no borrar cuentas en Supabase: darlas de baja acá.",
-  },
-];
