@@ -357,7 +357,7 @@ a:hover {
 }
 
 .barra-marca {
-  padding: 22px 20px 18px;
+  padding: 16px 20px 13px;
   border-bottom: 1px solid var(--linea-barra);
   position: relative;
   z-index: 1;
@@ -394,7 +394,7 @@ a:hover {
 }
 
 .barra-nav {
-  padding: 14px 12px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -409,7 +409,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 7px 12px;
   border-radius: 9px;
   font-size: 0.925rem;
   color: var(--sobre-verde);
@@ -454,12 +454,12 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.11em;
   color: var(--sobre-verde-tenue);
-  padding: 16px 12px 6px;
+  padding: 11px 12px 5px;
   font-weight: 600;
 }
 
 .barra-pie {
-  padding: 14px 16px;
+  padding: 10px 16px;
   border-top: 1px solid var(--linea-barra);
   position: relative;
   z-index: 1;
@@ -1472,17 +1472,20 @@ dl.ficha dd {
    en versalitas apagadas y el logo al 92% de opacidad — se ve quién lo hizo sin
    que le dispute la atención a la navegación. */
 .barra-credito {
-  padding: 13px 16px 16px;
+  padding: 9px 16px 11px;
   border-top: 1px solid var(--linea-barra);
   position: relative;
   z-index: 1;
+  /* En FILA y no en columna: apilado ocupaba 95 px de una barra que ya no
+     entraba en una notebook. Un crédito de autoría no necesita dos renglones. */
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  align-items: center;
+  gap: 9px;
 }
 
 .barra-credito .rotulo {
-  font-size: 0.65rem;
+  white-space: nowrap;
+  font-size: 0.6rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1491,7 +1494,7 @@ dl.ficha dd {
 
 .barra-credito img {
   display: block;
-  width: 106px;
+  width: 64px;
   height: auto;
   opacity: 0.92;
 }
@@ -2287,4 +2290,52 @@ dl.ficha dd {
 
 .voto-ficha .ayuda {
   margin-top: 10px;
+}
+
+/* ==================================== la barra en pantallas bajas === */
+
+/*
+ * El menú NO tiene que scrollear. Nueve secciones más la marca, la persona y el
+ * crédito daban 786 px de alto natural: en una notebook de 1366×768 el viewport
+ * queda en unos 660 y aparecía la barra de scroll.
+ *
+ * La solución es que ENTRE, no que se pueda scrollear: un menú con scroll
+ * esconde secciones abajo del pliegue y hay que descubrirlas. Acá se aprieta el
+ * ritmo vertical según el alto disponible.
+ *
+ * `overflow-y: auto` se deja igual en `.barra-nav`, y no es una contradicción:
+ * es la red. `.barra` recorta con `overflow: hidden` para la marca de agua, así
+ * que sin el auto un desborde inesperado —una traducción más larga, un ítem
+ * nuevo, un navegador con la fuente agrandada— haría desaparecer ítems en
+ * silencio. Con el auto, en el peor caso reaparece la barra de scroll; sin él,
+ * en el peor caso Personal deja de existir.
+ */
+@media (max-height: 760px) {
+  .barra-marca {
+    padding: 12px 20px 10px;
+  }
+  .barra-nav {
+    padding: 7px 12px;
+  }
+  .barra-nav a,
+  .barra-nav .pendiente {
+    padding: 5px 12px;
+  }
+  .barra-nav .rotulo-grupo {
+    padding: 8px 12px 4px;
+  }
+  .barra-pie {
+    padding: 8px 16px;
+  }
+  .barra-credito {
+    padding: 7px 16px 9px;
+  }
+}
+
+/* Más abajo de esto no hay ritmo que apretar: se saca el crédito, que es lo
+   único de la barra que no lleva a ninguna parte. */
+@media (max-height: 620px) {
+  .barra-credito {
+    display: none;
+  }
 }
