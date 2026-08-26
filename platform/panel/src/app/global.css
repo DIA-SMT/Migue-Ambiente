@@ -1417,3 +1417,302 @@ dl.ficha dd {
     display: none;
   }
 }
+
+/* ================================================== el tablero de la portada === */
+
+/*
+ * La portada dejó de ser una bienvenida y pasó a ser el tablero: es lo que se
+ * mira a la mañana para saber cómo viene Migue.
+ *
+ * El orden de arriba hacia abajo no es estético, responde a preguntas en orden
+ * de urgencia: qué me está esperando → cuánta gente vino → de qué hablaron →
+ * cómo le fue a Migue → cuánto costó. Lo accionable primero; lo que describe,
+ * después.
+ */
+
+/* Los números gruesos, adentro del panel verde y al lado de Migue. Van ahí y no
+   en tarjetas blancas aparte para que la primera pantalla tenga el saludo, el
+   dibujo y las cuatro cifras que resumen todo en un solo bloque. */
+.portada-cifras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin-top: 20px;
+}
+
+.portada-cifras div {
+  display: flex;
+  flex-direction: column;
+}
+
+.portada-cifras .n {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.portada-cifras .r {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(220, 235, 226, 0.55);
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------- avisos --- */
+
+/*
+ * El cartel de muestra chica.
+ *
+ * No es decoración ni una advertencia genérica: hoy TODA la actividad de
+ * producción es de una sola cuenta, la del desarrollador probando. Cualquier
+ * porcentaje que muestre esta pantalla describe a esa persona y no a un vecino.
+ * Un tablero lleno de gráficos prolijos sobre veintisiete mensajes se lee como
+ * una medición, y esa lectura equivocada es peor que no tener tablero.
+ *
+ * Va arriba de todo, ancho completo y con el borde a la izquierda, porque tiene
+ * que leerse ANTES que cualquier número, no después.
+ */
+.aviso-muestra {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 13px 16px;
+  margin-bottom: 22px;
+  border-radius: var(--radio);
+  border-left: 4px solid var(--curso);
+  background: var(--curso-piso);
+  color: #6d4b00;
+  font-size: 0.9rem;
+}
+
+.aviso-muestra strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* -------------------------------------------------------------- secciones --- */
+
+.tablero-seccion {
+  margin-top: 30px;
+}
+
+.tablero-seccion > h2 {
+  margin-bottom: 3px;
+}
+
+.tablero-seccion > .bajada {
+  margin-bottom: 14px;
+}
+
+/* Dos columnas cuando hay lugar. Los dos rankings quedan lado a lado, que es
+   como se leen: «de qué le hablaron» contra «cómo lo resolvió» es la misma
+   pregunta vista de los dos lados. */
+.tablero-par {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.tablero-caja {
+  padding: 18px 20px;
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.tablero-caja > h3 {
+  margin-bottom: 2px;
+}
+
+.tablero-caja > .ayuda {
+  margin: 0 0 14px;
+}
+
+/* ------------------------------------------------------------- gráficos --- */
+
+.grafico-serie {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* `fill` y no `color`: en SVG el texto se pinta con fill. */
+.grafico-eje {
+  fill: var(--tinta-suave);
+  font-family: var(--texto);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------- ranking --- */
+
+.ranking {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.ranking li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(60px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.89rem;
+}
+
+.ranking .rotulo {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--tinta);
+}
+
+.ranking .riel {
+  height: 9px;
+  border-radius: 999px;
+  background: var(--verde-claro);
+  overflow: hidden;
+}
+
+.ranking .relleno {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pend);
+}
+.ranking .relleno.ok {
+  background: var(--verde-vivo);
+}
+.ranking .relleno.curso {
+  background: #d6a51f;
+}
+.ranking .relleno.alerta {
+  background: var(--alerta);
+}
+
+.ranking .n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--tinta);
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* El porcentaje al lado del crudo y no en vez del crudo: «31%» sobre 27
+   mensajes y «31%» sobre 27 mil se leen igual y no significan lo mismo. */
+.ranking .n .pct {
+  display: inline-block;
+  margin-left: 7px;
+  font-weight: 400;
+  font-size: 0.82em;
+  color: var(--tinta-suave);
+}
+
+/* ------------------------------------------------------- plata y tokens --- */
+
+.plata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px 34px;
+  margin-bottom: 14px;
+}
+
+.plata div {
+  display: flex;
+  flex-direction: column;
+}
+
+.plata .n {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--verde-profundo);
+}
+
+.plata .r {
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tinta-suave);
+  margin-top: 2px;
+}
+
+/* ----------------------------------------------------------- los votos --- */
+
+.votos {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.votos div {
+  flex: 1 1 120px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.votos .n {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.votos .r {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.votos .bien {
+  background: var(--ok-piso);
+  color: var(--ok);
+}
+.votos .mal {
+  background: var(--alerta-piso);
+  color: var(--alerta);
+}
+
+/* El pie que lleva a la pantalla de Métricas. El tablero contesta «cómo viene»;
+   Métricas contesta «puedo confiar en esto» y enumera lo que NO se puede medir.
+   Son dos preguntas distintas y por eso son dos pantallas. */
+.tablero-pie {
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid var(--linea);
+  font-size: 0.88rem;
+  color: var(--tinta-suave);
+}
+
+@media (max-width: 620px) {
+  .portada-cifras {
+    gap: 18px;
+  }
+  .portada-cifras .n {
+    font-size: 1.3rem;
+  }
+  .ranking li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  /* El riel se va: con 300 px de ancho, una barra de 40 px no compara nada y le
+     roba el lugar al rótulo, que sí se lee. */
+  .ranking .riel {
+    display: none;
+  }
+}

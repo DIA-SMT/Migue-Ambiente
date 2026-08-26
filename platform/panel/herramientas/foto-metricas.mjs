@@ -130,35 +130,28 @@ const porCanal = {};
 for (const t of tks ?? []) porCanal[String(t.channel)] = (porCanal[String(t.channel)] ?? 0) + 1;
 console.log(`  total ${tks?.length}  ·  por canal: ${JSON.stringify(porCanal)}`);
 
-// Dos cortes posibles para «heredado», y NO dan lo mismo. Por canal es el
-// correcto: son los que vinieron del bot anterior. Por estado se escapan tres.
-const { esEstadoHeredado, estaCerrado } = await import("../src/lib/tipos.ts");
-const porEstado = (tks ?? []).filter((t) => esEstadoHeredado(t.status)).length;
-const porCanalHeredado = (tks ?? []).filter((t) => t.channel === "manychat").length;
-const sinConversacion = (tks ?? []).filter((t) => t.conversation_id === null).length;
+// El corte entre «heredado» y «del bot nuevo» ya no existe: los 19 tickets que
+// dejó ManyChat se borraron —decisión del área, el bot viejo no existe más— y
+// con ellos se fue la razón de separarlos. Esta sección los contaba con
+// `esEstadoHeredado()`, que además se renombró a `esEstadoConocido()` con el
+// sentido INVERTIDO, así que el script venía muriendo acá con «is not a
+// function» y nadie se enteró porque no se volvió a correr.
+//
+// En su lugar va lo que muestra la portada, calculado con la MISMA función que
+// usa la portada. Así esto es una contraprueba contra producción: si el tablero
+// dice otra cosa que este script, uno de los dos está mal.
+const { medirCasos } = await import("../src/lib/metricas.ts");
+const casos = medirCasos(tks ?? [], Date.now());
 
-console.log(`\n  «heredado» según el corte que se use:`);
-console.log(`    por estado (esEstadoHeredado):   ${porEstado}`);
-console.log(`    por canal (channel=manychat):    ${porCanalHeredado}`);
-console.log(`    sin conversación vinculada:      ${sinConversacion}`);
-if (porEstado !== porCanalHeredado) {
-  console.log(
-    `    *** Difieren en ${Math.abs(porEstado - porCanalHeredado)}: si Métricas separa por ` +
-      `estado, ${Math.abs(porEstado - porCanalHeredado)} ticket(s) viejo(s) se cuentan como ` +
-      `gestión del bot nuevo. ***`,
-  );
-}
-
-const cerrados = (tks ?? []).filter((t) => estaCerrado(t)).length;
-const conFechaCierre = (tks ?? []).filter((t) => t.resolved_at !== null).length;
-console.log(`\n  cerrados según estaCerrado(): ${cerrados}`);
-console.log(`  con resolved_at cargado:      ${conFechaCierre}`);
-if (cerrados > 0 && conFechaCierre === 0) {
+console.log(`
+  lo que muestra la portada:`);
+console.log(`    abiertos:  ${casos.abiertos}`);
+console.log(`    vencidos:  ${casos.vencidos}`);
+console.log(`    sin plazo: ${casos.sinPlazo}`);
+console.log(`    cerrados:  ${casos.cerrados} (con fecha de cierre: ${casos.cerradosConFecha})`);
+if (casos.cerrados > 0 && casos.cerradosConFecha === 0) {
   console.log("    *** No se puede calcular tiempo de resolución: ningún cerrado tiene fecha. ***");
 }
-
-const delBotNuevo = (tks ?? []).filter((t) => t.channel !== "manychat");
-console.log(`\n  tickets del bot nuevo: ${delBotNuevo.length}`);
 
 /* --- Salud técnica: la cola y el corpus -------------------------------- */
 
@@ -178,10 +171,8 @@ console.log(`\n  documentos: ${docs?.length} · fragmentos: ${nFrag}`);
 
 // Cobertura del corpus: qué documentos citó Migue alguna vez. Es la métrica que
 // dice si sirvió cargar un PDF de 45 páginas.
+// `fragmentos_citados` no está en el select de más arriba: se pide aparte.
 const citados = new Set();
-for (const m of salientes) {
-  // `fragmentos_citados` no está en el select de arriba; se pide aparte.
-}
 const { data: conCitas } = await supabase
   .from("mensajes")
   .select("fragmentos_citados")

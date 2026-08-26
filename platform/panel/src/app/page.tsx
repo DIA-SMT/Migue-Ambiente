@@ -1,28 +1,29 @@
 import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
 import { Armazon } from "@/componentes/Armazon";
-import { Portada, type Pendiente } from "./Portada";
-import { LIMITE_FILAS, medirCasos } from "@/lib/metricas";
+import { Portada } from "./Portada";
+import {
+  LIMITE_FILAS,
+  type ConversacionMedida,
+  type MensajeMedido,
+  type VotosDeConversacion,
+} from "@/lib/metricas";
 import type { Ticket } from "@/lib/tipos";
 
 export const dynamic = "force-dynamic";
 
-/** «3 casos vencidos», pero «1 caso vencido». */
-function plural(n: number, uno: string, muchos: string): string {
-  return n === 1 ? uno : muchos;
-}
-
 /**
- * La portada del panel.
+ * La portada, que es el tablero.
  *
- * Los dos números que muestra se calculan con las mismas funciones que usa la
- * pantalla de Métricas —`medirCasos`, que se apoya en `estaCerrado` y
- * `situacionSla`— y no con un `count` filtrado en SQL. Es deliberado: esta base
- * ya tuvo dos números contradictorios sobre las mismas filas porque «cerrado»
- * estaba definido dos veces. La portada y Métricas tienen que decir lo mismo o
- * es peor que no decir nada.
+ * Este archivo sólo TRAE filas. Ni una cuenta: todo se calcula en `Portada` con
+ * las funciones de `lib/metricas.ts`, que son las mismas que usa la pantalla de
+ * Métricas. Es la misma división que ya tiene `metricas/page.tsx`, y existe para
+ * que las dos pantallas no puedan decir cosas distintas sobre las mismas filas.
  *
- * Las preguntas sin responder sí se cuentan en la base, porque ahí «pendiente»
- * es una columna y no una regla: no hay lógica que duplicar.
+ * Se trae todo y se agrega en TypeScript en vez de pedirle sumas a la base
+ * porque los agregados de PostgREST están deshabilitados en este proyecto
+ * —devuelven 400 PGRST123— y porque «cerrado» ya está definido y probado en
+ * `tipos.ts`. `LIMITE_FILAS` marca dónde esto deja de ser gratis, y la pantalla
+ * avisa cuando lo alcanza en vez de presentar un parcial como el total.
  */
 export default async function Inicio() {
   const persona = await personaActual();
@@ -45,63 +46,72 @@ export default async function Inicio() {
 
   const supabase = await clienteServidor();
 
-  const [tickets, sinResponder] = await Promise.all([
+  const [conversaciones, mensajes, tickets, votos, sinResponder, config] = await Promise.all([
+    supabase
+      .from("conversaciones")
+      .select(
+        "id, canal, canal_usuario_id, estado, cantidad_mensajes, iniciada_en, ultima_actividad_en",
+      )
+      .order("iniciada_en", { ascending: false })
+      .limit(LIMITE_FILAS)
+      .returns<ConversacionMedida[]>(),
+
+    supabase
+      .from("mensajes")
+      .select(
+        "direccion, intencion, confianza, origen_respuesta, modelo, tokens_entrada, tokens_salida, costo_usd, latencia_ms, fragmentos_citados, conversacion_id, creado_en",
+      )
+      .order("creado_en", { ascending: false })
+      .limit(LIMITE_FILAS)
+      .returns<MensajeMedido[]>(),
+
     supabase.from("tickets").select("*").limit(LIMITE_FILAS).returns<Ticket[]>(),
 
+    // Los votos viven en la VISTA y no en la tabla: `v_conversaciones` los trae
+    // ya repartidos entre «la respuesta fue mala» y «el trámite fue difícil»,
+    // que son dos mediciones distintas. La tabla `conversaciones` no los tiene.
+    supabase
+      .from("v_conversaciones")
+      .select("votos_utiles, votos_no_utiles, votos_respuesta_mala, votos_tramite_dificil")
+      .limit(LIMITE_FILAS)
+      .returns<VotosDeConversacion[]>(),
+
     // `head: true` no trae filas, sólo el total. Los agregados de PostgREST
-    // están deshabilitados en este proyecto, pero el count exacto con filtro
-    // funciona — es el mismo patrón que usa la pantalla de Conocimiento.
+    // están deshabilitados acá, pero el count exacto con filtro funciona — es
+    // el mismo patrón que usa la pantalla de Conocimiento.
     supabase
       .from("v_sin_respuesta")
       .select("id", { count: "exact", head: true })
       .eq("estado", "pendiente"),
+
+    supabase.from("configuracion").select("clave, valor").eq("clave", "conversacion_ventana_horas"),
   ]);
 
-  const casos = medirCasos(tickets.data ?? [], Date.now());
-  const preguntas = sinResponder.count ?? 0;
+  const problema =
+    conversaciones.error ??
+    mensajes.error ??
+    tickets.error ??
+    votos.error ??
+    sinResponder.error ??
+    null;
 
-  // Sólo entra lo que tiene algo esperando. Una tarjeta que dice «0 casos
-  // vencidos» es una buena noticia la primera vez y ruido todas las demás; y
-  // una portada llena de ceros enseña a no mirarla.
-  const pendientes: Pendiente[] = [];
-
-  if (casos.vencidos > 0) {
-    pendientes.push({
-      cuanto: casos.vencidos,
-      que: plural(casos.vencidos, "caso vencido", "casos vencidos"),
-      porQue: "El plazo que Migue le prometió al vecino ya pasó.",
-      adonde: "/casos",
-      urgente: true,
-    });
-  }
-
-  if (preguntas > 0) {
-    pendientes.push({
-      cuanto: preguntas,
-      que: plural(preguntas, "pregunta sin responder", "preguntas sin responder"),
-      porQue: "Migue no supo qué contestar. Escribir la respuesta las cierra.",
-      adonde: "/conocimiento",
-      urgente: false,
-    });
-  }
-
-  if (casos.abiertos > 0) {
-    pendientes.push({
-      cuanto: casos.abiertos,
-      que: plural(casos.abiertos, "caso abierto", "casos abiertos"),
-      porQue: "Pedidos y reclamos que todavía no se resolvieron.",
-      adonde: "/casos",
-      urgente: false,
-    });
-  }
+  const ventanaHoras = Number(
+    (config.data ?? []).find((c) => c.clave === "conversacion_ventana_horas")?.valor ?? 24,
+  );
 
   return (
     <Armazon persona={persona} actual="/">
       <Portada
         persona={persona}
-        pendientes={pendientes}
-        problema={tickets.error?.message ?? sinResponder.error?.message ?? null}
         ahora={new Date()}
+        conversaciones={conversaciones.data ?? []}
+        mensajes={mensajes.data ?? []}
+        tickets={tickets.data ?? []}
+        votosPorConversacion={votos.data ?? []}
+        preguntasPendientes={sinResponder.count ?? 0}
+        ventanaHoras={ventanaHoras}
+        alcanzoElLimite={(mensajes.data ?? []).length >= LIMITE_FILAS}
+        problema={problema?.message ?? null}
       />
     </Armazon>
   );

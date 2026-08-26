@@ -467,3 +467,199 @@ export const NO_SE_PUEDE_MEDIR: readonly { que: string; porQue: string; paraTene
     paraTenerlo: "Escribir esa columna al enviar una respuesta textual.",
   },
 ];
+
+/* ============================================================ portada === */
+
+/*
+ * Lo que sigue lo consume la portada, que es el tablero.
+ *
+ * Vive acá y no en la portada por la misma razón que todo lo demás en este
+ * archivo: la pantalla de Métricas y el tablero tienen que decir lo MISMO. Dos
+ * lugares que cuentan lo mismo con dos implementaciones es exactamente cómo
+ * nacieron los dos números contradictorios que este proyecto ya tuvo.
+ */
+
+/**
+ * La zona horaria en la que se agrupan los días.
+ *
+ * La VPS corre en UTC y Tucumán está en UTC-3. Agrupando por el día UTC, todo
+ * lo que pasa después de las nueve de la noche cae en el día siguiente: un pico
+ * del martes a las 22 h aparecería el miércoles. En una serie diaria eso no es
+ * un detalle, es la diferencia entre ver el pico donde ocurrió y verlo corrido
+ * un día.
+ *
+ * Argentina no aplica horario de verano desde 2009, así que retroceder de a
+ * 86.400.000 ms cae siempre en el día local anterior. Si algún día volviera,
+ * esta cuenta se saltearía o repetiría un día por año.
+ */
+export const ZONA = "America/Argentina/Tucuman";
+
+/**
+ * `en-CA` y no `es-AR`: el locale canadiense formatea AAAA-MM-DD, que es la
+ * única forma que ordena bien como texto. `es-AR` daría «26/8/2026», y ordenado
+ * alfabéticamente el 3 de marzo iría después del 26 de agosto.
+ */
+export function formateadorDeDia(): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: ZONA,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+/** Un día de la serie. */
+export interface Dia {
+  /** `AAAA-MM-DD` en hora de Tucumán. */
+  readonly fecha: string;
+  /** Mensajes que escribió un vecino. Es la unidad de «interacción». */
+  readonly turnos: number;
+  /** Conversaciones que empezaron ese día. */
+  readonly conversaciones: number;
+  readonly costoUsd: number;
+}
+
+/**
+ * La actividad día por día, con los días vacíos incluidos.
+ *
+ * Los ceros importan: una serie que sólo trae los días en que pasó algo
+ * comprime los huecos, y dos picos separados por una semana se ven
+ * consecutivos. El eje se arma completo y después se llena.
+ */
+export function serieDiaria(
+  mensajes: readonly MensajeMedido[],
+  conversaciones: readonly ConversacionMedida[],
+  dias: number,
+  ahora: number,
+): Dia[] {
+  const formato = formateadorDeDia();
+  const casillas = new Map<string, { turnos: number; conversaciones: number; costoUsd: number }>();
+
+  for (let i = dias - 1; i >= 0; i--) {
+    casillas.set(formato.format(new Date(ahora - i * 86_400_000)), {
+      turnos: 0,
+      conversaciones: 0,
+      costoUsd: 0,
+    });
+  }
+
+  for (const m of mensajes) {
+    const c = casillas.get(formato.format(new Date(m.creado_en)));
+    if (!c) continue; // cae fuera de la ventana
+    if (m.direccion === "entrante") c.turnos += 1;
+    if (m.costo_usd !== null) c.costoUsd += Number(m.costo_usd);
+  }
+
+  for (const cv of conversaciones) {
+    const c = casillas.get(formato.format(new Date(cv.iniciada_en)));
+    if (c) c.conversaciones += 1;
+  }
+
+  return [...casillas.entries()].map(([fecha, v]) => ({ fecha, ...v }));
+}
+
+/* ------------------------------------------------------- de qué hablan --- */
+
+export interface RepartoIntencion extends Reparto {
+  /**
+   * Si es un TEMA por el que el vecino escribió, o mecánica de la conversación.
+   *
+   * La distinción existe porque «de qué preguntan más» y «cuántos saludaron» no
+   * son la misma pregunta, y un ranking que las mezcla suele estar encabezado
+   * por «saludo» — que no le sirve a nadie para decidir nada.
+   */
+  readonly tema: boolean;
+}
+
+/**
+ * Cada intención con su nombre en castellano.
+ *
+ * Las claves salen del catálogo del router (`Intencion` en el dominio) más las
+ * que escribe el manejo del voto, que no pasan por el clasificador. Una clave
+ * que no esté acá se muestra igual, cruda: si alguien agrega una intención en
+ * el bot, la portada la tiene que mostrar aunque nadie haya tocado este archivo.
+ */
+const INTENCIONES: Record<string, { rotulo: string; tono: string; tema: boolean }> = {
+  retiro_no_habitual: { rotulo: "Retiro de residuos no habituales", tono: "ok", tema: true },
+  reclamo_recoleccion: { rotulo: "Reclamo por recolección", tono: "ok", tema: true },
+  programa_separa: { rotulo: "Programa SEPARÁ", tono: "ok", tema: true },
+  programa_educa: { rotulo: "Programa EDUCÁ", tono: "ok", tema: true },
+  programa_transforma: { rotulo: "Programa TRANSFORMÁ", tono: "ok", tema: true },
+  consulta_libre: { rotulo: "Consulta ambiental", tono: "ok", tema: true },
+  fuera_de_alcance: { rotulo: "No es de Ambiente", tono: "curso", tema: true },
+  saludo: { rotulo: "Saludo", tono: "pend", tema: false },
+  despedida: { rotulo: "Despedida", tono: "pend", tema: false },
+  voto_util: { rotulo: "Votó que le sirvió", tono: "pend", tema: false },
+  voto_no_util: { rotulo: "Votó que no le sirvió", tono: "pend", tema: false },
+  no_entendido: { rotulo: "No entendió qué quería", tono: "alerta", tema: false },
+};
+
+/**
+ * De qué le hablaron a Migue.
+ *
+ * Se cuenta sobre los mensajes que Migue ENVIÓ, no sobre los del vecino. No es
+ * un capricho: la traza —intención, confianza, modelo— se guarda en el saliente.
+ * Los entrantes tienen `intencion` en null, así que contar sobre ellos devuelve
+ * vacío. Ya pasó.
+ */
+export function repartoPorIntencion(mensajes: readonly MensajeMedido[]): RepartoIntencion[] {
+  const cuenta = new Map<string, number>();
+  for (const m of mensajes) {
+    if (m.direccion !== "saliente" || m.intencion === null) continue;
+    cuenta.set(m.intencion, (cuenta.get(m.intencion) ?? 0) + 1);
+  }
+
+  return [...cuenta.entries()]
+    .map(([clave, n]) => ({
+      clave,
+      rotulo: INTENCIONES[clave]?.rotulo ?? clave,
+      tono: INTENCIONES[clave]?.tono ?? "pend",
+      tema: INTENCIONES[clave]?.tema ?? true,
+      n,
+    }))
+    .sort((a, b) => b.n - a.n || a.clave.localeCompare(b.clave));
+}
+
+/* -------------------------------------------------------------- votos --- */
+
+/** Las columnas de voto de `v_conversaciones`. */
+export interface VotosDeConversacion {
+  readonly votos_utiles: number;
+  readonly votos_no_utiles: number;
+  readonly votos_respuesta_mala: number;
+  readonly votos_tramite_dificil: number;
+}
+
+export interface Votos {
+  readonly utiles: number;
+  readonly noUtiles: number;
+  /** De los pulgares abajo, los que califican una RESPUESTA. Se arregla escribiendo. */
+  readonly respuestaMala: number;
+  /** De los pulgares abajo, los que dicen que el TRÁMITE fue complicado. Se arregla sacando un paso. */
+  readonly tramiteDificil: number;
+  readonly total: number;
+}
+
+/**
+ * Los pulgares, sumados.
+ *
+ * `respuestaMala` y `tramiteDificil` NO se suman entre sí para dar `noUtiles`:
+ * son dos preguntas distintas que el bot hace en momentos distintos, y un voto
+ * viejo anterior a la separación puede no estar en ninguna de las dos. Sumarlas
+ * y presentarlas como el total es la clase de cuenta que este proyecto ya pagó.
+ */
+export function medirVotos(conversaciones: readonly VotosDeConversacion[]): Votos {
+  const suma = (f: (c: VotosDeConversacion) => number) =>
+    conversaciones.reduce((n, c) => n + (Number(f(c)) || 0), 0);
+
+  const utiles = suma((c) => c.votos_utiles);
+  const noUtiles = suma((c) => c.votos_no_utiles);
+
+  return {
+    utiles,
+    noUtiles,
+    respuestaMala: suma((c) => c.votos_respuesta_mala),
+    tramiteDificil: suma((c) => c.votos_tramite_dificil),
+    total: utiles + noUtiles,
+  };
+}
