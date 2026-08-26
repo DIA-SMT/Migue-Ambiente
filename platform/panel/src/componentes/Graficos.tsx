@@ -193,3 +193,117 @@ export function Ranking({
     </ul>
   );
 }
+
+/* ========================================================== la torta === */
+
+export interface PorcionTorta {
+  readonly clave: string;
+  readonly rotulo: string;
+  readonly n: number;
+  /** `true` para pintarla de alerta en vez de seguir la paleta categórica. */
+  readonly esFalla?: boolean;
+}
+
+const RADIO = 62;
+const GROSOR = 26;
+const VUELTA = 2 * Math.PI * RADIO;
+
+/**
+ * Una torta con agujero, y el porqué de cada decisión.
+ *
+ * SE DIBUJA CON `stroke-dasharray` sobre un círculo, no con paths de arco. Un
+ * arco en SVG se escribe con el comando `A`, que necesita calcular a mano los
+ * puntos de inicio y fin con senos y cosenos, y tiene el caso especial del
+ * `large-arc-flag` cuando una porción pasa la mitad de la vuelta. Un trazo
+ * punteado sobre un círculo no tiene casos especiales: cada porción es un tramo
+ * de raya, y una sola porción del 100% funciona sola.
+ *
+ * EL TEXTO NO VA ADENTRO. La leyenda es HTML al lado, por lo mismo que el
+ * ranking: en SVG habría que medir a mano si «Retiro de residuos no habituales»
+ * entra en la porción, y no entra. Adentro del agujero va sólo el total, que es
+ * corto y siempre entra.
+ *
+ * LA PALETA es categórica y vale igual en los dos temas: son tonos medios
+ * elegidos para distinguirse tanto sobre papel blanco como sobre papel oscuro.
+ * La excepción es lo que se marca como falla, que se pinta de alerta: si «no
+ * entendió» quedara del mismo verde que un tema, la torta escondería justo el
+ * dato que hay que mirar.
+ */
+export function Torta({
+  porciones,
+  etiqueta,
+  leyendaTotal,
+}: {
+  porciones: readonly PorcionTorta[];
+  etiqueta: string;
+  leyendaTotal: string;
+}) {
+  const total = porciones.reduce((n, p) => n + p.n, 0);
+
+  if (total === 0) {
+    return <div className="vacio">Todavía no hay nada que repartir acá.</div>;
+  }
+
+  // Se acumula el desplazamiento en lugar de calcularlo por índice: así los
+  // redondeos no se van sumando y la última porción cierra la vuelta.
+  let recorrido = 0;
+  const tramos = porciones.map((p, i) => {
+    const largo = (p.n / total) * VUELTA;
+    const desde = recorrido;
+    recorrido += largo;
+    return {
+      ...p,
+      largo,
+      desde,
+      color: p.esFalla ? "var(--serie-alerta)" : `var(--cat-${(i % 8) + 1})`,
+    };
+  });
+
+  return (
+    <div className="torta">
+      <svg
+        className="torta-dibujo"
+        viewBox="0 0 160 160"
+        role="img"
+        aria-label={etiqueta}
+      >
+        <g transform="rotate(-90 80 80)">
+          {tramos.map((t) => (
+            <circle
+              key={t.clave}
+              cx="80"
+              cy="80"
+              r={RADIO}
+              fill="none"
+              stroke={t.color}
+              strokeWidth={GROSOR}
+              strokeDasharray={`${t.largo} ${VUELTA - t.largo}`}
+              strokeDashoffset={-t.desde}
+            >
+              <title>{`${t.rotulo}: ${numero(t.n)}`}</title>
+            </circle>
+          ))}
+        </g>
+        <text x="80" y="76" textAnchor="middle" className="torta-total">
+          {numero(total)}
+        </text>
+        <text x="80" y="93" textAnchor="middle" className="torta-rotulo">
+          {leyendaTotal}
+        </text>
+      </svg>
+
+      <ul className="torta-leyenda">
+        {tramos.map((t) => (
+          <li key={t.clave}>
+            <span className="marca" style={{ background: t.color }} />
+            <span className="rotulo">{t.rotulo}</span>
+            <span className="n">
+              {numero(t.n)}
+              <span className="pct">{Math.round((t.n / total) * 100)}%</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

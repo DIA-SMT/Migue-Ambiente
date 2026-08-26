@@ -5,6 +5,7 @@ import { Tema } from "./Tema";
 import {
   Hojas,
   IconoCasos,
+  IconoClima,
   IconoConversaciones,
   IconoDocumentos,
   IconoMetricas,
@@ -54,6 +55,9 @@ const GRUPOS = [
     items: [
       // Primera del grupo: es lo que se mira para saber si Migue está sirviendo.
       // El voto del vecino se ve acá y en ningún otro lado.
+      // Primera del grupo: es el único dato del panel donde habla el vecino.
+      // Todo lo demás son deducciones nuestras mirando lo que hizo el bot.
+      { href: "/clima", texto: "Clima", Icono: IconoClima, listo: true },
       { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
       { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
       { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: true },

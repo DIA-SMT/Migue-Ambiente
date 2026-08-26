@@ -115,6 +115,12 @@ for (const [tema, vars] of [["claro", claro], ["oscuro", oscuro]]) {
 
   // la barra: es verde profundo en los dos temas, así que esto no debería mover
   exige(tema, vars, "sobre-verde", "verde-profundo", 4.5, "la tinta de la barra sobre el verde");
+  exige(tema, vars, "verde-acento", "verde-profundo", 4.5, "la palabra «Ambiente» de la marca");
+  // Los enlaces se miden contra las DOS superficies sobre las que aparecen. La
+  // del fondo de página es la que falla primero y es la que se olvida: un
+  // enlace suelto en un párrafo fuera de una tarjeta.
+  exige(tema, vars, "azul-enlace", "papel", 4.5, "un enlace sobre una tarjeta");
+  exige(tema, vars, "azul-enlace", "fondo", 4.5, "un enlace sobre el fondo de la página");
   exige(tema, vars, "sobre-verde-fuerte", "verde-medio", 4.5, "el ítem activo del menú");
 }
 

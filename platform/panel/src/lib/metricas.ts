@@ -46,6 +46,14 @@ export const MINIMO_PARA_PORCENTAJE = 30;
 
 export interface MensajeMedido {
   direccion: "entrante" | "saliente";
+  /**
+   * Null cuando el vecino tocó un botón en vez de escribir: `normalizarSeleccion`
+   * manda `texto: null` y no persiste cuál eligió. Es lo que permite distinguir
+   * «me escribió» de «me tocó el menú», que se guardan igual de entrantes.
+   */
+  texto: string | null;
+  /** `imagen`, `audio`, `video`, `documento`, `ubicacion`, o null. */
+  media_tipo: string | null;
   intencion: string | null;
   confianza: number | null;
   origen_respuesta: string | null;
@@ -967,4 +975,97 @@ export function haceCuanto(ms: number | null): string {
   if (horas < 24) return `hace ${horas} ${horas === 1 ? "hora" : "horas"}`;
   const dias = Math.floor(horas / 24);
   return `hace ${dias} ${dias === 1 ? "día" : "días"}`;
+}
+
+
+/* ------------------------------------------ qué mandó de verdad el vecino --- */
+
+export interface Entrantes {
+  /** Escribió algo con el teclado. */
+  readonly escritos: number;
+  /** Tocó un botón del menú o un pulgar. */
+  readonly toques: number;
+  /** Mandó una foto, un audio, una ubicación. */
+  readonly conMedia: number;
+  /** De los anteriores, cuántos fueron audios. Migue NO los transcribe. */
+  readonly audios: number;
+  readonly total: number;
+}
+
+/**
+ * Los tres tipos de mensaje entrante, que se guardan todos igual.
+ *
+ * Importa porque «27 mensajes de vecinos» suena a veintisiete personas
+ * escribiendo, y no lo es: un toque de botón —elegir una opción del menú, tocar
+ * un pulgar— queda en la base como un entrante igual que una frase.
+ *
+ * La firma de un toque no es una inferencia: `normalizarSeleccion` manda
+ * `texto: null` y no persiste cuál fue la opción, así que un entrante sin texto
+ * y sin media sólo puede haber salido de ahí.
+ *
+ * Los audios se cuentan aparte y el rótulo tiene que decir «recibidos», nunca
+ * «transcritos»: el bot reconoce el audio de Telegram y lo guarda como media, y
+ * de ahí no pasa nada. No hay transcripción en ninguna parte del proyecto. O
+ * sea que este número no mide una capacidad, mide una carencia — cuántos
+ * vecinos mandaron algo que Migue no escuchó.
+ */
+export function medirEntrantes(
+  mensajes: readonly Pick<MensajeMedido, "direccion" | "texto" | "media_tipo">[],
+): Entrantes {
+  let escritos = 0;
+  let toques = 0;
+  let conMedia = 0;
+  let audios = 0;
+  let total = 0;
+
+  for (const m of mensajes) {
+    if (m.direccion !== "entrante") continue;
+    total += 1;
+    if (m.media_tipo !== null) {
+      conMedia += 1;
+      if (m.media_tipo === "audio") audios += 1;
+    } else if (m.texto === null) {
+      toques += 1;
+    } else {
+      escritos += 1;
+    }
+  }
+
+  return { escritos, toques, conMedia, audios, total };
+}
+
+/* ------------------------------------------------------------ canales --- */
+
+export interface Canal {
+  readonly canal: string;
+  readonly personas: number;
+  readonly conversaciones: number;
+}
+
+/**
+ * El reparto por canal.
+ *
+ * Existe antes de que haga falta: hoy todo es Telegram y esto devuelve una sola
+ * fila. Cuando entre WhatsApp, el tablero no hay que tocarlo — y las cuentas ya
+ * están hechas de forma que no se mezclen, que es lo que importa: la misma
+ * persona en Telegram y en WhatsApp son dos identidades distintas y está bien
+ * que lo sean.
+ *
+ * Se cuentan identidades, no personas, y el rótulo de la pantalla lo dice. No
+ * hay forma de saber si el 3815551234 de WhatsApp y el @fulano de Telegram son
+ * el mismo vecino, y no la hay a propósito.
+ */
+export function medirCanales(conversaciones: readonly ConversacionMedida[]): Canal[] {
+  const porCanal = new Map<string, { personas: Set<string>; conversaciones: number }>();
+
+  for (const c of conversaciones) {
+    const e = porCanal.get(c.canal) ?? { personas: new Set<string>(), conversaciones: 0 };
+    e.personas.add(c.canal_usuario_id);
+    e.conversaciones += 1;
+    porCanal.set(c.canal, e);
+  }
+
+  return [...porCanal.entries()]
+    .map(([canal, v]) => ({ canal, personas: v.personas.size, conversaciones: v.conversaciones }))
+    .sort((a, b) => b.conversaciones - a.conversaciones || a.canal.localeCompare(b.canal));
 }

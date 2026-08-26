@@ -20,9 +20,30 @@ import { Transcripcion } from "./Transcripcion";
  */
 type Filtro = "todas" | "fallaron" | "votadas";
 
-export function Conversaciones({ conversaciones }: { conversaciones: Conversacion[] }) {
+export function Conversaciones({
+  conversaciones,
+  abrirId,
+}: {
+  conversaciones: Conversacion[];
+  /**
+   * Qué charla abrir de entrada. Viene de Clima: desde un pulgar abajo se llega
+   * acá para leer el ida y vuelta completo, y hacer buscar la fila a mano
+   * anularía la mitad del sentido del enlace.
+   *
+   * Lo resuelve el SERVIDOR y llega como prop, en vez de leerlo acá con
+   * `useSearchParams`. Ese hook obliga a envolver el componente en un
+   * `<Suspense>` y a que la página se renderice en el cliente; el parámetro ya
+   * lo tiene la página, que es un server component.
+   */
+  abrirId?: string | undefined;
+}) {
   const [filtro, setFiltro] = useState<Filtro>("todas");
-  const [abierta, setAbierta] = useState<Conversacion | null>(null);
+  // Estado inicial perezoso: la búsqueda corre una sola vez, no en cada render.
+  // Si el id no existe —una charla borrada, un enlace viejo— queda en null y la
+  // pantalla se ve normal, sin cajón y sin error.
+  const [abierta, setAbierta] = useState<Conversacion | null>(
+    () => conversaciones.find((c) => c.id === abrirId) ?? null,
+  );
 
   const conFallas = conversaciones.filter(
     // `preguntas_pendientes` y no el total: con el total, «donde algo falló»

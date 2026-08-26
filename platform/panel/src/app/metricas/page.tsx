@@ -38,7 +38,7 @@ export default async function PaginaMetricas() {
     supabase
       .from("mensajes")
       .select(
-        "direccion, intencion, confianza, origen_respuesta, modelo, tokens_entrada, tokens_salida, costo_usd, latencia_ms, fragmentos_citados, conversacion_id, creado_en",
+        "direccion, texto, media_tipo, intencion, confianza, origen_respuesta, modelo, tokens_entrada, tokens_salida, costo_usd, latencia_ms, fragmentos_citados, conversacion_id, creado_en",
       )
       .order("creado_en", { ascending: false })
       .limit(LIMITE_FILAS)

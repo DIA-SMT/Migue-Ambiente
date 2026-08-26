@@ -76,6 +76,11 @@
   --verde-barra: #114532;
   --verde-medio: #1b5e43;
   --verde-vivo: #2e9e6b;
+  /* El acento sobre las superficies verdes —la palabra «Ambiente» de la marca—.
+     `--verde-vivo` ahí daba 3,71:1: está pensado para papel, no para verde
+     profundo. Lo encontró la medición sobre el DOM renderizado, no la de
+     tokens: es un par que sólo existe una vez armada la pantalla. */
+  --verde-acento: #3fbf85;
 
   /* --- Sobre el verde: la escala de tinta de la barra y del héroe. Tres
          jerarquías, no las catorce opacidades sueltas que había antes. --- */
@@ -130,6 +135,16 @@
      y no se puede aclarar sin romper la barra. */
   --tinta-fuerte: #0e3b2a;
 
+  /* El azul de los ENLACES, separado del pigmento institucional.
+     `--azul` (#0066ff) es el color de la marca y sigue siendo el FONDO del
+     botón primario, donde el texto blanco encima funciona en los dos temas.
+     Como TEXTO no alcanza: sobre el papel oscuro da 3,37:1 y sobre el fondo
+     claro de la página 4,46:1 — las dos por debajo de AA. Todos los enlaces del
+     panel usaban ese valor.
+     Es la única concesión que hace la identidad municipal acá, y se hace por el
+     lado correcto: se conserva el azul donde es marca y se ajusta donde es
+     texto que alguien tiene que leer. */
+  --azul-enlace: #005ce6;
   --azul-piso: #e8f0ff;
   /* `--azul` sobre `--azul-piso` da 4,2:1, apenas por debajo de AA. El aviso
      informativo necesita este azul más oscuro para cuerpo de texto. Es la
@@ -200,6 +215,7 @@
   --tinta-suave: #7f978a;
   --tinta-fuerte: #edf6f0;
 
+  --azul-enlace: #6ba5ff;
   --azul-piso: #10233c;
   --azul-tinta: #b9d4ff;
 
@@ -301,7 +317,7 @@ h3 {
 }
 
 a {
-  color: var(--azul);
+  color: var(--azul-enlace);
   text-decoration: none;
 }
 a:hover {
@@ -367,7 +383,7 @@ a:hover {
 }
 .barra-marca .nombre em {
   font-style: normal;
-  color: var(--verde-vivo);
+  color: var(--verde-acento);
 }
 .barra-marca .area {
   font-size: 0.74rem;
@@ -669,7 +685,7 @@ tr.de-baja td {
   color: var(--tinta);
 }
 .titulo-fila:hover {
-  color: var(--azul);
+  color: var(--azul-enlace);
 }
 .sub-fila {
   font-size: 0.79rem;
@@ -1051,7 +1067,7 @@ code {
 }
 .enlace-tabla:hover {
   background: none;
-  color: var(--azul);
+  color: var(--azul-enlace);
   text-decoration: underline;
 }
 
@@ -1442,7 +1458,7 @@ dl.ficha dd {
   color: var(--tinta);
 }
 .ingreso-marca .marca span {
-  color: var(--verde-vivo);
+  color: var(--verde-acento);
 }
 
 .ingreso-marca p {
@@ -1991,4 +2007,284 @@ dl.ficha dd {
   :root:not([data-tema="claro"]) .tema-boton .a-claro {
     display: block;
   }
+}
+
+/* ================================================= tarjetas de cifra === */
+
+/*
+ * Las cuatro tarjetas grandes de arriba del tablero.
+ *
+ * Cada una lleva un renglón chico abajo que dice qué NO mide. No es prolijidad:
+ * «27 mensajes» y «27 personas» se ven igual de contundentes y significan cosas
+ * muy distintas, y la diferencia entre las dos es la única razón por la que
+ * alguien decidiría algo distinto.
+ */
+.tarjetas-cifra {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.tarjeta-cifra {
+  padding: 17px 19px;
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.tarjeta-cifra .icono {
+  display: block;
+  width: 21px;
+  height: 21px;
+  margin-bottom: 13px;
+  color: var(--verde-vivo);
+}
+.tarjeta-cifra.tono-curso .icono {
+  color: var(--curso);
+}
+.tarjeta-cifra.tono-alerta .icono {
+  color: var(--alerta);
+}
+.tarjeta-cifra.tono-azul .icono {
+  color: var(--azul);
+}
+
+.tarjeta-cifra .n {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.95rem;
+  font-weight: 700;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-fuerte);
+}
+
+.tarjeta-cifra .eq {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-media);
+}
+
+.tarjeta-cifra .r {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+/* El renglón que dice qué NO mide la cifra de arriba. */
+.tarjeta-cifra .p {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--tinta-suave);
+}
+
+/* ============================================================ la torta === */
+
+.torta {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.torta-dibujo {
+  width: 158px;
+  height: 158px;
+  flex: 0 0 auto;
+}
+
+/* `fill` y no `color`: en SVG el texto se pinta con fill. */
+.torta-total {
+  fill: var(--tinta-fuerte);
+  font-family: var(--display);
+  font-size: 25px;
+  font-weight: 700;
+}
+
+.torta-rotulo {
+  fill: var(--tinta-suave);
+  font-family: var(--texto);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.torta-leyenda {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.87rem;
+}
+
+.torta-leyenda li {
+  display: grid;
+  grid-template-columns: 11px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.torta-leyenda .marca {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.torta-leyenda .rotulo {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--tinta);
+}
+
+.torta-leyenda .n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--tinta);
+  white-space: nowrap;
+}
+
+.torta-leyenda .n .pct {
+  display: inline-block;
+  margin-left: 7px;
+  font-weight: 400;
+  font-size: 0.82em;
+  color: var(--tinta-suave);
+}
+
+/* ================================================ la puntería y el canal === */
+
+/* Tres cifras y ningún promedio. Ver `medirPunteria`: no hay un solo número
+   que resuma esto sin mentir. */
+.punteria {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.punteria div {
+  padding: 13px 15px;
+  border-radius: 10px;
+  background: var(--hundida);
+}
+
+.punteria .n {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-fuerte);
+}
+.punteria div.mal .n {
+  color: var(--alerta);
+}
+
+.punteria .r {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--tinta-media);
+}
+
+/* Los canales. Existe pensando en WhatsApp: mientras haya uno solo se ve una
+   línea, y el día que haya dos el tablero no hay que tocarlo. */
+.canales {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.canales span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--hundida);
+  border: 1px solid var(--linea);
+  font-size: 0.82rem;
+  color: var(--tinta-media);
+}
+
+.canales strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta);
+}
+
+/* La última señal de Migue. No dice «en línea»: dice cuándo fue lo último que
+   pasó, que es lo único que la base sabe. */
+.senal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.83rem;
+  color: var(--sobre-verde-suave);
+}
+
+.senal .punto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--verde-vivo);
+  flex: 0 0 auto;
+}
+.senal.dormido .punto {
+  background: var(--sobre-verde-tenue);
+}
+
+/* ============================================== la pantalla de Clima === */
+
+/*
+ * Cada voto es una tarjeta y no una fila de tabla, por lo mismo que «Sin
+ * responder»: lo que importa de un pulgar abajo es el TEXTO —lo que Migue
+ * contestó y lo que el vecino escribió después— y eso en una celda se corta.
+ *
+ * Reutiliza `.tarjeta.pregunta`, que ya resuelve el bloque de cita. Acá sólo se
+ * agrega lo propio: el rótulo de cada cita y el bloque del comentario.
+ */
+.voto-ficha .acciones {
+  margin-top: 14px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rotulo-cita {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tinta-suave);
+}
+
+/* Lo que escribió el vecino se separa de lo que dijo Migue con el borde en el
+   color de alerta: son dos citas seguidas y sin esto se leen como una sola. */
+.dijo-el-vecino {
+  margin-top: 14px;
+}
+
+.dijo-el-vecino blockquote {
+  border-left-color: var(--alerta);
+  background: var(--alerta-piso);
+  color: var(--tinta);
+}
+
+.voto-ficha .ayuda {
+  margin-top: 10px;
 }

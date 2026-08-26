@@ -186,3 +186,51 @@ export function IconoTablero({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Mensajes: un globo con líneas de texto. */
+export function IconoMensajes({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <path d="M3 6a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 17 6v5.5a2.5 2.5 0 0 1-2.5 2.5H8l-3.5 3v-3A2.5 2.5 0 0 1 3 11.5z" />
+      <path d="M6.5 7.5h7M6.5 10.3h4.5" />
+    </svg>
+  );
+}
+
+/** El voto del vecino: un pulgar. */
+export function IconoPulgar({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <path d="M6 8.6 9.3 3a1.9 1.9 0 0 1 2.6 2.5L10.7 8h4.1a1.7 1.7 0 0 1 1.7 2l-1 5a1.7 1.7 0 0 1-1.7 1.4H6z" />
+      <path d="M6 8.6H3.6v7.8H6z" />
+    </svg>
+  );
+}
+
+/** Plata: un billete. */
+export function IconoPlata({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <rect x="2.5" y="5" width="15" height="10" rx="1.8" />
+      <circle cx="10" cy="10" r="2.2" />
+      <path d="M5.2 10h.01M14.8 10h.01" strokeWidth="2" />
+    </svg>
+  );
+}
+
+/**
+ * Clima: un sol detrás de una nube.
+ *
+ * No es un pulgar, aunque la pantalla muestre pulgares: el ítem del menú tiene
+ * que distinguirse de un ícono de voto suelto, y «clima» es la palabra que usa
+ * el área para hablar de si el servicio está sirviendo o no.
+ */
+export function IconoClima({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <path d="M7.4 6.6a3 3 0 1 1 4.3 3.2" />
+      <path d="M7.6 2.9v1.2M3.6 6.6h1.2M4.6 3.5l.9.9M10.6 3.5l-.9.9" strokeWidth="1.4" />
+      <path d="M6.4 16.5a3 3 0 0 1-.3-6 4 4 0 0 1 7.5 1.1 2.5 2.5 0 0 1-.4 4.9z" />
+    </svg>
+  );
+}

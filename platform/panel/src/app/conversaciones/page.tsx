@@ -6,7 +6,16 @@ import type { Conversacion } from "@/lib/tipos";
 
 export const dynamic = "force-dynamic";
 
-export default async function PaginaConversaciones() {
+export default async function PaginaConversaciones({
+  searchParams,
+}: {
+  searchParams: Promise<{ abrir?: string }>;
+}) {
+  // `abrir` llega desde Clima: se hace clic en un pulgar abajo y esta pantalla
+  // abre directamente esa charla. Se resuelve acá, en el servidor, y baja como
+  // prop: leerlo en el cliente con `useSearchParams` obligaría a un `<Suspense>`
+  // alrededor de toda la lista a cambio de nada.
+  const { abrir } = await searchParams;
   const persona = await personaActual();
   if (!persona) redirect("/ingresar");
 
@@ -39,7 +48,7 @@ export default async function PaginaConversaciones() {
           <div className="aviso mal">No pude leer las conversaciones: {error.message}</div>
         )}
 
-        <Conversaciones conversaciones={conversaciones ?? []} />
+        <Conversaciones conversaciones={conversaciones ?? []} abrirId={abrir} />
       </main>
     </Armazon>
   );

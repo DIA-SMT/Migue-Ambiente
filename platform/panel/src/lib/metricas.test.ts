@@ -14,6 +14,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   DIAS_PARA_COTIZACION_VIEJA,
+  medirCanales,
+  medirEntrantes,
   convertirAPesos,
   haceCuanto,
   medirGasto,
@@ -31,6 +33,8 @@ import {
 function msg(p: Partial<MensajeMedido>): MensajeMedido {
   return {
     direccion: "saliente",
+    texto: "hola",
+    media_tipo: null,
     intencion: null,
     confianza: null,
     origen_respuesta: null,
@@ -471,5 +475,71 @@ describe("ultimaActividad y haceCuanto", () => {
     assert.equal(haceCuanto(7_200_000), "hace 2 horas");
     assert.equal(haceCuanto(86_400_000), "hace 1 día");
     assert.equal(haceCuanto(5 * 86_400_000), "hace 5 días");
+  });
+});
+
+describe("medirEntrantes", () => {
+  it("un toque de botón no es un mensaje escrito", () => {
+    // Es la distinción que hace honesto el número grande del tablero: elegir
+    // una opción del menú o tocar un pulgar queda en la base como un entrante
+    // igual que una frase. `normalizarSeleccion` manda texto null y no persiste
+    // cuál fue la opción, así que sin texto y sin media sólo puede ser un toque.
+    const e = medirEntrantes([
+      msg({ direccion: "entrante", texto: "quiero que retiren escombros" }),
+      msg({ direccion: "entrante", texto: null, media_tipo: null }),
+      msg({ direccion: "entrante", texto: null, media_tipo: null }),
+    ]);
+    assert.equal(e.escritos, 1);
+    assert.equal(e.toques, 2);
+    assert.equal(e.total, 3);
+  });
+
+  it("cuenta los audios aparte, que Migue no transcribe", () => {
+    const e = medirEntrantes([
+      msg({ direccion: "entrante", texto: null, media_tipo: "audio" }),
+      msg({ direccion: "entrante", texto: null, media_tipo: "imagen" }),
+    ]);
+    assert.equal(e.conMedia, 2);
+    assert.equal(e.audios, 1);
+    assert.equal(e.toques, 0, "una foto sin texto no es un toque de botón");
+  });
+
+  it("las partes suman el total", () => {
+    const e = medirEntrantes([
+      msg({ direccion: "entrante", texto: "hola" }),
+      msg({ direccion: "entrante", texto: null, media_tipo: null }),
+      msg({ direccion: "entrante", texto: null, media_tipo: "imagen" }),
+      msg({ direccion: "saliente", texto: "respuesta" }),
+    ]);
+    assert.equal(e.escritos + e.toques + e.conMedia, e.total);
+    assert.equal(e.total, 3, "los salientes no entran");
+  });
+});
+
+describe("medirCanales", () => {
+  it("no mezcla identidades entre canales", () => {
+    // La misma persona en Telegram y en WhatsApp son dos identidades, y está
+    // bien que lo sean: no hay forma de saber que son el mismo vecino.
+    const c = medirCanales([
+      conv({ id: "a", canal: "telegram", canal_usuario_id: "1" }),
+      conv({ id: "b", canal: "telegram", canal_usuario_id: "1" }),
+      conv({ id: "c", canal: "telegram", canal_usuario_id: "2" }),
+      conv({ id: "d", canal: "whatsapp", canal_usuario_id: "1" }),
+    ]);
+    assert.equal(c.length, 2);
+    const tg = c.find((x) => x.canal === "telegram");
+    assert.equal(tg?.personas, 2);
+    assert.equal(tg?.conversaciones, 3);
+    assert.equal(c.find((x) => x.canal === "whatsapp")?.personas, 1);
+  });
+
+  it("ordena por volumen y sin conversaciones devuelve vacío", () => {
+    assert.deepEqual(medirCanales([]), []);
+    const c = medirCanales([
+      conv({ id: "a", canal: "whatsapp", canal_usuario_id: "1" }),
+      conv({ id: "b", canal: "telegram", canal_usuario_id: "1" }),
+      conv({ id: "c", canal: "telegram", canal_usuario_id: "2" }),
+    ]);
+    assert.equal(c[0]?.canal, "telegram");
   });
 });
