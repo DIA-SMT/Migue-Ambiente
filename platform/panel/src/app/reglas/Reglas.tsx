@@ -116,7 +116,7 @@ export function Reglas({
       )}
       {pestana === "limites" && <Limites filas={limites} alGuardar={alGuardar} />}
       {pestana === "exclusiones" && <Exclusiones filas={exclusiones} alGuardar={alGuardar} />}
-      {pestana === "puntos" && <PuntosYZonas puntos={puntos} zonas={zonas} limites={limites} />}
+      {pestana === "puntos" && <PuntosYZonas puntos={puntos} zonas={zonas} limites={limites} alGuardar={alGuardar} />}
     </>
   );
 }

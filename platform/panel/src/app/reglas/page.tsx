@@ -65,10 +65,17 @@ export default async function PaginaReglas() {
 
   let titulosDuplicados: string[] = [];
   if (documentosConLosMismosDatos.size > 0) {
+    // `activo` y `estado` NO son opcionales acá: son exactamente el filtro que
+    // usa `buscar_conocimiento` en sus tres ramas. Sin ellos, un documento dado
+    // de baja seguía disparando el aviso, y el aviso dice que lo que se edita en
+    // esta pantalla no llega al vecino. Decirle eso a alguien cuando ya no es
+    // cierto es peor que no avisar: la próxima advertencia tampoco se cree.
     const { data } = await supabase
       .from("documentos")
       .select("titulo")
-      .in("id", [...documentosConLosMismosDatos]);
+      .in("id", [...documentosConLosMismosDatos])
+      .eq("activo", true)
+      .eq("estado", "listo");
     titulosDuplicados = (data ?? []).map((d) => d.titulo as string);
   }
 

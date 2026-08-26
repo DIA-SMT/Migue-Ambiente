@@ -41,7 +41,6 @@ insert into public.configuracion (clave, valor, descripcion, categoria) values
    -- string JSON necesita las comillas dobles. Con `to_jsonb` las pone Postgres.
    to_jsonb('- Español rioplatense, voseo. Tratamiento cordial y directo.' || chr(10) ||
     '- Breve: dos o tres frases salvo que la pregunta pida un listado.' || chr(10) ||
-    '- Texto plano. Sin asteriscos, sin markdown, sin encabezados.' || chr(10) ||
     '- Dá el dato primero. Si hace falta aclarar algo, después.' || chr(10) ||
     '- No cites números de fragmento ni nombres de archivo: al vecino no le sirven.' || chr(10) ||
     '- Si el contexto tiene direcciones u horarios, transcribilos exactos.'),

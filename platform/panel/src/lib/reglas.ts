@@ -21,7 +21,22 @@
  * después; el mensaje útil sólo puede estar de este lado.
  */
 
-export type TipoValor = "booleano" | "entero" | "decimal" | "texto" | "opcion" | "lista";
+export type TipoValor =
+  | "booleano"
+  | "entero"
+  | "decimal"
+  | "texto"
+  /**
+   * Texto de varias líneas, guardado como UNA cadena.
+   *
+   * No es `lista`: aquélla parte por líneas y guarda un array, y hay claves —el
+   * estilo de redacción de Migue— cuyo valor es un bloque de texto que el bot
+   * mete tal cual en el prompt. Guardarlo como array lo rompería en silencio:
+   * `leerConfig` devolvería un array donde el código espera una cadena.
+   */
+  | "texto_largo"
+  | "opcion"
+  | "lista";
 
 export interface DefinicionClave {
   readonly clave: string;
@@ -262,6 +277,42 @@ export const GRUPOS_DE_REGLAS: readonly GrupoDeReglas[] = [
     ],
   },
   {
+    rotulo: "Quién es Migue",
+    explicacion:
+      "Cómo se presenta y cómo escribe. NO cambia QUÉ contesta: eso lo deciden las " +
+      "respuestas, las preguntas frecuentes y los documentos. Lo que el bot no deja tocar " +
+      "desde acá es la regla de contestar sólo con lo que tiene cargado, y el formato de la " +
+      "respuesta: son las dos cosas que impiden que invente un dato o que deje de contestar.",
+    claves: [
+      {
+        clave: "nombre_area",
+        rotulo: "Cómo se llama el área",
+        queHace:
+          "Migue lo dice al presentarse y cuando deriva a otra parte. Verificado contra los " +
+          "Planes Rectores del municipio, que dicen «Secretaría de Ambiente y Desarrollo " +
+          "Sustentable».",
+        tipo: "texto",
+        consecuencia: "alta",
+        siSeRompe:
+          "Vacío hace que el bot caiga al nombre por defecto, no que se rompa. Pero un nombre " +
+          "equivocado se lo lleva el vecino en la primera frase de cada charla.",
+      },
+      {
+        clave: "estilo_respuesta",
+        rotulo: "Cómo escribe Migue",
+        queHace:
+          "Una instrucción de redacción por línea. Se le pasan al modelo tal cual, debajo de " +
+          "«Cómo escribir la respuesta».",
+        tipo: "texto_largo",
+        consecuencia: "alta",
+        siSeRompe:
+          "Vaciarlo NO rompe nada: el bot usa el estilo que trae de fábrica. Lo que sí cuesta " +
+          "caro es pegar acá varios párrafos: se pagan en tokens en cada consulta y le compiten " +
+          "la atención al material que el modelo tiene permitido usar.",
+      },
+    ],
+  },
+  {
     rotulo: "Otras",
     explicacion: "",
     claves: [
@@ -303,6 +354,21 @@ export const GRUPOS_DE_REGLAS: readonly GrupoDeReglas[] = [
         siSeRompe:
           "Con un valor equivocado el tablero muestra pesos que no son. No afecta al bot ni a " +
           "ningún vecino, pero sí a cualquier presupuesto que se saque de esa pantalla.",
+      },
+      {
+        clave: "encuesta_final_minutos",
+        rotulo: "Cuándo preguntar si le sirvió",
+        queHace:
+          "Minutos de silencio tras los que Migue manda la encuesta de cierre, con los dos " +
+          "pulgares. Se pregunta UNA vez por conversación: si el vecino ya votó, no vuelve a " +
+          "preguntar. Y nunca a alguien que sólo saludó y se fue.",
+        tipo: "entero",
+        minimo: 0,
+        maximo: 1440,
+        unidad: "minutos",
+        siSeRompe:
+          "En 0 se apaga la encuesta de cierre. Muy bajo molesta: alguien que tarda dos minutos " +
+          "en escribir la dirección no terminó la charla y va a recibir la pregunta en el medio.",
       },
       {
         clave: "exclusiones_durante_flujo",
@@ -415,6 +481,12 @@ export function validarValor(def: DefinicionClave, crudo: string): Validacion {
       }
       return { ok: true, valor: n };
     }
+
+    case "texto_largo":
+      // Vacío SÍ se admite: es como se apaga una clave desde el panel, y el
+      // código cae a su valor por defecto. Se guarda el crudo sin recortar los
+      // saltos internos, que son parte del valor.
+      return { ok: true, valor: crudo.replace(/\r\n/g, "\n").trim() };
 
     case "texto":
       if (texto === "") return { ok: false, mensaje: "No puede quedar vacío." };

@@ -2339,3 +2339,51 @@ dl.ficha dd {
     display: none;
   }
 }
+
+/* ============================================ los días de una zona === */
+
+/*
+ * Casilleros en fila y no un desplegable múltiple: son siete opciones fijas y
+ * lo que importa es ver de un vistazo cuáles están marcados. Un `<select
+ * multiple>` obliga a abrirlo para saber qué eligió el que cargó la zona.
+ */
+.dias-semana {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dias-semana label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 11px;
+  border: 1px solid var(--linea);
+  border-radius: 999px;
+  background: var(--papel);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--tinta-media);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.dias-semana label:hover {
+  border-color: var(--tinta-suave);
+}
+
+/* El día elegido se marca por COLOR y por el casillero, no sólo por el
+   casillero: con siete pastillas en fila, distinguir cuáles están tildadas
+   mirando siete cuadraditos de 13 px es más trabajo del necesario. */
+.dias-semana label.elegido {
+  border-color: var(--verde-vivo);
+  background: var(--ok-piso);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.dias-semana input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}

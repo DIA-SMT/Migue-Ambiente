@@ -134,7 +134,7 @@ export function Configuracion({
                 </option>
               ))}
             </select>
-          ) : def.tipo === "lista" ? (
+          ) : def.tipo === "lista" || def.tipo === "texto_largo" ? (
             <textarea
               value={valor}
               onChange={(e) => setBorradores((b) => ({ ...b, [def.clave]: e.target.value }))}

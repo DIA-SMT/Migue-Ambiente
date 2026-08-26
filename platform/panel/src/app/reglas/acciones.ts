@@ -425,3 +425,167 @@ export async function simularVolumen(
     detalle: PORQUE[resultado.motivo] ?? "Migue volvería a preguntar la cantidad.",
   };
 }
+
+/* --------------------------------------------- Puntos Verdes y zonas --- */
+
+/*
+ * Estas cuatro acciones no existían, y la pestaña era de sólo lectura por un
+ * motivo que estaba bien escrito: las dos tablas estaban desconectadas del bot,
+ * y un formulario que guarda un dato que no cambia nada es peor que no tenerlo
+ * — alguien corrige una dirección, ve que Migue sigue diciendo la vieja, y deja
+ * de creerle al panel entero.
+ *
+ * Ese motivo dejó de valer. Ahora la respuesta textual de Puntos Verdes dice
+ * `{puntos_verdes}` y una pregunta frecuente dice `{zonas}`: las dos se
+ * resuelven contra estas tablas al momento de contestar. Y los documentos que
+ * tenían las direcciones escritas adentro se dieron de baja, así que ya no hay
+ * una segunda fuente compitiendo por el ranking de la búsqueda.
+ *
+ * O sea que ahora sí: lo que se escriba acá es lo que el vecino escucha.
+ */
+
+export async function guardarPuntoVerde(entrada: {
+  id: string | null;
+  nombre: string;
+  direccion: string;
+  tipo: string;
+  horario: string;
+  materiales: string;
+  observaciones: string;
+  orden: string;
+  activo: boolean;
+}): Promise<Resultado> {
+  const acceso = await conPermiso();
+  if (!acceso) return { ok: false, mensaje: "Tu cuenta no está habilitada." };
+
+  const nombre = entrada.nombre.trim();
+  const direccion = entrada.direccion.trim();
+
+  if (nombre === "") return { ok: false, mensaje: "Ponele un nombre para reconocerlo acá." };
+  // La dirección es lo ÚNICO que el vecino lee de esta fila: `describirPuntosVerdes`
+  // arma «• dirección — horario». Sin dirección, la respuesta sale con una viñeta vacía.
+  if (direccion === "") {
+    return { ok: false, mensaje: "Falta la dirección: es lo que Migue le dice al vecino." };
+  }
+  if (!/^\d+$/.test(entrada.orden.trim())) {
+    return { ok: false, mensaje: "El orden tiene que ser un número entero." };
+  }
+
+  const fila = {
+    nombre,
+    direccion,
+    tipo: entrada.tipo,
+    horario: entrada.horario.trim() || "24 hs",
+    materiales: entrada.materiales
+      .split(",")
+      .map((m) => m.trim().toLowerCase())
+      .filter((m) => m !== ""),
+    observaciones: entrada.observaciones.trim() || null,
+    orden: Number(entrada.orden),
+    activo: entrada.activo,
+  };
+
+  const { error, data } =
+    entrada.id === null
+      ? await acceso.supabase.from("puntos_verdes").insert(fila).select("id")
+      : await acceso.supabase.from("puntos_verdes").update(fila).eq("id", entrada.id).select("id");
+
+  if (error) return { ok: false, mensaje: traducir(error.message, error.code) };
+  if (!data || data.length === 0) return { ok: false, mensaje: "No pude guardar el Punto Verde." };
+
+  refrescar();
+  return { ok: true, mensaje: "Guardado. Migue lo dice dentro de un minuto." };
+}
+
+export async function borrarPuntoVerde(id: string): Promise<Resultado> {
+  const acceso = await conPermiso();
+  if (!acceso) return { ok: false, mensaje: "Tu cuenta no está habilitada." };
+
+  const { error, data } = await acceso.supabase
+    .from("puntos_verdes")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
+  if (error) return { ok: false, mensaje: traducir(error.message, error.code) };
+  if (!data || data.length === 0) {
+    return { ok: false, mensaje: "No se borró nada: puede ser un permiso." };
+  }
+  refrescar();
+  return { ok: true, mensaje: "Borrado. Migue deja de nombrarlo dentro de un minuto." };
+}
+
+/** Los días válidos, en el orden en que se leen. Coinciden con lo que guarda la base. */
+export const DIAS_SEMANA = [
+  "lunes",
+  "martes",
+  "miercoles",
+  "jueves",
+  "viernes",
+  "sabado",
+  "domingo",
+] as const;
+
+export async function guardarZona(entrada: {
+  id: string | null;
+  nombre: string;
+  dias: string[];
+  horaSacar: string;
+  observaciones: string;
+  activo: boolean;
+}): Promise<Resultado> {
+  const acceso = await conPermiso();
+  if (!acceso) return { ok: false, mensaje: "Tu cuenta no está habilitada." };
+
+  const nombre = entrada.nombre.trim();
+  if (nombre === "") return { ok: false, mensaje: "Ponele un nombre a la zona." };
+
+  // Se filtran contra la lista en vez de aceptar lo que llegue: `describirZonas`
+  // los imprime tal cual, así que un «lunez» mal tipeado se lo lleva el vecino.
+  const dias = entrada.dias.filter((d) => (DIAS_SEMANA as readonly string[]).includes(d));
+  if (dias.length === 0) return { ok: false, mensaje: "Elegí al menos un día." };
+
+  const fila = {
+    nombre,
+    // Se guardan en orden de semana, no en el que se tocaron los casilleros: la
+    // respuesta al vecino dice «lunes, martes y viernes», y «viernes, lunes y
+    // martes» se lee como un error aunque los días sean los correctos.
+    dias: (DIAS_SEMANA as readonly string[]).filter((d) => dias.includes(d)),
+    hora_sacar: entrada.horaSacar.trim() || null,
+    observaciones: entrada.observaciones.trim() || null,
+    activo: entrada.activo,
+  };
+
+  const { error, data } =
+    entrada.id === null
+      ? await acceso.supabase.from("zonas_recoleccion").insert(fila).select("id")
+      : await acceso.supabase
+          .from("zonas_recoleccion")
+          .update(fila)
+          .eq("id", entrada.id)
+          .select("id");
+
+  if (error) return { ok: false, mensaje: traducir(error.message, error.code) };
+  if (!data || data.length === 0) return { ok: false, mensaje: "No pude guardar la zona." };
+
+  refrescar();
+  return { ok: true, mensaje: "Guardada. Migue la dice dentro de un minuto." };
+}
+
+export async function borrarZona(id: string): Promise<Resultado> {
+  const acceso = await conPermiso();
+  if (!acceso) return { ok: false, mensaje: "Tu cuenta no está habilitada." };
+
+  const { error, data } = await acceso.supabase
+    .from("zonas_recoleccion")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
+  if (error) return { ok: false, mensaje: traducir(error.message, error.code) };
+  if (!data || data.length === 0) {
+    return { ok: false, mensaje: "No se borró nada: puede ser un permiso." };
+  }
+  refrescar();
+  return { ok: true, mensaje: "Borrada." };
+}

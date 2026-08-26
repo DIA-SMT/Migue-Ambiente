@@ -318,6 +318,14 @@ function instrucciones(catalogo: Catalogo): string {
     "Formato: devolvé SOLO este JSON.",
     '{"puede_responder": true|false, "respuesta": "...", "confianza": 0.0-1.0}',
     "",
+    // Va con las reglas clavadas y no con el estilo editable, aunque parezca
+    // una preferencia de redacción. Telegram recibe el texto sin `parse_mode`,
+    // así que un `**Lunes a viernes**` no falla el envío: le llega al vecino con
+    // los asteriscos puestos, en todas las consultas, hasta que alguien lo note.
+    // Es la única línea del bloque de estilo que puede hacer daño constante y
+    // silencioso, así que no se puede borrar desde el panel.
+    "Texto plano. Sin asteriscos, sin markdown, sin encabezados.",
+    "",
     "Cómo escribir la respuesta:",
     estilo,
     "",
@@ -336,7 +344,6 @@ function instrucciones(catalogo: Catalogo): string {
 const ESTILO_POR_DEFECTO = [
   "- Español rioplatense, voseo. Tratamiento cordial y directo.",
   "- Breve: dos o tres frases salvo que la pregunta pida un listado.",
-  "- Texto plano. Sin asteriscos, sin markdown, sin encabezados.",
   "- Dá el dato primero. Si hace falta aclarar algo, después.",
   "- No cites números de fragmento ni nombres de archivo: al vecino no le sirven.",
   "- Si el contexto tiene direcciones u horarios, transcribilos exactos.",
