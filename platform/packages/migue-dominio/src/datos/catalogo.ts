@@ -234,6 +234,36 @@ export function describirPuntosVerdes(catalogo: Catalogo, maximo = 5): string {
     .join("\n");
 }
 
+/** Une una lista en castellano: «lunes, martes y viernes». */
+function enumerar(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} y ${items.at(-1)}`;
+}
+
+/** Los límites de volumen, tal como los tiene cargados el área. */
+export function describirLimites(catalogo: Catalogo): string {
+  const activos = catalogo.limitesVolumen.filter((l) => l.activo);
+  if (activos.length === 0) return "No tengo los límites cargados en este momento.";
+  return activos
+    .map((l) => {
+      const peso = l.pesoMaxBolsaKg ? ` (hasta ${l.pesoMaxBolsaKg} kg cada una)` : "";
+      return `• ${l.etiqueta}: hasta ${l.limiteValor} ${l.limiteUnidad}${peso}`;
+    })
+    .join("\n");
+}
+
+/** Los días de recolección por zona. */
+export function describirZonas(catalogo: Catalogo): string {
+  // Sin filtro por activo: el catálogo ya trae sólo las activas, y el tipo del
+  // dominio ni siquiera expone esa columna. Filtrar acá por un campo que no
+  // existe fue lo que atajó el typecheck.
+  const activas = catalogo.zonas;
+  if (activas.length === 0) return "No tengo las zonas de recolección cargadas en este momento.";
+  return activas
+    .map((z) => `• ${z.nombre}: ${enumerar(z.dias)}${z.horaSacar ? `, sacar a las ${z.horaSacar}` : ""}`)
+    .join("\n");
+}
+
 /**
  * Los valores con los que se resuelven los marcadores de una respuesta fija.
  *
@@ -251,6 +281,13 @@ export function describirPuntosVerdes(catalogo: Catalogo, maximo = 5): string {
 export function valoresDeRespuestaFija(catalogo: Catalogo): Record<string, string> {
   return {
     puntos_verdes: describirPuntosVerdes(catalogo),
+    // El plazo que Migue promete, en palabras. NO es `{plazo}` de los flujos:
+    // aquél es una fecha concreta calculada contra el momento del pedido, y
+    // acá no hay pedido. Éste dice la duración, que es lo que contesta un
+    // «¿cuánto tardan?» hecho antes de pedir nada.
+    plazo_habitual: `${Number(leerConfig(catalogo, "sla_horas_habiles", 72))} horas hábiles`,
+    limites: describirLimites(catalogo),
+    zonas: describirZonas(catalogo),
     empresa: String(leerConfig(catalogo, "empresa_recoleccion", "la empresa de recolección")),
   };
 }

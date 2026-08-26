@@ -207,6 +207,29 @@ export async function responderConsulta(
     return sinRespuesta(catalogo, "sin_coincidencia", traza);
   }
 
+  // Las FAQs también se interpolan, y ACÁ, antes de armar el contexto: el
+  // modelo nunca llega a ver un `{marcador}`.
+  //
+  // El comentario que había en el panel decía que una FAQ no podía interpolar
+  // porque «entra al modelo como material y puede salir copiada igual». Era
+  // cierto de un marcador SIN resolver. Resuelto antes, la objeción desaparece:
+  // el modelo lee «hasta 5 bolsas», no «{limites}».
+  //
+  // Lo que sí se pierde es que el índice de texto completo guarda el marcador
+  // crudo, así que buscar «bolsas» no matchea contra el cuerpo de esa FAQ. Pesa
+  // poco y está compensado por diseño: el índice pondera la PREGUNTA con peso A
+  // y la respuesta con B, y el nivel difuso —el que tolera errores de tipeo—
+  // compara únicamente contra la pregunta. Por eso las preguntas de las FAQs se
+  // escriben con las palabras que usaría un vecino.
+  //
+  // Sólo se tocan las FAQs: un fragmento de PDF no tiene marcadores, y correr
+  // `interpolar` sobre él podría comerse una llave que forme parte del texto
+  // original del documento.
+  const valores = valoresDeRespuestaFija(catalogo);
+  coincidencias = coincidencias.map((c) =>
+    c.origen === "faq" ? { ...c, texto: interpolar(c.texto, valores) } : c,
+  );
+
   // 4 · Síntesis. El modelo lee SOLO el contexto recuperado.
   try {
     const r = await chat({

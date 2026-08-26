@@ -71,7 +71,13 @@ export const MARCADORES_POR_TEXTO: Readonly<Record<string, readonly string[]>> =
  * lo que el modelo haga con un `{marcador}` —copiarlo, parafrasearlo, ignorarlo—
  * no está bajo nuestro control.
  */
-export const MARCADORES_DE_RESPUESTA_FIJA = ["{puntos_verdes}", "{empresa}"] as const;
+export const MARCADORES_DE_RESPUESTA_FIJA = [
+  "{puntos_verdes}",
+  "{plazo_habitual}",
+  "{limites}",
+  "{zonas}",
+  "{empresa}",
+] as const;
 
 /**
  * Los marcadores escritos en una respuesta fija que el bot NO va a resolver.

@@ -49,43 +49,34 @@ function refrescar() {
 }
 
 /**
- * Rechaza los marcadores en una PREGUNTA FRECUENTE.
+ * Rechaza los marcadores que el bot NO sabe resolver.
  *
- * Una FAQ no se interpola nunca, y no es un olvido: entra al modelo como
- * material, y lo que el modelo haga con un `{marcador}` —copiarlo tal cual,
- * parafrasearlo, ignorarlo— no está bajo nuestro control. Una respuesta fija sí
- * se interpola, porque se envía textual y sabemos exactamente qué sale.
- */
-function sinMarcadores(texto: string): Resultado | null {
-  const usados = [...new Set([...texto.matchAll(/\{[a-zA-Z_]+\}/g)].map((m) => m[0]))];
-  if (usados.length === 0) return null;
-  return {
-    ok: false,
-    mensaje:
-      `${usados.join(", ")} no se reemplaza en una pregunta frecuente: el texto entra al modelo ` +
-      `como material y puede salir copiado con las llaves. Si necesitás un dato que se actualice ` +
-      `solo, escribilo como respuesta textual, que sí los reemplaza.`,
-  };
-}
-
-/**
- * Rechaza sólo los marcadores que una respuesta TEXTUAL no sabe resolver.
+ * Vale igual para una pregunta frecuente y para una respuesta textual, y eso
+ * cambió: antes las FAQs los rechazaban todos.
  *
- * Las textuales se envían sin pasar por el modelo y se interpolan contra el
- * catálogo, así que aceptan los de `MARCADORES_DE_RESPUESTA_FIJA`. La lista
- * vive en el dominio y no acá: es una propiedad del código del bot —qué valores
- * sabe resolver `valoresDeRespuestaFija`— y una copia en el panel se
- * desincronizaría en el primer marcador nuevo. En este proyecto eso ya pasó
- * tres veces.
+ * El motivo de aquella prohibición era bueno —una FAQ entra al modelo como
+ * material, y un `{marcador}` sin resolver podía salir copiado con las llaves—
+ * pero se resolvió por el otro lado: ahora los marcadores de una FAQ se
+ * reemplazan ANTES de armar el contexto, así que el modelo lee «hasta 5
+ * bolsas» y nunca ve una llave.
+ *
+ * Sirve para que los datos operativos vivan en UN solo lugar. Escribir «hasta 5
+ * bolsas» adentro de diez FAQs es crear diez lugares donde ese número queda
+ * viejo el día que el área lo cambie en Reglas, sin que nada avise.
+ *
+ * La lista de cuáles son válidos vive en el dominio y no acá: es una propiedad
+ * del código del bot —qué sabe resolver `valoresDeRespuestaFija`— y una copia
+ * en el panel se desincronizaría en el primer marcador nuevo. En este proyecto
+ * eso ya pasó tres veces.
  */
-function marcadoresValidosEnFija(texto: string): Resultado | null {
+function marcadoresValidos(texto: string): Resultado | null {
   const invalidos = marcadoresQueNoResuelveUnaFija(texto);
   if (invalidos.length === 0) return null;
   return {
     ok: false,
     mensaje:
       `${invalidos.join(", ")} no se reemplaza: se le enviaría al vecino con las llaves puestas. ` +
-      `Una respuesta textual sólo sabe resolver ${MARCADORES_DE_RESPUESTA_FIJA.join(", ")}.`,
+      `Los que sí funcionan son ${MARCADORES_DE_RESPUESTA_FIJA.join(", ")}.`,
   };
 }
 
@@ -107,7 +98,7 @@ export async function guardarFaq(entrada: {
     return { ok: false, mensaje: "La pregunta y la respuesta no pueden quedar vacías." };
   }
 
-  const conLlaves = sinMarcadores(respuesta);
+  const conLlaves = marcadoresValidos(respuesta);
   if (conLlaves) return conLlaves;
 
   // Las etiquetas llegan como texto separado por comas: es la forma más simple
@@ -193,7 +184,7 @@ export async function guardarFija(entrada: {
     return { ok: false, mensaje: "El nombre y la respuesta no pueden quedar vacías." };
   }
 
-  const conLlaves = marcadoresValidosEnFija(respuesta);
+  const conLlaves = marcadoresValidos(respuesta);
   if (conLlaves) return conLlaves;
   if (disparadores.length === 0) {
     // La tabla tiene un check que lo exige; validarlo acá da un mensaje legible.

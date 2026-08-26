@@ -56,6 +56,25 @@ describe("valoresDeRespuestaFija", () => {
     assert.ok(!texto.includes("{"), "no puede quedar una llave suelta");
   });
 
+  it("resuelve los límites de volumen desde la tabla", () => {
+    const texto = interpolar("{limites}", valoresDeRespuestaFija(catalogoPrueba()));
+    assert.ok(!texto.includes("{limites}"), texto);
+    assert.ok(texto.includes("•"), "esperaba una lista con viñetas: " + texto);
+  });
+
+  it("resuelve los días de recolección por zona", () => {
+    const texto = interpolar("{zonas}", valoresDeRespuestaFija(catalogoPrueba()));
+    assert.ok(texto.includes("Zona Norte"), texto);
+    // Enumerado en castellano, no separado por comas hasta el final.
+    assert.ok(texto.includes(" y "), "esperaba «lunes, martes y viernes»: " + texto);
+  });
+
+  it("sin límites ni zonas cargados lo dice, en vez de dejar un hueco", () => {
+    const vacio = catalogoPrueba({ limitesVolumen: [], zonas: [] });
+    const texto = interpolar("{limites}|{zonas}", valoresDeRespuestaFija(vacio));
+    assert.ok(!texto.includes("{"), "no puede quedar una llave suelta: " + texto);
+  });
+
   it("resuelve la empresa de recolección desde la configuración", () => {
     const texto = interpolar("Se encarga {empresa}.", valoresDeRespuestaFija(catalogoPrueba()));
     assert.ok(!texto.includes("{empresa}"), texto);
