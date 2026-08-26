@@ -5,6 +5,7 @@
  * así que agregar uno nuevo no implica tocar el motor.
  */
 import { decir, type MensajeEntrante, type MensajeSaliente } from "../mensajeria.ts";
+import { nombreDelArea } from "../datos/catalogo.ts";
 import { resolverOpcion, type OpcionElegible } from "./opciones.ts";
 import type {
   ContextoFlujo,
@@ -161,7 +162,7 @@ export function avanzarFlujo(
             decir(
               "Veo que no logramos avanzar con este dato. Dejo el pedido sin registrar " +
                 "para no cargarlo incompleto. Podés volver a empezar cuando quieras, o " +
-                "acercarte a la Dirección de Ambiente si preferís hacerlo por otra vía.",
+                `acercarte a la ${nombreDelArea(ctx.catalogo)} si preferís hacerlo por otra vía.`,
               "nada",
             ),
           ],

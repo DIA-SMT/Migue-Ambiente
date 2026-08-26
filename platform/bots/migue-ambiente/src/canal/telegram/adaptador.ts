@@ -131,8 +131,14 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
       );
       await ctx
         .reply(
+          // El único texto al vecino que sigue clavado en el código, y con
+          // motivo: esto corre cuando atender el mensaje FALLÓ, y leer el
+          // catálogo para saber cómo se llama el área puede ser exactamente lo
+          // que acaba de fallar. Un mensaje de error que también falla deja al
+          // vecino sin nada. El nombre está verificado contra los Planes
+          // Rectores del municipio.
           "Tuve un problema para procesar tu mensaje. Probá de nuevo en un momento, " +
-            "o escribí a la Dirección de Ambiente si es urgente.",
+            "o escribí a la Secretaría de Ambiente y Desarrollo Sustentable si es urgente.",
         )
         .catch(() => undefined);
     }

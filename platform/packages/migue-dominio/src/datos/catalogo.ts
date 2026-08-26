@@ -240,6 +240,20 @@ function enumerar(items: readonly string[]): string {
   return `${items.slice(0, -1).join(", ")} y ${items.at(-1)}`;
 }
 
+/**
+ * Cómo se llama el área. Una sola definición para los tres lugares que la
+ * nombran: los dos prompts y el mensaje de intentos agotados.
+ *
+ * El valor por defecto no es un invento: los Planes Rectores del municipio
+ * dicen «Secretaría de Ambiente y Desarrollo Sustentable» cuatro veces y
+ * «Dirección de Ambiente» ninguna, que es lo que decía el código antes.
+ */
+export function nombreDelArea(catalogo: Catalogo): string {
+  return String(
+    leerConfig(catalogo, "nombre_area", "Secretaría de Ambiente y Desarrollo Sustentable"),
+  );
+}
+
 /** Los límites de volumen, tal como los tiene cargados el área. */
 export function describirLimites(catalogo: Catalogo): string {
   const activos = catalogo.limitesVolumen.filter((l) => l.activo);

@@ -17,7 +17,7 @@
  * que una lista de veinte palabras resuelve igual.
  */
 import { chat, parsearJson } from "./cliente.ts";
-import { leerConfig, type Catalogo } from "../datos/catalogo.ts";
+import { leerConfig, nombreDelArea, type Catalogo } from "../datos/catalogo.ts";
 import { contienePalabra, normalizar, recortar } from "../texto.ts";
 import type { NombreFlujo } from "../flujos/tipos.ts";
 
@@ -210,10 +210,13 @@ interface SalidaRouter {
   readonly confianza?: number;
 }
 
-function instrucciones(): string {
+function instrucciones(catalogo: Catalogo): string {
+  // Mismo nombre de área que usa la respuesta: si el clasificador y el que
+  // contesta dijeran áreas distintas, el modelo recibiría dos identidades.
+  const area = nombreDelArea(catalogo);
   return [
-    "Clasificás el mensaje de un vecino que le escribe al bot de la Dirección de",
-    "Ambiente de San Miguel de Tucumán. Devolvés SOLO JSON:",
+    `Clasificás el mensaje de un vecino que le escribe al bot de la ${area}`,
+    "de la Municipalidad de San Miguel de Tucumán. Devolvés SOLO JSON:",
     '{"intencion": "...", "confianza": 0.0-1.0}',
     "",
     "Intenciones posibles:",
@@ -305,7 +308,7 @@ export async function clasificar(
       timeoutMs: 12_000,
       json: true,
       mensajes: [
-        { role: "system", content: instrucciones() },
+        { role: "system", content: instrucciones(catalogo) },
         { role: "user", content: recortar(texto, 800) },
       ],
     });

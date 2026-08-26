@@ -14,6 +14,7 @@ import { chat, parsearJson } from "../ia/cliente.ts";
 import {
   leerConfig,
   leerTexto,
+  nombreDelArea,
   valoresDeRespuestaFija,
   type Catalogo,
 } from "../datos/catalogo.ts";
@@ -238,7 +239,7 @@ export async function responderConsulta(
       temperatura: 0.2,
       json: true,
       mensajes: [
-        { role: "system", content: instrucciones() },
+        { role: "system", content: instrucciones(catalogo) },
         {
           role: "user",
           content:
@@ -287,9 +288,26 @@ export async function responderConsulta(
   }
 }
 
-function instrucciones(): string {
+/**
+ * El prompt de la respuesta: lo que se puede editar y lo que no.
+ *
+ * EDITABLE desde Reglas: el nombre del área y el estilo de redacción. Son del
+ * área, cambian con el tiempo, y lo peor que pasa si alguien vacía el estilo es
+ * que Migue conteste más seco — el código cae al de por defecto.
+ *
+ * CLAVADO acá, y a propósito: la regla de responder únicamente con lo que está
+ * en el contexto, y el formato JSON. La primera es lo que impide que Migue
+ * invente un horario de recolección y el vecino organice su semana con un dato
+ * falso; el segundo es el contrato con el parseo, y romperlo deja al bot sin
+ * poder contestar nada. Para tocar cualquiera de las dos hace falta un deploy, y
+ * está bien que así sea.
+ */
+function instrucciones(catalogo: Catalogo): string {
+  const area = nombreDelArea(catalogo);
+  const estilo = String(leerConfig(catalogo, "estilo_respuesta", "")).trim() || ESTILO_POR_DEFECTO;
+
   return [
-    "Sos Migue Ambiente, el asistente de la Dirección de Ambiente de la Municipalidad de",
+    `Sos Migue Ambiente, el asistente de la ${area} de la Municipalidad de`,
     "San Miguel de Tucumán. Le hablás a un vecino por chat.",
     "",
     "REGLA ABSOLUTA: respondés ÚNICAMENTE con información que esté en el CONTEXTO.",
@@ -301,17 +319,28 @@ function instrucciones(): string {
     '{"puede_responder": true|false, "respuesta": "...", "confianza": 0.0-1.0}',
     "",
     "Cómo escribir la respuesta:",
-    "- Español rioplatense, voseo. Tratamiento cordial y directo.",
-    "- Breve: dos o tres frases salvo que la pregunta pida un listado.",
-    "- Texto plano. Sin asteriscos, sin markdown, sin encabezados.",
-    "- Dá el dato primero. Si hace falta aclarar algo, después.",
-    "- No cites números de fragmento ni nombres de archivo: al vecino no le sirven.",
-    "- Si el contexto tiene direcciones u horarios, transcribilos exactos.",
+    estilo,
     "",
     "confianza refleja cuán bien el contexto responde la pregunta, no cuán segura suena",
     "tu redacción.",
   ].join("\n");
 }
+
+/**
+ * El estilo con el que Migue escribe cuando nadie cargó uno.
+ *
+ * Es el que estaba clavado antes de que fuera editable. Existe como piso: si
+ * alguien vacía la clave desde el panel, el bot sigue escribiendo como
+ * corresponde en vez de quedar sin ninguna instrucción de redacción.
+ */
+const ESTILO_POR_DEFECTO = [
+  "- Español rioplatense, voseo. Tratamiento cordial y directo.",
+  "- Breve: dos o tres frases salvo que la pregunta pida un listado.",
+  "- Texto plano. Sin asteriscos, sin markdown, sin encabezados.",
+  "- Dá el dato primero. Si hace falta aclarar algo, después.",
+  "- No cites números de fragmento ni nombres de archivo: al vecino no le sirven.",
+  "- Si el contexto tiene direcciones u horarios, transcribilos exactos.",
+].join("\n");
 
 function sinRespuesta(
   catalogo: Catalogo,
