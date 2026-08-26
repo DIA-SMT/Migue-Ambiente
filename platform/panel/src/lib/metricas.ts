@@ -663,3 +663,88 @@ export function medirVotos(conversaciones: readonly VotosDeConversacion[]): Voto
     total: utiles + noUtiles,
   };
 }
+
+/* -------------------------------------------------------------- pesos --- */
+
+/**
+ * A partir de cuántos días una cotización deja de describir el presente.
+ *
+ * Treinta es generoso para Argentina y ese es el punto: no es un umbral fino,
+ * es el momento en que el tablero deja de presentar los pesos como si fueran de
+ * hoy. Por debajo tampoco los presenta a ciegas — la cotización usada y su fecha
+ * van SIEMPRE al lado del número.
+ */
+export const DIAS_PARA_COTIZACION_VIEJA = 30;
+
+export interface Cotizacion {
+  /** Pesos por dólar. 0 significa que nadie la cargó todavía. */
+  readonly valor: number;
+  readonly actualizadoEn: string | null;
+  /**
+   * Si alguien la editó desde el panel.
+   *
+   * La fila se siembra con la migración, y ahí `actualizado_en` es la fecha de
+   * la migración pero `actualizado_por` queda en null. Sin esta distinción, una
+   * fila recién sembrada se vería «actualizada hoy» sin que nadie haya mirado
+   * un número.
+   */
+  readonly editadaPorAlguien: boolean;
+}
+
+export interface Cotizada {
+  /** Si se puede convertir. Con `false` el tablero muestra sólo dólares. */
+  readonly hay: boolean;
+  readonly ars: number;
+  readonly vieja: boolean;
+  readonly dias: number | null;
+}
+
+/**
+ * Dólares a pesos, diciendo siempre qué tan vieja es la cotización.
+ *
+ * Sin cotización no se inventa nada: `hay: false` y el tablero pide que se
+ * cargue. Un número en pesos calculado con un valor por defecto inventado es
+ * peor que no mostrar pesos, porque nadie sabría que es inventado.
+ */
+export function convertirAPesos(usd: number, c: Cotizacion, ahora: number): Cotizada {
+  if (!(c.valor > 0)) return { hay: false, ars: 0, vieja: false, dias: null };
+
+  const dias =
+    c.actualizadoEn === null
+      ? null
+      : Math.floor((ahora - new Date(c.actualizadoEn).getTime()) / 86_400_000);
+
+  return {
+    hay: true,
+    ars: usd * c.valor,
+    // Sin fecha, o sin que nadie la haya revisado nunca, se trata como vieja: es
+    // el lado seguro. Una cotización que nadie miró no es más confiable que una
+    // de hace tres meses.
+    vieja: !c.editadaPorAlguien || dias === null || dias >= DIAS_PARA_COTIZACION_VIEJA,
+    dias,
+  };
+}
+
+/**
+ * Pesos, con el símbolo puesto a mano y no con `style: "currency"`.
+ *
+ * El formateo de moneda deja el símbolo, su posición y el tipo de espacio en
+ * manos de la implementación de ICU, y la de Node no tiene por qué coincidir con
+ * la del navegador. No hace falta averiguar si coinciden en cada versión: se
+ * evita el problema. El agrupamiento de miles sí se delega, que es donde no hay
+ * discusión —y es lo que ya usa `numero()` sin romper la hidratación—.
+ *
+ * Los decimales aparecen sólo por debajo de cien pesos. Arriba de eso son ruido:
+ * a nadie le importan los centavos de un gasto de veinte mil.
+ *
+ * `decimales` fuerza la cantidad, y existe para UN caso: la cotización misma.
+ * Un total de «$ 1.386» redondeado no le miente a nadie, pero mostrar la
+ * cotización redondeada sí — el que rehaga la cuenta a mano con 1.386 no le va a
+ * dar, porque el tablero multiplicó por 1385,5.
+ */
+export function pesos(ars: number, decimales = Math.abs(ars) < 100 ? 2 : 0): string {
+  return `$ ${new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: decimales,
+    maximumFractionDigits: decimales,
+  }).format(ars)}`;
+}

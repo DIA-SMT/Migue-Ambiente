@@ -3,20 +3,23 @@ import type { PersonaDelPanel } from "@/lib/supabase-servidor";
 import { Ranking, SerieDeActividad, numero } from "@/componentes/Graficos";
 import {
   MINIMO_PARA_PORCENTAJE,
+  convertirAPesos,
   dolares,
   medirAlcance,
   medirCasos,
   medirCosto,
   medirVotos,
+  pesos,
   proporcion,
   repartoPorIntencion,
   repartoPorOrigen,
   serieDiaria,
   type ConversacionMedida,
+  type Cotizacion,
   type MensajeMedido,
   type VotosDeConversacion,
 } from "@/lib/metricas";
-import type { Ticket } from "@/lib/tipos";
+import { fechaLegible, type Ticket } from "@/lib/tipos";
 
 /**
  * Cuántos días muestra la serie.
@@ -93,6 +96,7 @@ export function Portada({
   votosPorConversacion,
   preguntasPendientes,
   ventanaHoras,
+  cotizacion,
   alcanzoElLimite,
   problema,
 }: {
@@ -104,6 +108,7 @@ export function Portada({
   votosPorConversacion: readonly VotosDeConversacion[];
   preguntasPendientes: number;
   ventanaHoras: number;
+  cotizacion: Cotizacion;
   alcanzoElLimite: boolean;
   problema: string | null;
 }) {
@@ -116,6 +121,16 @@ export function Portada({
   const costo = medirCosto(mensajes, alcance.conversaciones);
   const votos = medirVotos(votosPorConversacion);
   const casos = medirCasos(tickets, ahoraMs);
+
+  // El costo llega de OpenRouter en dólares. Los pesos son una LECTURA de ese
+  // número, no otro dato: por eso se convierten acá y no se guardan, y por eso
+  // el dólar sigue siendo lo que se muestra grande.
+  const enPesos = convertirAPesos(costo.totalUsd, cotizacion, ahoraMs);
+  const porConversacionEnPesos = convertirAPesos(
+    costo.porConversacion ?? 0,
+    cotizacion,
+    ahoraMs,
+  );
 
   const salientes = mensajes.filter((m) => m.direccion === "saliente").length;
   const conIntencion = intenciones.reduce((n, i) => n + i.n, 0);
@@ -186,6 +201,7 @@ export function Portada({
             </div>
             <div>
               <span className="n">{dolares(costo.totalUsd)}</span>
+              {enPesos.hay && <span className="eq">≈ {pesos(enPesos.ars)}</span>}
               <span className="r">Gastado en IA</span>
             </div>
           </div>
@@ -316,12 +332,16 @@ export function Portada({
             <div className="plata">
               <div>
                 <span className="n">{dolares(costo.totalUsd)}</span>
+                {enPesos.hay && <span className="eq">≈ {pesos(enPesos.ars)}</span>}
                 <span className="r">Total</span>
               </div>
               <div>
                 <span className="n">
                   {costo.porConversacion === null ? "—" : dolares(costo.porConversacion)}
                 </span>
+                {costo.porConversacion !== null && porConversacionEnPesos.hay && (
+                  <span className="eq">≈ {pesos(porConversacionEnPesos.ars)}</span>
+                )}
                 <span className="r">Por conversación</span>
               </div>
               <div>
@@ -329,6 +349,35 @@ export function Portada({
                 <span className="r">Tokens</span>
               </div>
             </div>
+
+            {/* La cotización usada va SIEMPRE con el número, nunca escondida.
+                Pesos sin decir a qué dólar es un número que envejece en silencio:
+                a los tres meses sigue viéndose igual de confiable y ya no lo es. */}
+            {enPesos.hay ? (
+              <p className={enPesos.vieja ? "aviso atencion" : "ayuda"}>
+                {/* La cotización se muestra con sus decimales: es el número con
+                    el que se multiplicó, y tiene que poder rehacerse a mano. */}
+                Los pesos son a{" "}
+                <strong>
+                  {pesos(cotizacion.valor, Number.isInteger(cotizacion.valor) ? 0 : 2)} por dólar
+                </strong>
+                {cotizacion.actualizadoEn !== null && (
+                  <>, cargado el {fechaLegible(cotizacion.actualizadoEn)}</>
+                )}
+                .{" "}
+                {enPesos.vieja &&
+                  (enPesos.dias === null || !cotizacion.editadaPorAlguien
+                    ? "Nadie revisó ese valor todavía, así que tomalo como referencia y no como presupuesto. "
+                    : `Hace ${enPesos.dias} días de eso: los pesos de arriba son a ese valor, no al de hoy. `)}
+                Se cambia en <Link href="/reglas">Reglas</Link>.
+              </p>
+            ) : (
+              <p className="ayuda">
+                OpenRouter informa el costo en dólares. Para verlo también en pesos hay que cargar
+                el tipo de cambio en <Link href="/reglas">Reglas</Link> — es la única regla de esa
+                pantalla que no cambia nada de lo que recibe el vecino.
+              </p>
+            )}
 
             {costo.porModelo.length > 0 && (
               <Ranking

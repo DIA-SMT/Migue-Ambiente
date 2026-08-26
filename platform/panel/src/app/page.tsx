@@ -4,9 +4,17 @@ import { Portada } from "./Portada";
 import {
   LIMITE_FILAS,
   type ConversacionMedida,
+  type Cotizacion,
   type MensajeMedido,
   type VotosDeConversacion,
 } from "@/lib/metricas";
+
+interface FilaConfig {
+  clave: string;
+  valor: unknown;
+  actualizado_en: string | null;
+  actualizado_por: string | null;
+}
 import type { Ticket } from "@/lib/tipos";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +92,15 @@ export default async function Inicio() {
       .select("id", { count: "exact", head: true })
       .eq("estado", "pendiente"),
 
-    supabase.from("configuracion").select("clave, valor").eq("clave", "conversacion_ventana_horas"),
+    // `actualizado_en` y `actualizado_por` hacen falta para el tipo de cambio:
+    // el tablero no muestra pesos sin decir de cuándo es la cotización, y
+    // `actualizado_por` en null distingue una fila sembrada por la migración de
+    // una que alguien miró.
+    supabase
+      .from("configuracion")
+      .select("clave, valor, actualizado_en, actualizado_por")
+      .in("clave", ["conversacion_ventana_horas", "tipo_cambio_usd_ars"])
+      .returns<FilaConfig[]>(),
   ]);
 
   const problema =
@@ -99,6 +115,19 @@ export default async function Inicio() {
     (config.data ?? []).find((c) => c.clave === "conversacion_ventana_horas")?.valor ?? 24,
   );
 
+  // `valor` es jsonb: para una clave numérica llega como número, pero una fila
+  // cargada a mano por SQL podría traer la cadena "1300". `Number()` cubre las
+  // dos, y `convertirAPesos` descarta lo que no sea mayor que cero —incluido el
+  // NaN de un texto que no es número—.
+  const filaCambio = (config.data ?? []).find((c) => c.clave === "tipo_cambio_usd_ars");
+  const cotizacion: Cotizacion = {
+    valor: Number(filaCambio?.valor ?? 0),
+    actualizadoEn: filaCambio?.actualizado_en ?? null,
+    // Sembrada por la migración, `actualizado_por` queda en null. Es lo que
+    // distingue una fila que nadie miró de una que alguien cargó a conciencia.
+    editadaPorAlguien: (filaCambio?.actualizado_por ?? null) !== null,
+  };
+
   return (
     <Armazon persona={persona} actual="/">
       <Portada
@@ -110,6 +139,7 @@ export default async function Inicio() {
         votosPorConversacion={votos.data ?? []}
         preguntasPendientes={sinResponder.count ?? 0}
         ventanaHoras={ventanaHoras}
+        cotizacion={cotizacion}
         alcanzoElLimite={(mensajes.data ?? []).length >= LIMITE_FILAS}
         problema={problema?.message ?? null}
       />

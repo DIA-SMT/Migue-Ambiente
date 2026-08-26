@@ -286,6 +286,25 @@ export const GRUPOS_DE_REGLAS: readonly GrupoDeReglas[] = [
         unidad: "horas",
       },
       {
+        clave: "tipo_cambio_usd_ars",
+        rotulo: "Tipo de cambio, para leer el costo en pesos",
+        queHace:
+          "Cuántos pesos vale un dólar. El costo de la IA llega de OpenRouter en dólares; el " +
+          "tablero lo convierte con este valor y muestra siempre al lado la cotización usada y " +
+          "desde cuándo está cargada. En 0 no convierte nada y pide que se cargue. " +
+          "Es la única regla de esta pantalla que NO cambia nada de lo que recibe el vecino: " +
+          "sólo afecta cómo se lee el tablero.",
+        tipo: "decimal",
+        minimo: 0,
+        // Un tope alto pero finito: sirve para atajar el cero de más al tipear,
+        // que convertiría un gasto de diez dólares en catorce millones de pesos.
+        maximo: 1_000_000,
+        unidad: "pesos por dólar",
+        siSeRompe:
+          "Con un valor equivocado el tablero muestra pesos que no son. No afecta al bot ni a " +
+          "ningún vecino, pero sí a cualquier presupuesto que se saque de esa pantalla.",
+      },
+      {
         clave: "exclusiones_durante_flujo",
         rotulo: "Interrumpir un trámite si hay una urgencia",
         queHace:

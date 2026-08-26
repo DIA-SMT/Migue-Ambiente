@@ -1657,6 +1657,29 @@ dl.ficha dd {
   margin-top: 2px;
 }
 
+/* El equivalente en pesos, debajo del dólar y más chico.
+   El dólar sigue siendo el número grande porque es el dato REAL —es lo que
+   informa OpenRouter y lo que se guarda—. El peso es una lectura de ese dato
+   con una cotización que alguien cargó a mano y que puede estar vieja. La
+   jerarquía tipográfica dice cuál es cuál sin que haya que explicarlo. */
+.portada-cifras .eq,
+.plata .eq {
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+.portada-cifras .eq {
+  font-size: 0.82rem;
+  color: rgba(220, 235, 226, 0.72);
+}
+
+.plata .eq {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--tinta-media);
+}
+
 /* ----------------------------------------------------------- los votos --- */
 
 .votos {

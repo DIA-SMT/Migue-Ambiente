@@ -13,7 +13,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DIAS_PARA_COTIZACION_VIEJA,
+  convertirAPesos,
   medirVotos,
+  pesos,
   repartoPorIntencion,
   serieDiaria,
   type ConversacionMedida,
@@ -215,5 +218,79 @@ describe("medirVotos", () => {
       tramiteDificil: 0,
       total: 0,
     });
+  });
+});
+
+describe("convertirAPesos", () => {
+  const AYER = new Date(AHORA - 86_400_000).toISOString();
+
+  it("sin cotización cargada no inventa un número", () => {
+    const c = convertirAPesos(10, { valor: 0, actualizadoEn: AYER, editadaPorAlguien: true }, AHORA);
+    assert.equal(c.hay, false);
+    assert.equal(c.ars, 0);
+  });
+
+  it("convierte y dice hace cuántos días es la cotización", () => {
+    const c = convertirAPesos(
+      2,
+      { valor: 1300, actualizadoEn: AYER, editadaPorAlguien: true },
+      AHORA,
+    );
+    assert.equal(c.hay, true);
+    assert.equal(c.ars, 2600);
+    assert.equal(c.dias, 1);
+    assert.equal(c.vieja, false);
+  });
+
+  it("pasado el umbral la marca vieja", () => {
+    const viejo = new Date(AHORA - DIAS_PARA_COTIZACION_VIEJA * 86_400_000).toISOString();
+    const c = convertirAPesos(1, { valor: 1300, actualizadoEn: viejo, editadaPorAlguien: true }, AHORA);
+    assert.equal(c.vieja, true);
+    assert.equal(c.dias, DIAS_PARA_COTIZACION_VIEJA);
+  });
+
+  it("una fila sembrada que nadie editó cuenta como vieja aunque la fecha sea de hoy", () => {
+    // La migración deja `actualizado_en` con la fecha de la migración y
+    // `actualizado_por` en null. Sin esta regla, una fila recién sembrada se
+    // vería «actualizada hoy» sin que nadie haya mirado un número.
+    const c = convertirAPesos(
+      1,
+      { valor: 1300, actualizadoEn: new Date(AHORA).toISOString(), editadaPorAlguien: false },
+      AHORA,
+    );
+    assert.equal(c.hay, true);
+    assert.equal(c.vieja, true);
+    assert.equal(c.dias, 0);
+  });
+
+  it("una cotización negativa o absurda se trata como sin cargar", () => {
+    for (const valor of [-1300, Number.NaN]) {
+      const c = convertirAPesos(1, { valor, actualizadoEn: AYER, editadaPorAlguien: true }, AHORA);
+      assert.equal(c.hay, false, `valor ${valor}`);
+    }
+  });
+});
+
+describe("pesos", () => {
+  it("agrupa los miles con punto, como se escribe acá", () => {
+    assert.equal(pesos(1234567), "$ 1.234.567");
+  });
+
+  it("muestra centavos sólo por debajo de cien", () => {
+    assert.equal(pesos(14.5), "$ 14,50");
+    assert.equal(pesos(1450), "$ 1.450");
+  });
+
+  it("con decimales forzados muestra la cotización tal cual, para poder rehacer la cuenta", () => {
+    assert.equal(pesos(1385.5, 2), "$ 1.385,50");
+    assert.equal(pesos(1385.5), "$ 1.386");
+  });
+
+  it("no usa el formateo de moneda de ICU, que puede diferir entre Node y el navegador", () => {
+    // El símbolo, su posición y el tipo de espacio los pone este código, no ICU.
+    // Un espacio duro acá contra uno normal allá es un error de hidratación.
+    assert.equal(pesos(0), "$ 0,00");
+    assert.ok(pesos(5000).startsWith("$ "));
+    assert.ok(!pesos(5000).includes(" "));
   });
 });
