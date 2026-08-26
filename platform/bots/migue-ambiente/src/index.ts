@@ -32,6 +32,7 @@ import {
   type Puertos,
 } from "@migue/dominio";
 import { crearBot } from "./canal/telegram/adaptador.ts";
+import { arrancarEncuestas } from "./encuestaFinal.ts";
 
 const log = createLogger("main");
 
@@ -105,6 +106,13 @@ async function main(): Promise<void> {
   // El orden importa: primero se registra cómo cerrar, después se abre. Si se
   // abriera antes, un fallo entre las dos líneas dejaría el polling activo sin
   // forma de detenerlo ordenadamente.
+  // El barrido que pregunta, al final de la charla, si le sirvió. Arranca
+  // ANTES de abrir el polling y se registra su cierre en el mismo orden que el
+  // de Telegram, por el mismo motivo: que no quede un intervalo vivo si algo
+  // falla entre medio.
+  const detenerEncuestas = arrancarEncuestas(bot);
+  onShutdown("encuestas", () => detenerEncuestas());
+
   onShutdown("telegram", () => bot.stop());
   installShutdownHandlers();
 

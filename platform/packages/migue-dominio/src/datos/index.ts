@@ -51,3 +51,9 @@ export {
 } from "./efectos.ts";
 
 export { registrarVoto, comentarVoto } from "./valoraciones.ts";
+
+export {
+  conversacionesParaEncuestar,
+  marcarEncuestaEnviada,
+  type ConversacionParaEncuestar,
+} from "./encuesta.ts";

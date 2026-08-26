@@ -155,6 +155,7 @@ const TEXTOS = new Map<string, string>([
   // contenido: un pulgar abajo acá se arregla cambiando los pasos del flujo,
   // no escribiendo una respuesta mejor.
   ["seguimiento_tras_tramite", "¿Te resultó fácil hacer el pedido?"],
+  ["encuesta_cierre", "¿Pudiste resolver lo que necesitabas?"],
   [
     "voto_tramite_detalle",
     "Gracias por decirme. ¿Qué te resultó complicado? Con eso podemos simplificarlo." +

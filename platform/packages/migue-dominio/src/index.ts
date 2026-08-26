@@ -17,7 +17,7 @@ export * from "./ia/index.ts";
 export * from "./conocimiento/index.ts";
 export * from "./nucleo/index.ts";
 
-export { OPCIONES_VALORACION, votoDe, type Voto } from "./flujos/opciones.ts";
+export { OPCIONES_VALORACION, opcionesDeVoto, votoDe, type Voto } from "./flujos/opciones.ts";
 
 export {
   MARCADORES_POR_TEXTO,
@@ -25,3 +25,8 @@ export {
   marcadoresDe,
   marcadoresQueNoSeResuelven,
 } from "./marcadores.ts";
+
+export {
+  prepararEncuestaDeCierre,
+  encuestaDeCierreEncendida,
+} from "./encuestaCierre.ts";
