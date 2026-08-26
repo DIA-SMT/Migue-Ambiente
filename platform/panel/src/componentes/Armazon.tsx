@@ -75,11 +75,17 @@ export function Armazon({
   return (
     <div className="armazon">
       <aside className="barra">
+        {/* La marca es el camino de vuelta a la portada, y es el único: la
+            portada no está en el menú y no tiene por qué estar —no es una
+            sección, es dónde uno cae al entrar—. Sin este enlace, desde
+            cualquier pantalla sólo se volvía con el botón de atrás. */}
         <div className="barra-marca">
-          <div className="nombre">
-            Migue <em>Ambiente</em>
-          </div>
-          <div className="area">Dirección de Ambiente · SMT</div>
+          <Link href="/" aria-current={actual === "/" ? "page" : undefined}>
+            <div className="nombre">
+              Migue <em>Ambiente</em>
+            </div>
+            <div className="area">Ambiente y Desarrollo Sustentable</div>
+          </Link>
         </div>
 
         <nav className="barra-nav" aria-label="Secciones del panel">
@@ -113,6 +119,22 @@ export function Armazon({
             <span>{persona.rol}</span>
           </div>
           <Salir />
+        </div>
+
+        {/* La firma de quién construyó el panel. Va última, debajo de la ficha de
+            quién lo está usando: es un crédito de autoría y no una sección más.
+            `img` y no `next/image` a propósito — es un PNG estático de 20 kB, y
+            el optimizador de Next exige tener `sharp` instalado en la VPS a
+            cambio de nada. Los atributos de tamaño van igual, para que el
+            navegador reserve el lugar y la barra no salte al cargar. */}
+        <div className="barra-credito">
+          <span className="rotulo">Desarrollado por</span>
+          <img
+            src="/marca/dia-sobre-oscuro.png"
+            alt="Dirección de IA · Municipalidad de San Miguel de Tucumán"
+            width={222}
+            height={88}
+          />
         </div>
 
         <Hojas className="barra-hojas" />

@@ -47,6 +47,14 @@ session*/
 corpus/
 
 # ===========================================================================
+# Archivos de diseño pesados
+# ===========================================================================
+# Los .ai, .psd, .eps y PDFs de imprenta viven en la máquina y en el disco del
+# área. Los logos y fotos ya listos para usar SÍ se versionan: son chicos y el
+# front depende de ellos.
+marca/originales/
+
+# ===========================================================================
 # Sistema operativo y editores
 # ===========================================================================
 .DS_Store

@@ -70,12 +70,23 @@ export default function Ingresar() {
 
   return (
     <div className="caja-ingreso">
-      <div className="marca" style={{ fontSize: "1.25rem", marginBottom: 4 }}>
-        Migue <span>Ambiente</span>
+      {/* El isotipo del municipio abre la pantalla. Es la única marca que
+          corresponde antes de entrar: dice de quién es este sistema, que es lo
+          que alguien necesita saber antes de escribir su contraseña. Migue —el
+          personaje— aparece recién adentro, en la portada. */}
+      <div className="ingreso-marca">
+        <img
+          className="marca-muni"
+          src="/marca/muni.png"
+          alt="Municipalidad de San Miguel de Tucumán"
+          width={84}
+          height={96}
+        />
+        <div className="marca">
+          Migue <span>Ambiente</span>
+        </div>
+        <p>Panel de administración</p>
       </div>
-      <p style={{ color: "var(--tinta-suave)", fontSize: "0.9rem", marginTop: 0, marginBottom: 24 }}>
-        Panel de administración
-      </p>
 
       <form onSubmit={entrar}>
         <div className="campo">
