@@ -23,6 +23,7 @@
 import { createLogger } from "@bots/core";
 import {
   conversacionesParaEncuestar,
+  descripcionDeError,
   encuestaDeCierreEncendida,
   leerConfig,
   marcarEncuestaEnviada,
@@ -84,7 +85,7 @@ export async function barrerEncuestas(bot: Bot): Promise<number> {
       // Un vecino que bloqueó al bot, o un chat borrado, devuelven 403 y no se
       // arreglan reintentando. Se anota y se sigue con la próxima: una encuesta
       // que no salió no puede frenar las demás.
-      log.warn({ conversacion: c.id, err: String(error) }, "no pude mandar la encuesta");
+      log.warn({ conversacion: c.id, err: descripcionDeError(error) }, "no pude mandar la encuesta");
     }
   }
 
@@ -98,7 +99,7 @@ export function arrancarEncuestas(bot: Bot): () => void {
     // El barrido no puede tumbar el bot: si la base no responde, se anota y se
     // reintenta en treinta segundos.
     barrerEncuestas(bot).catch((error) => {
-      log.warn({ err: String(error) }, "falló el barrido de encuestas");
+      log.warn({ err: descripcionDeError(error) }, "falló el barrido de encuestas");
     });
   }, CADA_MS);
 

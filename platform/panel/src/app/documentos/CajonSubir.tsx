@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { claveDeStorage, formatoDe, mimeDe, type Formato } from "@migue/dominio/compartido";
+import {
+  claveDeStorage,
+  descripcionDeError,
+  formatoDe,
+  mimeDe,
+  type Formato,
+} from "@migue/dominio/compartido";
 import { clienteNavegador } from "@/lib/supabase-navegador";
 import { tamanoLegible } from "@/lib/tipos";
 import type { Resultado } from "./acciones";
@@ -78,7 +84,7 @@ export function CajonSubir({
       } catch (error) {
         // `formatoDe` ya trae el mensaje explicando qué se admite y qué hacer
         // con un escaneo.
-        throw new Error(error instanceof Error ? error.message : String(error));
+        throw new Error(descripcionDeError(error));
       }
 
       if (f.size === 0) throw new Error("El archivo está vacío.");
@@ -106,7 +112,7 @@ export function CajonSubir({
       });
       setPaso("listo");
     } catch (error) {
-      setProblema(error instanceof Error ? error.message : String(error));
+      setProblema(descripcionDeError(error));
       setPaso("elegir");
     }
   }
@@ -193,7 +199,7 @@ export function CajonSubir({
         mensaje: `«${titulo.trim()}» subido. Migue lo va a poder citar en unos segundos.`,
       });
     } catch (error) {
-      setProblema(error instanceof Error ? error.message : String(error));
+      setProblema(descripcionDeError(error));
       setPaso("listo");
     }
   }

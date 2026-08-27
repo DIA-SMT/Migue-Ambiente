@@ -7,6 +7,7 @@
  * el documento que ya no existe, el archivo que desapareció del Storage, el
  * documento sin texto.
  */
+import { descripcionDeError } from "../errores.ts";
 import { extraer, type Formato } from "./extraer.ts";
 import type { FragmentoIndexable } from "./fragmentar.ts";
 
@@ -164,7 +165,7 @@ async function indexar(trabajo: Trabajo, puertos: PuertosIngesta): Promise<Resul
     resultado = await extraer(datos, documento.nombreArchivo, documento.formato);
   } catch (error) {
     const nombre = error instanceof Error ? error.name : "";
-    const detalle = error instanceof Error ? error.message : String(error);
+    const detalle = descripcionDeError(error);
     const definitivo = DEFINITIVOS.has(nombre);
     // El detalle queda en el documento y lo lee un administrador en el panel,
     // así que va el mensaje completo y no un código.
@@ -186,7 +187,7 @@ async function indexar(trabajo: Trabajo, puertos: PuertosIngesta): Promise<Resul
       resultado.hash,
     );
   } catch (error) {
-    const detalle = error instanceof Error ? error.message : String(error);
+    const detalle = descripcionDeError(error);
     await puertos.marcarError(documento.id, detalle);
     // Sí se reintenta: casi siempre es la red o la base, no el documento.
     return { ok: false, error: detalle, reintentable: true };
@@ -307,7 +308,7 @@ export async function procesarTrabajo(
       }
     }
   } catch (error) {
-    const detalle = error instanceof Error ? error.message : String(error);
+    const detalle = descripcionDeError(error);
     // Un payload inválido no se arregla reintentando: lo generó mal quien lo
     // encoló.
     const definitivo = error instanceof PayloadInvalidoError;

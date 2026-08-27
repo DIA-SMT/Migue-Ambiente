@@ -9,6 +9,7 @@
  * editable desde el panel.
  */
 export { normalizar, contienePalabra, primerTerminoPresente, recortar, escaparRegex } from "./texto.ts";
+export { descripcionDeError } from "./errores.ts";
 export * from "./reglas/index.ts";
 export * from "./datos/index.ts";
 export * from "./flujos/index.ts";

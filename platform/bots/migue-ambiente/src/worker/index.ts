@@ -10,7 +10,7 @@
  * que haya que abrir un puerto en la VPS ni configurar un dominio.
  */
 import { createLogger, installShutdownHandlers, onShutdown, requireEnv } from "@bots/core";
-import { verificarConexion } from "@migue/dominio";
+import { descripcionDeError, verificarConexion } from "@migue/dominio";
 import { crearBucle } from "./bucle.ts";
 import { crearCola } from "./cola.ts";
 import { crearPuertos } from "./puertos.ts";
@@ -65,6 +65,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  log.error({ err: error instanceof Error ? error.message : String(error) }, "el worker no arrancó");
+  log.error({ err: descripcionDeError(error) }, "el worker no arrancó");
   process.exitCode = 1;
 });

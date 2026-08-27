@@ -11,6 +11,7 @@
  * mensaje se envía antes— y dejarlo colgado sería peor. Los fallos se devuelven
  * para que el orquestador los registre y alguien los revise.
  */
+import { descripcionDeError } from "../errores.ts";
 import { obtenerCliente } from "./cliente.ts";
 import { cerrarConversacion } from "./conversaciones.ts";
 import { crearSolicitudPrograma, crearTicket, type Procedencia } from "./registros.ts";
@@ -52,7 +53,7 @@ export async function aplicarEfectos(
       resultados.push({
         efecto: efecto.tipo,
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: descripcionDeError(error),
       });
     }
   }

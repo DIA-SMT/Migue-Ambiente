@@ -6,6 +6,7 @@
  * que la cola vacía no se consulta a máxima velocidad, y que un apagado no deja
  * un trabajo a medias.
  */
+import { descripcionDeError } from "@migue/dominio";
 import {
   procesarTrabajo,
   type PuertosIngesta,
@@ -239,5 +240,5 @@ export function crearBucle(
 }
 
 function mensajeDe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return descripcionDeError(error);
 }

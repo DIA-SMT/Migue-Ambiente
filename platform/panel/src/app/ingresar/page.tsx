@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { descripcionDeError } from "@migue/dominio/compartido";
 import { clienteNavegador } from "@/lib/supabase-navegador";
 
 /**
@@ -63,7 +64,7 @@ export default function Ingresar() {
       router.refresh();
       router.replace(destino);
     } catch (error) {
-      setProblema(error instanceof Error ? error.message : String(error));
+      setProblema(descripcionDeError(error));
       setEntrando(false);
     }
   }

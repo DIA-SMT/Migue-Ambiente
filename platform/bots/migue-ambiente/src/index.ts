@@ -14,6 +14,7 @@ import {
 } from "@bots/core";
 import {
   actualizarFlujo,
+  descripcionDeError,
   almacenRedis,
   aplicarEfectos,
   cerrarConversacion,
@@ -127,7 +128,7 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   log.fatal(
-    { err: error instanceof Error ? error.message : String(error) },
+    { err: descripcionDeError(error) },
     "falló el arranque",
   );
   process.exit(1);

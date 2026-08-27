@@ -5,7 +5,12 @@
  * orquestador, que no sabe que Telegram existe.
  */
 import { Bot, GrammyError, HttpError, type Context } from "grammy";
-import { procesarMensaje, type MensajeEntrante, type Puertos } from "@migue/dominio";
+import {
+  descripcionDeError,
+  procesarMensaje,
+  type MensajeEntrante,
+  type Puertos,
+} from "@migue/dominio";
 import { createLogger } from "@bots/core";
 import { normalizarMensaje, normalizarSeleccion } from "./normalizar.ts";
 import { renderizar } from "./renderizar.ts";
@@ -126,7 +131,7 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
       // silencio es indistinguible de un bot roto, y no le da ninguna
       // alternativa.
       log.error(
-        { usuario, err: error instanceof Error ? error.message : String(error) },
+        { usuario, err: descripcionDeError(error) },
         "falló al atender",
       );
       await ctx
@@ -170,9 +175,9 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
     if (causa instanceof GrammyError) {
       log.error({ descripcion: causa.description, metodo: causa.method }, "error de la API de Telegram");
     } else if (causa instanceof HttpError) {
-      log.error({ err: String(causa) }, "no pude contactar a Telegram");
+      log.error({ err: descripcionDeError(causa) }, "no pude contactar a Telegram");
     } else {
-      log.error({ err: causa instanceof Error ? causa.message : String(causa) }, "error no manejado");
+      log.error({ err: descripcionDeError(causa) }, "error no manejado");
     }
   });
 
