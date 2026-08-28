@@ -74,6 +74,24 @@ delete from public.textos_bot
    and actualizado_por is null;
 
 -- ---------------------------------------------------------------------------
+-- Corrección del texto que sembró el intento anterior
+-- ---------------------------------------------------------------------------
+-- El `on conflict do update` de arriba NO toca `texto`, a propósito: nunca se
+-- pisa una redacción que el área haya escrito. Pero eso deja un hueco cuando la
+-- fila la sembró una migración nuestra con un texto que después resultó malo,
+-- que es justo lo que pasó acá: el intento anterior dejó «…Si lo tenés a mano,
+-- mandámelo ahora y lo sumo al pedido», que promete un turno que en esta
+-- versión no existe. El vecino mandaría la foto a un flujo ya cerrado.
+--
+-- Se corrige con un update GUARDADO por el texto exacto que sembramos: si el
+-- área lo reescribió, no coincide y se respeta lo suyo.
+
+update public.textos_bot
+   set texto = 'Quedó registrado sin {faltante}.'
+ where clave = 'pedido_pendientes'
+   and texto = 'Quedó pendiente: {faltante}. Si lo tenés a mano, mandámelo ahora y lo sumo al pedido.';
+
+-- ---------------------------------------------------------------------------
 -- La confirmación del reclamo nombra la dirección
 -- ---------------------------------------------------------------------------
 -- El eco es el único control de calidad que tiene el vecino: leer «Reclamo
