@@ -32,6 +32,8 @@ import type { ContextoFlujo, DatosFlujo, DefinicionFlujo, Transicion } from "./t
 /** Lo que el flujo va acumulando. Guardado en Redis entre mensajes. */
 interface DatosRetiro extends DatosFlujo {
   readonly fotoReferencia?: string;
+  /** Todo lo que el vecino escribió, turno a turno. */
+  readonly texto?: string;
   readonly categoria?: Categoria;
   readonly cantidadValor?: number;
   readonly cantidadUnidad?: string;
@@ -54,6 +56,42 @@ const OPCIONES_CATEGORIA = [
 // Definición
 // ---------------------------------------------------------------------------
 
+/** El ticket del pedido, con todo lo que se juntó. */
+function cerrarRetiro(ctx: ContextoFlujo, d: DatosRetiro, direccion: string): Transicion {
+  const sla = configSla(ctx.catalogo);
+  const vencimiento = calcularVencimiento(ctx.ahora, sla);
+
+  const confirmacion = interpolar(leerTexto(ctx.catalogo, "retiro_confirmacion"), {
+    plazo: describirPlazo(sla),
+    vencimiento: formatearFechaLocal(vencimiento),
+    empresa: leerConfig(ctx.catalogo, "empresa_recoleccion", "la empresa"),
+    direccion,
+  });
+
+  return {
+    tipo: "terminar",
+    mensajes: [decir(confirmacion, "nada")],
+    efectos: [
+      {
+        tipo: "crear_ticket",
+        datos: {
+          tipo: "Pedido No Habitual",
+          direccion,
+          tipoResiduo: d.categoria ?? null,
+          cantidadValor: d.cantidadValor ?? null,
+          cantidadUnidad: d.cantidadUnidad ?? null,
+          excedeLimite: d.excedeLimite ?? false,
+          retiroParcial: d.retiroParcial ?? false,
+          fotoReferencia: d.fotoReferencia ?? null,
+          diasSinServicio: null,
+          vencimiento,
+          derivadoA: null,
+        },
+      },
+    ],
+  };
+}
+
 export const flujoRetiroNoHabitual: DefinicionFlujo = {
   nombre: "retiro_no_habitual",
   pasoInicial: "foto",
@@ -66,10 +104,20 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
         decir(leerTexto(ctx.catalogo, "retiro_pedir_foto"), "imagen"),
       ],
       maxIntentos: 4,
-      procesar: (ctx, _datos, entrante): Transicion => {
+      procesar: (ctx, datos, entrante): Transicion => {
+        // EL EPÍGRAFE NO SE TIRA. Este paso recibía `_datos` y descartaba todo
+        // lo que el vecino escribiera. En Telegram mandar la foto con el texto
+        // encima es el caso NORMAL, no el raro: «Lamadrid 50, son 4 bolsas» iba
+        // en el epígrafe, se perdía entero, y el bot volvía a preguntar las dos
+        // cosas que el vecino acababa de escribir.
+        const acumulado = [leer(datos).texto, textoEfectivo(entrante)]
+          .filter(Boolean)
+          .join(" · ");
+
         if (!tieneImagen(entrante)) {
           return {
             tipo: "repetir",
+            datos: { texto: acumulado },
             mensaje: decir(leerTexto(ctx.catalogo, "retiro_foto_faltante"), "imagen"),
           };
         }
@@ -78,7 +126,7 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
         return {
           tipo: "avanzar",
           a: "residuo",
-          datos: { fotoReferencia: referencia },
+          datos: { fotoReferencia: referencia, texto: acumulado },
           // La descarga se encola: el flujo no espera a que bajen 5 MB.
           efectos: [{ tipo: "guardar_media", referencia, proposito: "retiro_no_habitual" }],
         };
@@ -92,8 +140,11 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
       ],
 
       procesar: (ctx, datos, entrante): Transicion => {
-        const texto = textoEfectivo(entrante);
         const previo = leer(datos);
+        const textoTurno = textoEfectivo(entrante);
+        // Se mira TODO lo dicho, no sólo este turno: el epígrafe de la foto
+        // cuenta igual que un mensaje suelto.
+        const texto = [previo.texto, textoTurno].filter(Boolean).join(" · ");
         const limites = ctx.catalogo.limitesVolumen;
 
         // La categoría puede venir de un botón, del texto, o de un turno previo.
@@ -106,6 +157,10 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
         if (categoria === null) {
           return {
             tipo: "repetir",
+            // Se conserva lo acumulado. Es la rama simétrica de la de
+            // `precisar`, que ya guardaba la categoría: sin esto, «8 bolsas» se
+            // perdía mientras se aclaraba de qué eran.
+            datos: { texto },
             mensaje: preguntar(
               "No me quedó claro de qué tipo de residuo se trata. ¿Cuál de estos es?",
               OPCIONES_CATEGORIA,
@@ -129,7 +184,25 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
           };
         }
 
-        const cantidad = interpretarCantidad(texto);
+        // QUÉ CANTIDAD GANA, en tres escalones. Acumular texto y quedarse con
+        // cualquier número es peligroso en las dos direcciones:
+        //
+        //   · A ciegas con lo acumulado, «no sé cuántas bolsas» seguía ganando
+        //     después de que el vecino dijera «8».
+        //   · A ciegas con el turno, «Lamadrid 50» —que es la ALTURA— pisaba las
+        //     «4 bolsas» del epígrafe y el pedido pasaba a ser de 50 bolsas.
+        //
+        // Una cantidad CON unidad es un dato; un número suelto es un candidato.
+        // Así el vecino puede corregirse («en realidad son 8 bolsas») sin que
+        // una dirección se disfrace de cantidad.
+        const delTurno = interpretarCantidad(textoTurno);
+        const deTodo = interpretarCantidad(texto);
+        const cantidad =
+          delTurno.valor !== null && delTurno.unidad !== null
+            ? delTurno
+            : deTodo.valor !== null && deTodo.unidad !== null
+              ? deTodo
+              : delTurno;
         const resultado = validarVolumen(cantidad, limite);
 
         if (resultado.tipo === "precisar") {
@@ -137,7 +210,7 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
             tipo: "repetir",
             // Se guarda la categoría aunque no podamos avanzar: sin esto, el
             // «8 bolsas» del turno siguiente llegaría sin saber de qué son.
-            datos: { categoria },
+            datos: { categoria, texto },
             mensaje: decir(preguntaParaPrecisar(resultado), "texto"),
           };
         }
@@ -148,12 +221,25 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
           cantidadUnidad: resultado.unidadEvaluada,
         };
 
+        // ¿El mensaje que resolvió el tipo y la cantidad ERA la dirección? Pasa
+        // cuando el vecino manda la foto con todo escrito en el epígrafe: el
+        // paso anterior consume el epígrafe y este turno es el domicilio. Sin
+        // esto el bot le pide la dirección que acaba de escribir.
+        //
+        // Se usa `interpretarDireccion` sobre el turno pelado —exactamente la
+        // misma función y el mismo texto que usaría el paso siguiente—, así que
+        // no hay ninguna interpretación nueva que pueda equivocarse distinto.
+        const yaDioLaDireccion = interpretarDireccion(textoTurno);
+
         if (resultado.tipo === "dentro") {
-          return {
-            tipo: "avanzar",
-            a: "direccion",
-            datos: { ...comunes, excedeLimite: false, retiroParcial: false },
-          };
+          const conDatos = { ...previo, ...comunes, excedeLimite: false, retiroParcial: false };
+          return yaDioLaDireccion.completa
+            ? cerrarRetiro(ctx, conDatos, formatearDireccion(yaDioLaDireccion))
+            : {
+                tipo: "avanzar",
+                a: "direccion",
+                datos: { ...comunes, excedeLimite: false, retiroParcial: false },
+              };
         }
 
         // Excede. Qué hacer lo decide la tabla, no el código: la spec dice
@@ -170,6 +256,14 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
               ),
             ],
           };
+        }
+
+        const conExceso = { ...previo, ...comunes, excedeLimite: true, retiroParcial: true };
+        if (yaDioLaDireccion.completa) {
+          const cierre = cerrarRetiro(ctx, conExceso, formatearDireccion(yaDioLaDireccion));
+          return cierre.tipo === "terminar"
+            ? { ...cierre, mensajes: [decir(resultado.texto, "nada"), ...cierre.mensajes] }
+            : cierre;
         }
 
         return {
@@ -195,39 +289,7 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
           };
         }
 
-        const d = leer(datos);
-        const sla = configSla(ctx.catalogo);
-        const vencimiento = calcularVencimiento(ctx.ahora, sla);
-
-        const confirmacion = interpolar(leerTexto(ctx.catalogo, "retiro_confirmacion"), {
-          plazo: describirPlazo(sla),
-          vencimiento: formatearFechaLocal(vencimiento),
-          empresa: leerConfig(ctx.catalogo, "empresa_recoleccion", "la empresa"),
-          direccion: formatearDireccion(direccion),
-        });
-
-        return {
-          tipo: "terminar",
-          mensajes: [decir(confirmacion, "nada")],
-          efectos: [
-            {
-              tipo: "crear_ticket",
-              datos: {
-                tipo: "Pedido No Habitual",
-                direccion: formatearDireccion(direccion),
-                tipoResiduo: d.categoria ?? null,
-                cantidadValor: d.cantidadValor ?? null,
-                cantidadUnidad: d.cantidadUnidad ?? null,
-                excedeLimite: d.excedeLimite ?? false,
-                retiroParcial: d.retiroParcial ?? false,
-                fotoReferencia: d.fotoReferencia ?? null,
-                diasSinServicio: null,
-                vencimiento,
-                derivadoA: null,
-              },
-            },
-          ],
-        };
+        return cerrarRetiro(ctx, leer(datos), formatearDireccion(direccion));
       },
     },
   },

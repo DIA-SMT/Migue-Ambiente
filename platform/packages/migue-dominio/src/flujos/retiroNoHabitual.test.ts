@@ -262,3 +262,49 @@ describe("la confirmación dice la verdad sobre el plazo", () => {
     assert.ok(dijo([s.dichos.at(-1)!], "72 horas"), "sigue al modo configurado");
   });
 });
+
+describe("el epígrafe de la foto no se tira", () => {
+  it("REGRESIÓN · lo que viene escrito sobre la foto se conserva", () => {
+    // En Telegram mandar la foto con el texto encima es el caso NORMAL. Este
+    // paso recibía `_datos` y descartaba el epígrafe entero, así que el bot
+    // volvía a preguntar el tipo y la cantidad que el vecino acababa de dar.
+    const s = simular(flujo, [
+      { imagen: "foto-ep", texto: "son 4 bolsas de escombros" },
+      { texto: "Lamadrid 50" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.tipoResiduo, "escombros");
+    assert.equal(t.cantidadValor, 4);
+    assert.equal(t.direccion, "Lamadrid 50");
+    assert.equal(t.fotoReferencia, "foto-ep");
+  });
+
+  it("el epígrafe sobrevive aunque la foto llegue en otro turno", () => {
+    const s = simular(flujo, [
+      { texto: "son 4 bolsas de escombros" },
+      { imagen: "foto-ep2" },
+      { texto: "Lamadrid 50" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.tipoResiduo, "escombros");
+    assert.equal(t.cantidadValor, 4);
+  });
+
+  it("REGRESIÓN · al pedir el tipo no se pierde la cantidad", () => {
+    // La rama simétrica de la que ya estaba resuelta en el paso de precisión.
+    const s = simular(flujo, [{ imagen: "f" }, { texto: "tengo 4 bolsas" }, { texto: "escombros" }]);
+    assert.equal(s.estado?.paso, "direccion", "no vuelve a pedir la cantidad");
+    assert.equal(s.estado?.datos["cantidadValor"], 4);
+  });
+
+  it("una precisión nueva le gana a una frase vaga anterior", () => {
+    // Acumular a ciegas hacía que «no sé cuántas» siguiera ganando después de
+    // que el vecino dijera «8».
+    const s = simular(flujo, [
+      { imagen: "f" },
+      { texto: "tengo escombros pero no se cuantas bolsas" },
+      { texto: "8" },
+    ]);
+    assert.equal(s.estado?.paso, "direccion");
+  });
+});

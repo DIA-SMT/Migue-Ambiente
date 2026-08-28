@@ -21,15 +21,21 @@
  */
 import { palabraANumero } from "../reglas/cantidad.ts";
 import {
+  buscarDireccion,
   formatearDireccion,
-  interpretarDireccion,
   preguntaPorDireccion,
 } from "../reglas/direccion.ts";
 import { calcularVencimiento, describirPlazo, formatearFechaLocal } from "../reglas/sla.ts";
 import { configSla, leerConfig, leerTexto, tieneTexto } from "../datos/catalogo.ts";
-import { interpolar, normalizar } from "../texto.ts";
+import { enumerar, interpolar, normalizar } from "../texto.ts";
 import { decir, textoEfectivo } from "../mensajeria.ts";
-import type { DatosFlujo, DefinicionFlujo, Efecto, Transicion } from "./tipos.ts";
+import type {
+  ContextoFlujo,
+  DatosFlujo,
+  DefinicionFlujo,
+  Efecto,
+  Transicion,
+} from "./tipos.ts";
 import type { MensajeSaliente } from "../mensajeria.ts";
 
 interface DatosReclamo extends DatosFlujo {
@@ -70,6 +76,41 @@ function interpretarDias(texto: string): number | null {
   return null;
 }
 
+/**
+ * Lo que el reclamo NO pudo registrar, dicho en voz alta.
+ *
+ * POR QUÉ EXISTE. El texto de apertura promete tres cosas y este flujo sólo
+ * frena por la dirección: la foto es opcional por spec y los días también. Lo
+ * que estaba mal no era eso —está bien no frenar— sino que el vecino mandaba la
+ * dirección y recibía «Reclamo generado» a secas, exactamente igual que si
+ * hubiera mandado todo. Se iba creyendo que el reclamo tenía su foto.
+ *
+ * NO INVITA A MANDARLO. Una vez creado el ticket el flujo se cierra, y no hay
+ * ningún paso esperando: si el mensaje dijera «mandámelo ahora», el vecino
+ * mandaría la foto a un flujo que ya no existe y el bot le contestaría
+ * cualquier otra cosa. Prometer un turno que no existe es la misma falla que
+ * esto viene a arreglar, del otro lado.
+ *
+ * Devuelve `null` cuando no falta nada, o cuando el área vació la plantilla
+ * desde el panel: ahí el reclamo cierra como antes, sin aviso.
+ */
+function avisoDeLoQueFalta(ctx: ContextoFlujo, datos: DatosReclamo): string | null {
+  if (!tieneTexto(ctx.catalogo, "pedido_pendientes")) return null;
+
+  const faltantes: string[] = [];
+  if ((datos.fotoReferencia ?? null) === null) {
+    faltantes.push(leerTexto(ctx.catalogo, "dato_foto_reclamo"));
+  }
+  if ((datos.diasSinServicio ?? null) === null) {
+    faltantes.push(leerTexto(ctx.catalogo, "dato_dias"));
+  }
+  if (faltantes.length === 0) return null;
+
+  return interpolar(leerTexto(ctx.catalogo, "pedido_pendientes"), {
+    faltante: enumerar(faltantes),
+  });
+}
+
 export const flujoReclamoRecoleccion: DefinicionFlujo = {
   nombre: "reclamo_recoleccion",
   pasoInicial: "diagnostico",
@@ -96,10 +137,21 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
         const foto = entrante.media?.tipo === "imagen" ? entrante.media.referencia : null;
         const fotoReferencia = foto ?? previo.fotoReferencia ?? null;
 
-        const direccion = interpretarDireccion(texto);
+        // `buscarDireccion` y no `interpretarDireccion`: acá el vecino cuenta el
+        // problema y da el domicilio en el mismo mensaje —«hace 3 días, Lavalle
+        // 500»— y el texto entero no es una dirección. El primero prueba el
+        // texto completo y, si no da, segmento por segmento. Con el otro, el
+        // «Lavalle 500» de ese mensaje se perdía y el bot lo volvía a pedir.
+        const direccion = buscarDireccion(texto);
         const direccionGuardada = direccion.completa
           ? formatearDireccion(direccion)
           : (previo.direccion ?? null);
+
+        // Los días se interpretan SIEMPRE, aunque todavía no se pueda avanzar.
+        // Antes se leían recién en la rama del cierre, así que decirlos en un
+        // turno y la dirección en el siguiente los perdía: el campo estaba
+        // declarado, se usaba al armar el ticket, y no se escribía nunca.
+        const diasSinServicio = interpretarDias(texto) ?? previo.diasSinServicio ?? null;
 
         if (direccionGuardada === null) {
           // Si mandó sólo la foto, el pedido de dirección tiene que ser claro.
@@ -109,14 +161,14 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
               : (preguntaPorDireccion(direccion) ?? "Necesito la dirección exacta.");
           return {
             tipo: "repetir",
-            // La foto ya recibida se conserva: si el vecino la mandó primero y
-            // la dirección después, no hay que volver a pedírsela.
-            datos: { fotoReferencia },
+            // Se conserva TODO lo aprendido, no sólo la foto: si el vecino la
+            // mandó primero y la dirección después, no hay que volver a pedirle
+            // nada de lo que ya dijo.
+            datos: { fotoReferencia, diasSinServicio },
             mensaje: decir(pregunta, "texto"),
           };
         }
 
-        const dias = interpretarDias(texto) ?? previo.diasSinServicio ?? null;
         const sla = configSla(ctx.catalogo);
         const vencimiento = calcularVencimiento(ctx.ahora, sla);
 
@@ -139,7 +191,7 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
               excedeLimite: false,
               retiroParcial: false,
               fotoReferencia,
-              diasSinServicio: dias,
+              diasSinServicio,
               vencimiento,
               derivadoA: null,
             },
@@ -153,9 +205,16 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
           });
         }
 
+        // El aviso va como mensaje APARTE de la confirmación: la confirmación se
+        // tiene que poder reenviar o guardar sin arrastrar nada más.
+        const aviso = avisoDeLoQueFalta(ctx, { fotoReferencia, diasSinServicio });
+
         return {
           tipo: "terminar",
-          mensajes: [decir(confirmacion, "nada")],
+          mensajes:
+            aviso === null
+              ? [decir(confirmacion, "nada")]
+              : [decir(confirmacion, "nada"), decir(aviso, "nada")],
           efectos,
         };
       },

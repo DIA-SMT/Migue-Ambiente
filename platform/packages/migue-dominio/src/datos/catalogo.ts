@@ -15,6 +15,7 @@ import { CacheConVencimiento, TTL_REGLAS_MS } from "./cache.ts";
 import type { ReglaExclusion } from "../reglas/exclusiones.ts";
 import type { LimiteVolumen } from "../reglas/volumen.ts";
 import { CONFIG_SLA_POR_DEFECTO, type ConfigSla, type ModoSla } from "../reglas/sla.ts";
+import { enumerar } from "../texto.ts";
 
 export interface PuntoVerde {
   readonly id: string;
@@ -232,12 +233,6 @@ export function describirPuntosVerdes(catalogo: Catalogo, maximo = 5): string {
   return puntos
     .map((p) => `• ${p.direccion} — ${p.horario}${p.observaciones ? ` (${p.observaciones})` : ""}`)
     .join("\n");
-}
-
-/** Une una lista en castellano: «lunes, martes y viernes». */
-function enumerar(items: readonly string[]): string {
-  if (items.length <= 1) return items[0] ?? "";
-  return `${items.slice(0, -1).join(", ")} y ${items.at(-1)}`;
 }
 
 /**

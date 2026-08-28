@@ -121,12 +121,21 @@ const TEXTOS = new Map<string, string>([
     "retiro_confirmacion",
     "✅ Solicitud registrada. {empresa} tiene un plazo de hasta {plazo} (vence el {vencimiento}).\n\nNo saques los residuos hasta que te confirmemos.",
   ],
-  ["reclamo_diagnostico", "Para verificar el recorrido necesito tu dirección exacta y desde cuándo no pasa."],
+  // Textual de la migración 008. Importa que sea textual justo acá: este es el
+  // mensaje que PROMETE tres datos. El fixture prometía dos, así que ningún
+  // test podía ver que la foto prometida no se reclamaba nunca.
+  [
+    "reclamo_diagnostico",
+    "Para verificar el recorrido del camión necesito tres cosas:\n\n" +
+      "- Tu dirección exacta\n" +
+      "- Una foto de la basura no recolectada (opcional, pero ayuda)\n" +
+      "- ¿Desde cuándo no pasa el servicio?",
+  ],
   // Textual de la migración 011. El fixture tiene que espejar producción: si
   // divergen, un test verde no dice nada sobre lo que va a recibir el vecino.
   [
     "reclamo_confirmacion",
-    "Reclamo generado. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.",
+    "Reclamo generado para {direccion}. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.",
   ],
   ["educa_requisitos", "Necesito nombre de la institución, dirección, responsable y cantidad de alumnos."],
   ["transforma_requisitos", "Necesito la dirección exacta y fotos de la zona."],
@@ -161,6 +170,12 @@ const TEXTOS = new Map<string, string>([
     "Gracias por decirme. ¿Qué te resultó complicado? Con eso podemos simplificarlo." +
       "\n\nSi querés no me contestes, ya lo registré.",
   ],
+  // El aviso de lo que el reclamo no pudo cargar (migración 033). TEXTUALES de
+  // la migración: si el fixture dijera algo distinto, la suite mediría un
+  // mensaje que ningún vecino recibe.
+  ["pedido_pendientes", "Quedó registrado sin {faltante}."],
+  ["dato_foto_reclamo", "una foto de la basura sin recolectar"],
+  ["dato_dias", "desde cuándo no pasa el camión"],
   ["despedida", "¡De nada! Cualquier otra cosa, escribime."],
   // La derivación a Migue, el asistente general del municipio. Con el marcador
   // {migue}, que sale de `configuracion.enlace_migue`.

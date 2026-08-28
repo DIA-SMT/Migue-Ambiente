@@ -142,10 +142,74 @@ describe("el ticket que queda", () => {
 
   it("la confirmación interpola el plazo real y nombra a la empresa", () => {
     const s = simular(flujo, [{ texto: "Lavalle 500" }]);
-    const ultimo = s.dichos.at(-1)!;
+    // La confirmación es el PENÚLTIMO: el último es el aviso de lo que quedó
+    // sin cargar, que va aparte para que la confirmación se pueda reenviar sola.
+    const ultimo = s.dichos.at(-2)!;
     assert.ok(dijo([ultimo], "3 días hábiles"));
     assert.ok(dijo([ultimo], "Transporte 9 de Julio"));
     assert.ok(dijo([ultimo], "GPS"), "la spec promete verificar el GPS del interno");
     assert.doesNotMatch(ultimo, /\{\w+\}/, "sin marcadores sueltos");
+  });
+});
+
+describe("avisa qué quedó sin cargar", () => {
+  it("con la dirección sola registra el reclamo y dice qué faltó", () => {
+    // EL CASO QUE REPORTÓ EL USUARIO. Antes el vecino mandaba la dirección y
+    // recibía «Reclamo generado» a secas, idéntico a si hubiera mandado las tres
+    // cosas: se iba creyendo que su reclamo tenía la foto.
+    const s = simular(flujo, [{ texto: "Lavalle al 500" }]);
+
+    assert.equal(efectoDe(s.efectos, "crear_ticket")?.datos.direccion, "Lavalle 500");
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(dijo([ultimo], "Quedó registrado sin"));
+    assert.ok(dijo([ultimo], "una foto de la basura sin recolectar"));
+    assert.ok(dijo([ultimo], "desde cuándo no pasa el camión"));
+  });
+
+  it("el aviso NO invita a mandar el dato: no hay flujo que lo reciba", () => {
+    // Una vez creado el ticket el flujo se cierra. Si el mensaje dijera
+    // «mandámelo ahora», el vecino le mandaría la foto a un paso que ya no
+    // existe. Prometer un turno inexistente es la misma falla, del otro lado.
+    const s = simular(flujo, [{ texto: "Lavalle 500" }]);
+    assert.equal(s.estado, null, "el flujo cerró");
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(!/ahora|mandame|manda me|escribime/i.test(ultimo), `invita: "${ultimo}"`);
+    assert.equal((ultimo.match(/\?/g) ?? []).length, 0, "es un aviso, no una pregunta");
+  });
+
+  it("si no faltó nada, no dice nada de más", () => {
+    const s = simular(flujo, [{ texto: "Lavalle 500, hace 3 dias", imagen: "f1" }]);
+    assert.equal(s.dichos.filter((d) => d.includes("Quedó registrado sin")).length, 0);
+  });
+
+  it("nombra sólo lo que falta, no lo que llegó", () => {
+    const s = simular(flujo, [{ texto: "Lavalle 500", imagen: "f1" }]);
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(dijo([ultimo], "desde cuándo no pasa el camión"));
+    assert.ok(!dijo([ultimo], "foto"), "la foto llegó, no puede figurar como faltante");
+  });
+
+  it("el cierre nombra la dirección como la entendió", () => {
+    // El eco es el único control de calidad del vecino: si el bot leyó mal, es
+    // la única forma de darse cuenta antes de que salga una cuadrilla.
+    const s = simular(flujo, [{ texto: "lavaye 500" }]);
+    assert.ok(dijo(s.dichos, "lavaye 500"));
+  });
+});
+
+describe("lo que el vecino ya dijo no se pierde", () => {
+  it("REGRESIÓN · los días dichos en un turno previo llegan al ticket", () => {
+    // `diasSinServicio` estaba declarado en los datos del flujo y se usaba al
+    // armar el ticket, pero sólo se leía en la rama del cierre: decirlos en un
+    // turno y la dirección en el siguiente los perdía en silencio.
+    const s = simular(flujo, [{ texto: "hace 3 dias que no pasan" }, { texto: "Lavalle 500" }]);
+    assert.equal(efectoDe(s.efectos, "crear_ticket")?.datos.diasSinServicio, 3);
+  });
+
+  it("y con los días ya guardados, el aviso no los vuelve a nombrar", () => {
+    const s = simular(flujo, [{ texto: "hace 3 dias que no pasan" }, { texto: "Lavalle 500" }]);
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(!dijo([ultimo], "desde cuándo"), "los días ya los tiene");
+    assert.ok(dijo([ultimo], "foto"), "pero la foto sigue faltando");
   });
 });

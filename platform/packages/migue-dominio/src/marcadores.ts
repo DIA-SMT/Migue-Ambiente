@@ -1,9 +1,9 @@
 /**
  * Qué texto del bot acepta marcadores, y cuáles.
  *
- * Existe porque `interpolar()` NO se aplica a todos los textos: se llama en
- * exactamente dos lugares del código, los pasos de confirmación de los dos
- * trámites. Todas las demás claves se leen con `leerTexto()` y se envían sin
+ * Existe porque `interpolar()` NO se aplica a todos los textos: se llama en los
+ * pasos de confirmación de los dos trámites y en el aviso de lo que el reclamo
+ * no pudo cargar. Todas las demás claves se leen con `leerTexto()` y se envían sin
  * tocar.
  *
  * Sin esta lista el panel validaba mal, y de la peor forma posible: comprobaba
@@ -47,6 +47,8 @@ export const MARCADORES_POR_TEXTO: Readonly<Record<string, readonly string[]>> =
   // `orquestador.ts`, rama de derivación. `{migue}` es el enlace al asistente
   // general del municipio, que sale de `configuracion.enlace_migue`.
   derivar_a_migue: ["{migue}"],
+  // `reclamoRecoleccion.ts`, el aviso de lo que quedó sin cargar.
+  pedido_pendientes: ["{faltante}"],
 };
 
 /**

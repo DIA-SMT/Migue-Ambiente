@@ -74,6 +74,57 @@ function extraerAlumnos(texto: string): number | null {
   return null;
 }
 
+/**
+ * Palabras que siguen a «responsable» sin nombrar a una persona.
+ *
+ * «El responsable de la limpieza» nombra un área. Y las conjunciones cortan la
+ * frase: sin ellas, «responsable Ana y 30 chicos» daba «Ana y». Esa columna es
+ * con la que el área llama por teléfono a alguien.
+ */
+const NO_ES_PERSONA = new Set([
+  "de", "del", "la", "el", "los", "las", "un", "una",
+  "limpieza", "area", "zona", "turno", "obra", "grupo", "curso", "sector",
+  "servicio", "programa", "proyecto", "todavia", "aun", "nadie",
+]);
+
+/** Dónde termina un nombre propio dentro de un mensaje con varios datos. */
+const CORTA_EL_NOMBRE = new Set([
+  "y", "e", "pero", "que", "con", "para", "porque", "aunque",
+  "alumnos", "alumno", "chicos", "chicas", "estudiantes", "ninos", "ninas",
+  "tel", "telefono", "cel", "celular", "whatsapp", "wsp", "contacto",
+  "direccion", "calle", "altura", "mail", "email", "dni", "horario",
+]);
+
+/**
+ * El responsable a cargo: «responsable Ramiro», «a cargo la seño Marta».
+ *
+ * ES LA FUNCIÓN QUE FALTABA. `educa_requisitos` pide este dato desde la
+ * migración 008 y no existía en todo el repositorio nada que lo leyera, así que
+ * `registros.ts` escribía su default y el 100% de las solicitudes quedaban con
+ * «No especificado»: un dato perdido con la misma cara que un dato no dado.
+ *
+ * Devuelve `null` ante la duda. Un nombre inventado en esa columna es peor que
+ * la columna vacía: alguien lo va a leer para llamar por teléfono.
+ */
+function extraerResponsable(texto: string): string | null {
+  const patron =
+    /\b(responsable|a cargo|referente|docente|director[ae]?|directora|se[\u00f1n]o(?:ra)?|profe(?:sora?)?)\b\s*:?\s*(?:es\s+|la\s+|el\s+)?([^,.;\n]{2,40})/iu;
+  const m = patron.exec(texto);
+  if (!m) return null;
+
+  const palabras: string[] = [];
+  for (const palabra of m[2]!.trim().split(/\s+/)) {
+    if (/\d/.test(palabra)) break;
+    if (CORTA_EL_NOMBRE.has(normalizar(palabra))) break;
+    palabras.push(palabra);
+    if (palabras.length === 3) break;
+  }
+
+  if (palabras.length === 0) return null;
+  if (NO_ES_PERSONA.has(normalizar(palabras[0]!))) return null;
+  return palabras.join(" ");
+}
+
 /** Teléfono argentino escrito de cualquier forma. */
 function extraerTelefono(texto: string): string | null {
   const m = /(?:\+?54\s?)?(?:9\s?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3}[\s-]?\d{4}\b/.exec(texto);
@@ -161,6 +212,7 @@ function pasoDeSolicitud(opciones: {
         solicitud(opciones.programa, {
           direccion: formatearDireccion(direccion),
           institucion: extraerInstitucion(acumulado),
+          responsable: extraerResponsable(acumulado),
           cantidadAlumnos: extraerAlumnos(acumulado),
           telefonoContacto: extraerTelefono(acumulado),
           informacionAdicional: recortar(acumulado, 1000),
