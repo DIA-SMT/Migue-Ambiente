@@ -155,6 +155,27 @@ export function fechaLegible(iso: string, conHora = false): string {
   return `${fecha} ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+/**
+ * Fecha y hora sin el año, para listas largas.
+ *
+ * En una bitácora de consultas el año es ruido: son todas de esta semana y
+ * repetirlo en cada fila come el ancho que necesita la pregunta del vecino —
+ * medido, 177px contra 90px—. El año completo sigue estando en la transcripción,
+ * y el filtro por rango de fechas cubre el caso de mirar hacia atrás.
+ */
+export function fechaCorta(iso: string): string {
+  const f = new Date(iso);
+  const fecha = f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+  // 24 horas: es como se lee una bitácora, y el «a. m.» cuesta treinta píxeles
+  // por fila que necesita la pregunta del vecino.
+  const hora = f.toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${fecha} ${hora}`;
+}
+
 /* ------------------------------------------------------------- respuestas --- */
 
 /**

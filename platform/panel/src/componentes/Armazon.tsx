@@ -8,6 +8,7 @@ import {
   IconoClima,
   IconoConversaciones,
   IconoDocumentos,
+  IconoMensajes,
   IconoMetricas,
   IconoPersonal,
   IconoReglas,
@@ -58,6 +59,11 @@ const GRUPOS = [
       // Primera del grupo: es el único dato del panel donde habla el vecino.
       // Todo lo demás son deducciones nuestras mirando lo que hizo el bot.
       { href: "/clima", texto: "Clima", Icono: IconoClima, listo: true },
+      // Interacciones y Conversaciones contestan preguntas distintas y por eso
+      // conviven: una fila por CONSULTA para saber qué preguntan, una fila por
+      // CHARLA para saber cómo le fue a alguien. Una lista agrupada por charla
+      // no sirve para lo primero: seis preguntas aparecen como una sola fila.
+      { href: "/interacciones", texto: "Interacciones", Icono: IconoMensajes, listo: true },
       { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
       { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
       { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: true },

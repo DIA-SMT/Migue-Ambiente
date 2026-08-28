@@ -2661,3 +2661,45 @@ button.pildora.activa:hover {
   margin-top: auto;
   padding-top: 4px;
 }
+
+/* ---------------------------------------------------------------------------
+   Interacciones · la barra de filtros
+
+   Reusa `.buscador` de Preguntas frecuentes. Los `select` y los `date` toman el
+   estilo general de formulario, que fuerza `width: 100%`: acá tienen que medir
+   lo que miden, así que se les devuelve el ancho automático.
+   --------------------------------------------------------------------------- */
+
+.interacciones-filtros {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.interacciones-filtros .buscador {
+  flex: 1 1 240px;
+  max-width: 380px;
+}
+
+.interacciones-filtros select,
+.interacciones-fecha input {
+  width: auto;
+}
+
+.interacciones-fecha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tinta-suave);
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.interacciones-cuenta {
+  margin-left: auto;
+  color: var(--tinta-suave);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
