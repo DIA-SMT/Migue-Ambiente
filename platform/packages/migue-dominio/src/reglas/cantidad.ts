@@ -48,7 +48,10 @@ const NUMEROS_PALABRA = new Map<string, number>([
   ["once", 11], ["doce", 12], ["trece", 13], ["catorce", 14], ["quince", 15],
   ["dieciseis", 16], ["diecisiete", 17], ["dieciocho", 18], ["diecinueve", 19],
   ["veinte", 20], ["veintiuno", 21], ["veinticinco", 25], ["treinta", 30],
-  ["medio", 0.5],
+  // «media» estaba faltando al lado de «medio»: «media tonelada» se leía como
+  // una entera. Las dos siguen siendo vaguedad cuando van SOLAS, sin unidad
+  // —ver la guarda de más abajo—; con unidad al lado son media unidad.
+  ["medio", 0.5], ["media", 0.5],
 ]);
 
 // Sinónimos por unidad. Se comparan sobre tokens normalizados.
@@ -66,6 +69,37 @@ const UNIDADES: ReadonlyArray<readonly [Unidad, readonly string[]]> = [
     ],
   ],
 ];
+
+/**
+ * Unidades que NO entran en la escala del servicio, con su piso en m3.
+ *
+ * EL BUG QUE ARREGLAN. «Tengo 3 toneladas de piedras» no tenía ninguna unidad
+ * conocida, así que el 3 quedaba como número suelto y `validarVolumen` le
+ * aplicaba la unidad del límite: el ticket decía «3 bolsas», DENTRO del
+ * servicio gratuito. Hay un ticket real así. Una cuadrilla sale a levantar tres
+ * bolsas y encuentra tres toneladas.
+ *
+ * EL FACTOR ES UN PISO, NO UNA MEDIDA, y por eso se puede usar sin violar la
+ * regla del módulo de no inventar conversiones. Una tonelada de escombro ronda
+ * los 0,67 m3 y una de poda mucho más; 0,5 es el valor más BAJO que puede tomar
+ * en la práctica. Como sólo se usa para comparar contra un límite que queda muy
+ * por debajo, subestimar es seguro: si con el piso ya excede, con el valor real
+ * excede más. Y si algún límite llegara a estar cerca de estos números,
+ * `MARGEN_DUDA` en volumen.ts fuerza la pregunta igual.
+ */
+const FUERA_DE_ESCALA: ReadonlyArray<readonly [number, readonly string[]]> = [
+  // Una tonelada de escombro compactado: ~0,67 m3. Se toma 0,5.
+  [0.5, ["tonelada", "toneladas", "tn", "ton", "tons"]],
+  // El volquete chico de Tucumán son 2,5 m3; los hay de 4 y 6.
+  [2.5, ["volquete", "volquetes", "batea", "bateas", "contenedor", "contenedores"]],
+];
+
+function fueraDeEscala(token: string): number | null {
+  for (const [m3, palabras] of FUERA_DE_ESCALA) {
+    if (palabras.includes(token)) return m3;
+  }
+  return null;
+}
 
 const TERMINOS_VAGOS: ReadonlyArray<readonly [TerminoVago, readonly string[]]> = [
   ["poco", ["poco", "poquito", "poca", "poquita", "algo", "nada que ver", "minimo"]],
@@ -99,6 +133,33 @@ function unidadDeToken(token: string): Unidad | null {
  * falso positivo clásico: en "tengo un problema con las bolsas", "un" no debe
  * leerse como la cantidad de bolsas.
  */
+/**
+ * Los números pegados a una unidad, mirando hacia atrás desde ella.
+ *
+ * La adyacencia la impone el `break`: al primer token que no sea número ni
+ * relleno, se corta. Eso es lo que evita leer «tengo un problema con las
+ * bolsas» como 1 bolsa — «las» corta.
+ */
+function numerosHaciaAtras(tokens: readonly string[], indiceUnidad: number): number[] {
+  const numeros: number[] = [];
+  for (let i = indiceUnidad - 1; i >= 0; i--) {
+    const token = tokens[i]!;
+    const n = aNumero(token);
+    if (n !== null) {
+      numeros.unshift(n);
+      continue; // "entre 5 y 10 bolsas" trae dos números
+    }
+    if (RELLENO.has(token) || token === "entre") continue;
+    break;
+  }
+  return numeros;
+}
+
+/** El primero de esos números, o null. */
+function numeroHaciaAtras(tokens: readonly string[], indiceUnidad: number): number | null {
+  return numerosHaciaAtras(tokens, indiceUnidad)[0] ?? null;
+}
+
 export function interpretarCantidad(texto: string): CantidadDeclarada {
   const normalizado = normalizar(texto);
   if (normalizado === "") return { ...SIN_DATO, textoOriginal: texto };
@@ -115,6 +176,31 @@ export function interpretarCantidad(texto: string): CantidadDeclarada {
     }
   }
 
+  // Las unidades fuera de escala se miran PRIMERO. Si no, «3 toneladas de
+  // escombros en 2 bolsas» dejaría ganar a las bolsas, y el pedido volvería a
+  // leerse como si entrara en el servicio gratuito.
+  for (let i = 0; i < tokens.length; i++) {
+    const m3PorUnidad = fueraDeEscala(tokens[i]!);
+    if (m3PorUnidad === null) continue;
+
+    const cuantas = numeroHaciaAtras(tokens, i);
+    // Sin número, «un volquete de escombros» es igual de fuera de escala: se
+    // toma uno. El vecino que dice «volquete» no está declarando cero.
+    const valor = (cuantas ?? 1) * m3PorUnidad;
+
+    return {
+      valor,
+      valorMaximo: null,
+      // Se expresa en m3 porque es la unidad en la que el resto del sistema
+      // puede compararlo. El texto original queda en `textoOriginal` y en la
+      // transcripción, así que el operador ve que el vecino dijo «toneladas».
+      unidad: "m3",
+      vaga: null,
+      esRango: false,
+      textoOriginal: texto,
+    };
+  }
+
   let unidad: Unidad | null = null;
   let indiceUnidad = -1;
   for (let i = 0; i < tokens.length; i++) {
@@ -126,22 +212,7 @@ export function interpretarCantidad(texto: string): CantidadDeclarada {
     }
   }
 
-  const numeros: number[] = [];
-  if (indiceUnidad >= 0) {
-    // Hacia atrás desde la unidad. La adyacencia la impone el `break`: al
-    // primer token que no sea número ni relleno, se corta. Eso es lo que evita
-    // leer "tengo un problema con las bolsas" como 1 bolsa — "las" corta.
-    for (let i = indiceUnidad - 1; i >= 0; i--) {
-      const token = tokens[i]!;
-      const n = aNumero(token);
-      if (n !== null) {
-        numeros.unshift(n);
-        continue; // "entre 5 y 10 bolsas" trae dos números
-      }
-      if (RELLENO.has(token) || token === "entre") continue;
-      break;
-    }
-  }
+  const numeros: number[] = indiceUnidad >= 0 ? numerosHaciaAtras(tokens, indiceUnidad) : [];
 
   // La vaguedad se detecta ANTES de recurrir a números sueltos, y esa
   // precedencia importa: en "es mucho, un camion" el "un" de "un camion" se
@@ -154,8 +225,8 @@ export function interpretarCantidad(texto: string): CantidadDeclarada {
   if (indiceUnidad < 0 && vagaTexto === null) {
     for (const token of tokens) {
       const n = aNumero(token);
-      // "medio" solo, sin unidad, es vaguedad y no el número 0.5
-      if (n !== null && token !== "medio") {
+      // "medio" o "media" solos, sin unidad, son vaguedad y no el número 0.5
+      if (n !== null && token !== "medio" && token !== "media") {
         numeros.push(n);
         break;
       }
