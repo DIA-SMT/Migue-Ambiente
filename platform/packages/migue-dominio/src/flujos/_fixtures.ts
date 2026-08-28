@@ -51,7 +51,23 @@ export const LIMITES_PRUEBA: LimiteVolumen[] = [
     pesoMaxBolsaKg: null,
     accionAlExceder: "parcial_con_ticket",
     textoExceso: null,
-    palabras: ["mueble", "muebles", "sillon", "colchon", "heladera", "tarima"],
+    // «ramas enfardadas» va acá y no en poda: la spec pone «Otros (Muebles,
+    // chatarra, ramas enfardadas)» con límite de 1 m³. Un fardo no se mide en
+    // bolsas. Ver la migración 034.
+    palabras: [
+      "mueble",
+      "muebles",
+      "sillon",
+      "colchon",
+      "heladera",
+      "tarima",
+      "ramas enfardadas",
+      "rama enfardada",
+      "enfardadas",
+      "fardo",
+      "fardo de ramas",
+      "fardos de ramas",
+    ],
     activo: true,
   },
 ];

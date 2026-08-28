@@ -25,6 +25,16 @@ export interface CantidadDeclarada {
   readonly unidad: Unidad | null;
   readonly vaga: TerminoVago | null;
   readonly esRango: boolean;
+  /**
+   * Kilos por bolsa que declaró el vecino, si los dijo.
+   *
+   * La Especificación MVP pone DOS condiciones para el rechazo parcial de
+   * escombros: «> 5 bolsas O > 15 kg c/u». La segunda no se validaba: los 15 kg
+   * de la tabla se usaban sólo para convertir cuando el vecino declaraba en
+   * kilos, así que «5 bolsas de 30 kilos» entraba como si estuviera dentro del
+   * servicio gratuito. Son 150 kg.
+   */
+  readonly pesoPorUnidadKg: number | null;
   readonly textoOriginal: string;
 }
 
@@ -34,6 +44,7 @@ const SIN_DATO: Omit<CantidadDeclarada, "textoOriginal"> = {
   unidad: null,
   vaga: null,
   esRango: false,
+  pesoPorUnidadKg: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -133,6 +144,31 @@ function unidadDeToken(token: string): Unidad | null {
  * falso positivo clásico: en "tengo un problema con las bolsas", "un" no debe
  * leerse como la cantidad de bolsas.
  */
+/** Tokens con los que el vecino nombra una bolsa. */
+const ES_BOLSA = new Set(["bolsa", "bolsas", "bolson", "bolsones"]);
+const ES_KILO = new Set(["kg", "kilo", "kilos", "kilogramo", "kilogramos"]);
+
+/**
+ * Cuántos kilos pesa CADA bolsa, según el vecino.
+ *
+ * Se exige que los kilos vengan DESPUÉS de la palabra bolsa —«5 bolsas de 30
+ * kilos»— o acompañados de «cada una». Sin esa condición, «30 kilos de
+ * escombros» —que son 30 en total— se leería como 30 por bolsa y multiplicaría
+ * el pedido por la nada.
+ */
+function pesoPorBolsa(tokens: readonly string[]): number | null {
+  const indiceBolsa = tokens.findIndex((t) => ES_BOLSA.has(t));
+  if (indiceBolsa === -1) return null;
+
+  for (let i = indiceBolsa + 1; i < tokens.length; i++) {
+    if (!ES_KILO.has(tokens[i]!)) continue;
+    // El número está pegado hacia atrás, igual que con cualquier otra unidad.
+    const kilos = numeroHaciaAtras(tokens, i);
+    if (kilos !== null && kilos > 0) return kilos;
+  }
+  return null;
+}
+
 /**
  * Los números pegados a una unidad, mirando hacia atrás desde ella.
  *
@@ -197,6 +233,7 @@ export function interpretarCantidad(texto: string): CantidadDeclarada {
       unidad: "m3",
       vaga: null,
       esRango: false,
+      pesoPorUnidadKg: null,
       textoOriginal: texto,
     };
   }
@@ -234,7 +271,13 @@ export function interpretarCantidad(texto: string): CantidadDeclarada {
   }
 
   if (numeros.length === 0) {
-    return { ...SIN_DATO, unidad, vaga: vagaTexto, textoOriginal: texto };
+    return {
+      ...SIN_DATO,
+      unidad,
+      vaga: vagaTexto,
+      pesoPorUnidadKg: pesoPorBolsa(tokens),
+      textoOriginal: texto,
+    };
   }
 
   // Con unidad y número concreto, el número gana sobre el adjetivo:
@@ -250,6 +293,7 @@ export function interpretarCantidad(texto: string): CantidadDeclarada {
     unidad,
     vaga: esRango ? null : vaga,
     esRango,
+    pesoPorUnidadKg: pesoPorBolsa(tokens),
     textoOriginal: texto,
   };
 }

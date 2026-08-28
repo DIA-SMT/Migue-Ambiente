@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { interpretarCantidad } from "./cantidad.ts";
+import { LIMITES_PRUEBA } from "../flujos/_fixtures.ts";
 import {
   detectarCategoria,
   limiteDe,
@@ -255,5 +256,83 @@ describe("detectarCategoria", () => {
   it("no confunde palabras que contienen el término", () => {
     // "rama" no debe coincidir con "programa" ni "dramatico".
     assert.equal(detectarCategoria("consulta sobre el programa separa", LIMITES), null);
+  });
+});
+
+describe("el peso por bolsa, la mitad del límite que no se validaba", () => {
+  const escombros = LIMITES_PRUEBA.find((l) => l.categoria === "escombros")!;
+
+  it("REGRESIÓN · «5 bolsas de 30 kilos» no entra en el servicio gratuito", () => {
+    // La spec pone DOS condiciones: «> 5 bolsas O > 15 kg c/u». Sólo se validaba
+    // la primera, así que 150 kg de escombros entraban como si estuvieran dentro
+    // del límite. El peso máximo por bolsa existía en la tabla y se usaba nada
+    // más que para convertir cuando el vecino declaraba en kilos.
+    const c = interpretarCantidad("5 bolsas de 30 kilos");
+    assert.equal(c.valor, 5, "la cuenta de bolsas se lee igual que antes");
+    assert.equal(c.pesoPorUnidadKg, 30);
+    assert.equal(validarVolumen(c, escombros).tipo, "excede");
+  });
+
+  it("con bolsas dentro del peso, decide la cantidad como siempre", () => {
+    assert.equal(validarVolumen(interpretarCantidad("5 bolsas de 10 kilos"), escombros).tipo, "dentro");
+    assert.equal(validarVolumen(interpretarCantidad("5 bolsas"), escombros).tipo, "dentro");
+  });
+
+  it("«cada una» y «c/u» también cuentan", () => {
+    assert.equal(interpretarCantidad("3 bolsas de 20 kg cada una").pesoPorUnidadKg, 20);
+    assert.equal(validarVolumen(interpretarCantidad("3 bolsas de 20 kg cada una"), escombros).tipo, "excede");
+  });
+
+  it("un peso TOTAL no se confunde con el peso por bolsa", () => {
+    // «30 kilos de escombros» son 30 en total, no 30 por bolsa. Sin la condición
+    // de que los kilos vengan después de la palabra bolsa, se multiplicaba el
+    // pedido por la nada.
+    const c = interpretarCantidad("30 kilos de escombros");
+    assert.equal(c.pesoPorUnidadKg, null);
+    assert.equal(validarVolumen(c, escombros).tipo, "dentro", "30 kg son 2 bolsas");
+  });
+
+  it("sin peso máximo cargado, no se controla nada", () => {
+    // Sólo escombros tiene los 15 kg. Poda y voluminosos no, y ahí el peso que
+    // declare el vecino es información, no un límite.
+    const poda = LIMITES_PRUEBA.find((l) => l.categoria === "poda")!;
+    assert.equal(validarVolumen(interpretarCantidad("3 bolsas de 40 kilos"), poda).tipo, "dentro");
+  });
+});
+
+describe("las ramas enfardadas van con los voluminosos", () => {
+  it("REGRESIÓN · «ramas enfardadas» no es poda", () => {
+    // La spec pone «Otros (Muebles, chatarra, ramas enfardadas)» con límite de
+    // 1 m³. El detector sólo veía «rama» y «ramas», que son de poda, y el fardo
+    // se medía contra 10 bolsas.
+    assert.equal(detectarCategoria("tengo ramas enfardadas", LIMITES_PRUEBA), "voluminosos");
+    assert.equal(detectarCategoria("un fardo de ramas", LIMITES_PRUEBA), "voluminosos");
+    assert.equal(detectarCategoria("dos fardos de ramas", LIMITES_PRUEBA), "voluminosos");
+  });
+
+  it("las ramas sueltas siguen siendo poda", () => {
+    assert.equal(detectarCategoria("tengo ramas y hojas", LIMITES_PRUEBA), "poda");
+    assert.equal(detectarCategoria("restos de poda", LIMITES_PRUEBA), "poda");
+  });
+
+  it("una frase le gana a la palabra suelta que tiene adentro", () => {
+    // Es lo que resuelve el empate: «ramas enfardadas» le da dos coincidencias a
+    // cada categoría, y la frase es evidencia más fuerte que la palabra corta.
+    // Ojo con compararlas alfabéticamente: «fardo de ramas» pierde contra
+    // «ramas» por empezar con f.
+    assert.equal(detectarCategoria("un fardo de ramas", LIMITES_PRUEBA), "voluminosos");
+  });
+
+  it("pero un empate entre dos palabras sueltas sigue preguntando", () => {
+    // No adivinar cuando la evidencia es pareja: elegir un límite al azar es
+    // peor que una pregunta.
+    assert.equal(detectarCategoria("tengo ramas y muebles", LIMITES_PRUEBA), null);
+  });
+
+  it("y el conteo sigue mandando cuando no hay empate", () => {
+    assert.equal(
+      detectarCategoria("saque los muebles y quedaron ladrillos y cascotes de la obra", LIMITES_PRUEBA),
+      "escombros",
+    );
   });
 });
