@@ -11,6 +11,7 @@ import {
   type Resultado,
 } from "./acciones";
 import { CajonFaq } from "./CajonFaq";
+import { ListaFaqs } from "./ListaFaqs";
 import { CajonFija } from "./CajonFija";
 import { ProbarBuscador } from "./ProbarBuscador";
 import { SinResponder } from "./SinResponder";
@@ -198,73 +199,16 @@ export function Respuestas({
               un fragmento de PDF cuando Migue busca con qué responder.
             </div>
           ) : (
-            <div className="envoltorio-tabla tarjeta">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Pregunta y respuesta</th>
-                    <th>Estado</th>
-                    <th className="num">Usos</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {faqs.map((f) => (
-                    <tr key={f.id} className={f.activa ? undefined : "de-baja"}>
-                      <td>
-                        <div className="titulo-fila">{f.pregunta}</div>
-                        <div style={{ color: "var(--tinta-media)", fontSize: "0.87rem", marginTop: 3, maxWidth: "62ch" }}>
-                          {f.respuesta.length > 200 ? `${f.respuesta.slice(0, 200)}…` : f.respuesta}
-                        </div>
-                        {f.etiquetas.length > 0 && (
-                          <div className="sub-fila" style={{ marginTop: 4 }}>
-                            {f.etiquetas.join(" · ")}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`chip ${f.activa ? "ok" : "curso"}`}>
-                          {f.activa ? "en uso" : "borrador"}
-                        </span>
-                      </td>
-                      <td className="num">{f.veces_usada}</td>
-                      <td>
-                        <div className="acciones">
-                          <button className="chico" onClick={() => setEditandoFaq(f)}>
-                            Editar
-                          </button>
-                          <button
-                            className="chico"
-                            disabled={pendiente}
-                            onClick={() => ejecutar(() => publicarFaq(f.id, !f.activa))}
-                          >
-                            {f.activa ? "Despublicar" : "Publicar"}
-                          </button>
-                          {confirmando === f.id ? (
-                            <>
-                              <button
-                                className="chico peligro"
-                                disabled={pendiente}
-                                onClick={() => ejecutar(() => borrarFaq(f.id))}
-                              >
-                                Confirmar
-                              </button>
-                              <button className="chico" onClick={() => setConfirmando(null)}>
-                                No
-                              </button>
-                            </>
-                          ) : (
-                            <button className="chico peligro" onClick={() => setConfirmando(f.id)}>
-                              Borrar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ListaFaqs
+              faqs={faqs}
+              pendiente={pendiente}
+              confirmando={confirmando}
+              alEditar={setEditandoFaq}
+              alPublicar={(f) => ejecutar(() => publicarFaq(f.id, !f.activa))}
+              alPedirBorrar={setConfirmando}
+              alBorrar={(id) => ejecutar(() => borrarFaq(id))}
+              alCancelarBorrado={() => setConfirmando(null)}
+            />
           )}
         </>
       ) : (

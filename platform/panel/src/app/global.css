@@ -2415,3 +2415,249 @@ dl.ficha dd {
   font-weight: 600;
   text-decoration: underline;
 }
+
+/* ---------------------------------------------------------------------------
+   Preguntas frecuentes, en tarjetas agrupadas por tema
+
+   Reemplazan a una tabla de una fila por FAQ con la respuesta recortada a 200
+   caracteres. Una FAQ se juzga leyéndola entera, y en una celda no se lee.
+
+   Todo sale de los tokens que ya existen: ni un color nuevo. La hoja tiene dos
+   temas y `herramientas/verificar-contraste.mjs` los revisa, así que un
+   #hex escrito acá se saltearía las dos cosas.
+   --------------------------------------------------------------------------- */
+
+.faqs {
+  margin-top: 4px;
+}
+
+/* --- la barra de arriba: buscar, borradores, cuenta --- */
+
+.faqs-filtros {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.faqs-filtros .buscador {
+  flex: 1 1 280px;
+  max-width: 460px;
+  width: auto;
+  font-family: var(--texto);
+  font-size: 0.95rem;
+  padding: 9px 12px;
+  border: 1px solid var(--linea);
+  border-radius: 9px;
+  background: var(--papel);
+  color: var(--tinta);
+}
+
+.faqs-borradores {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--tinta-media);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.faqs-borradores input {
+  width: auto;
+}
+
+.faqs-cuenta {
+  margin-left: auto;
+  color: var(--tinta-suave);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- las píldoras de tema --- */
+
+.faqs-temas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.pildora {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid var(--linea);
+  border-radius: 999px;
+  background: var(--papel);
+  color: var(--tinta-media);
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pildora:hover {
+  border-color: var(--verde-vivo);
+  color: var(--tinta);
+}
+
+/* DOS COSAS, y las dos salieron de mirar la pantalla, no el código.
+
+   El fondo es `verde-profundo` y no `verde-vivo`: el vivo con texto blanco da
+   3,38:1, por debajo del mínimo AA. Lo agarró `verificar-contraste.mjs`, no el
+   ojo — se ve perfecto. El profundo es el verde de la barra, donde el texto
+   blanco ya está verificado.
+
+   Y va con `button` adelante para ganarle a `button:hover:not(:disabled)` de la
+   hoja general, que tiene un elemento más de especificidad. Sin eso, al pasar
+   el mouse le pisaba el fondo y quedaba texto blanco sobre gris claro: la
+   píldora elegida se volvía ilegible justo después de hacerle click, que es
+   exactamente cuando el mouse está encima. */
+button.pildora.activa,
+button.pildora.activa:hover {
+  background: var(--verde-profundo);
+  border-color: var(--verde-profundo);
+  color: var(--sobre-verde-fuerte);
+}
+
+.pildora-cuenta {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: var(--riel);
+  color: var(--tinta-fuerte);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.pildora.activa .pildora-cuenta {
+  background: var(--realce-barra);
+  color: var(--sobre-verde-fuerte);
+}
+
+/* --- los grupos --- */
+
+.faqs-grupo {
+  margin-bottom: 26px;
+}
+
+.faqs-grupo-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 11px;
+  padding-left: 11px;
+  border-left: 3px solid var(--verde-vivo);
+}
+
+.faqs-grupo-nombre {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta-fuerte);
+}
+
+.faqs-grupo-cuenta {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--tinta-suave);
+}
+
+/* Se apoya en `auto-fill` y no en un número de columnas: con siete FAQs hay
+   pocas por fila y con cuarenta se llena, sin puntos de quiebre a mano. */
+.faqs-grilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 14px;
+}
+
+/* --- la tarjeta --- */
+
+.faq-tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 15px 16px;
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-left: 3px solid var(--verde-vivo);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+/* Un borrador se distingue por el borde apagado, no por opacidad: bajarle la
+   opacidad al texto lo saca del contraste mínimo, y es texto que hay que poder
+   leer para decidir si se publica. */
+.faq-tarjeta.de-baja {
+  border-left-color: var(--serie-pend);
+  background: var(--papel-2);
+}
+
+.faq-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.faq-usos {
+  font-size: 0.82rem;
+  color: var(--tinta-suave);
+  font-variant-numeric: tabular-nums;
+}
+
+.faq-pregunta {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--tinta-fuerte);
+}
+
+.faq-respuesta {
+  margin: 0;
+  font-size: 0.91rem;
+  line-height: 1.55;
+  color: var(--tinta-media);
+  white-space: pre-wrap;
+}
+
+/* El marcador se ve como lo que es: un hueco que se llena al enviar. Sin esto
+   la tarjeta muestra «{limites}» crudo y parece un error de la pantalla. */
+.marcador {
+  display: inline;
+  padding: 1px 7px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: var(--riel);
+  border: 1px dashed var(--linea);
+  color: var(--tinta-fuerte);
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.faq-etiquetas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.etiqueta {
+  font-size: 0.78rem;
+  color: var(--tinta-suave);
+  background: var(--hundida);
+  border: 1px solid var(--linea-suave);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.faq-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: auto;
+  padding-top: 4px;
+}

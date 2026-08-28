@@ -120,6 +120,14 @@ for (const [tema, vars] of [["claro", claro], ["oscuro", oscuro]]) {
   // del fondo de página es la que falla primero y es la que se olvida: un
   // enlace suelto en un párrafo fuera de una tarjeta.
   exige(tema, vars, "azul-enlace", "papel", 4.5, "un enlace sobre una tarjeta");
+
+  // La píldora de tema elegida en Preguntas frecuentes: es el único lugar del
+  // panel donde `verde-vivo` es FONDO de texto, así que no lo cubría ningún
+  // otro par.
+  exige(tema, vars, "sobre-verde-fuerte", "verde-profundo", 4.5, "la píldora de tema elegida");
+  // El texto de ayuda sobre la tarjeta apagada de un borrador, que usa
+  // `papel-2` y no `papel`.
+  exige(tema, vars, "tinta-suave", "papel-2", 4.5, "el texto de ayuda sobre una tarjeta apagada");
   exige(tema, vars, "azul-enlace", "fondo", 4.5, "un enlace sobre el fondo de la página");
   exige(tema, vars, "sobre-verde-fuerte", "verde-medio", 4.5, "el ítem activo del menú");
 }
