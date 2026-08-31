@@ -32,6 +32,12 @@ PUERTO_PANEL="${PUERTO_PANEL:-3001}"
 PUERTO_WEBHOOK="${PUERTO_WEBHOOK:-3002}"
 RUTA_WEBHOOK="${RUTA_WEBHOOK:-/hooks/whatsapp}"
 
+# El bot del Bus Turístico comparte esta VPS y este dominio. NO es nuestro, pero
+# su bloque vive en el mismo archivo de nginx que este script genera, así que si
+# no estuviera acá cada corrida de panel.sh se lo llevaría puesto y le cortaría
+# el webhook a un bot que está atendiendo gente. Ver el comentario del bloque.
+PUERTO_TURISMO="${PUERTO_TURISMO:-3000}"
+
 DOMINIO=""
 CORREO=""
 CON_CERTBOT=1
@@ -91,7 +97,28 @@ server {
     # los formularios. Un tope alto sería superficie regalada.
     client_max_body_size 2m;
 
-    # Webhook de WhatsApp Cloud API.
+    # Bot de WhatsApp del Bus Turístico (Express en loopback :${PUERTO_TURISMO}).
+    # Webhook de Meta: https://${DOMINIO}/turismo/api/webhook/whatsapp
+    #
+    # NO ES NUESTRO y está acá igual, a propósito. Alguien lo agregó a mano al
+    # archivo que este script genera. Si no estuviera en la plantilla, la
+    # próxima corrida de panel.sh lo borraría y Meta empezaría a recibir 404 en
+    # el webhook de un bot que está atendiendo gente. El archivo tiene que
+    # describir lo que hay, no lo que nos gustaría que hubiera.
+    #
+    # El proxy_pass lleva barra final: así se le saca el prefijo /turismo/ antes
+    # de pasarlo. Sin la barra, el bot recibiría rutas que no conoce.
+    location /turismo/ {
+        proxy_pass http://127.0.0.1:${PUERTO_TURISMO}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host              \$host;
+        proxy_set_header X-Real-IP         \$remote_addr;
+        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 90s;
+    }
+
+    # Webhook de WhatsApp Cloud API de Migue Ambiente.
     #
     # POR QUÉ ACÁ Y NO EN /etc/nginx/bots.d/, que existe justo para esto. Los
     # drop-ins de bots.d cuelgan del server por defecto (server_name _), que
