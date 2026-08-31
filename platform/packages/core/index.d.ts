@@ -91,10 +91,23 @@ export function pingDb(): Promise<boolean>;
 // http
 // ---------------------------------------------------------------------------
 
+/**
+ * `crudo` son los bytes del cuerpo tal como llegaron, antes de interpretarlos.
+ * Los necesita cualquier webhook firmado: la firma se calcula sobre esos bytes
+ * y volver a serializar el JSON no los reproduce.
+ */
+export type ManejadorHttp = (
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  body: unknown,
+  crudo: Buffer,
+) => unknown;
+
 export interface OpcionesServidorHttp {
+  /** 0 pide "el puerto que haya libre"; el real se lee de `server.address()`. */
   port: number;
   host?: string;
-  routes?: Record<string, (req: unknown, res: unknown, body: unknown) => unknown>;
+  routes?: Record<string, ManejadorHttp>;
   readiness?: () => boolean | Promise<boolean>;
   maxBodyBytes?: number;
 }

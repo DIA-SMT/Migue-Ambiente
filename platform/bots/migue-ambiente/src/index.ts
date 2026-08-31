@@ -9,8 +9,10 @@ import {
   createLogger,
   getRedis,
   installShutdownHandlers,
+  int,
   onShutdown,
   requireEnv,
+  startHttpServer,
 } from "@bots/core";
 import {
   actualizarFlujo,
@@ -33,6 +35,7 @@ import {
   type Puertos,
 } from "@migue/dominio";
 import { crearBot } from "./canal/telegram/adaptador.ts";
+import { rutasDelWebhook } from "./canal/whatsapp/webhook.ts";
 import { arrancarEncuestas } from "./encuestaFinal.ts";
 
 const log = createLogger("main");
@@ -103,6 +106,46 @@ async function main(): Promise<void> {
 
   const yo = await bot.api.getMe();
   log.info({ usuario: `@${yo.username}`, id: yo.id }, "bot identificado");
+
+  // El webhook de WhatsApp, si está configurado.
+  //
+  // NO va en `requireEnv`: mientras el alta con Meta no esté hecha, estas dos
+  // claves no existen y el bot tiene que arrancar igual. Con las dos presentes
+  // se levanta el servidor; con una sola se avisa fuerte, porque es un error de
+  // configuración disfrazado de canal apagado.
+  //
+  // Depende de `instances: 1` en bots.json, igual que el límite de frecuencia
+  // del adaptador de Telegram: dos procesos peleando por el 3002 y el segundo
+  // no arranca.
+  const secretoWhatsApp = process.env["WHATSAPP_APP_SECRET"]?.trim() ?? "";
+  const tokenWhatsApp = process.env["WHATSAPP_VERIFY_TOKEN"]?.trim() ?? "";
+
+  if (secretoWhatsApp !== "" && tokenWhatsApp !== "") {
+    const ruta = process.env["WHATSAPP_WEBHOOK_RUTA"]?.trim() || "/hooks/whatsapp";
+    await startHttpServer({
+      port: int("WHATSAPP_WEBHOOK_PUERTO", 3002),
+      routes: rutasDelWebhook({
+        ruta,
+        tokenVerificacion: tokenWhatsApp,
+        secretoApp: secretoWhatsApp,
+        // Todavía no hay adaptador: por ahora lo que llega se registra y nada
+        // más. Sirve para dar de alta el webhook en Meta y para ver la forma
+        // real de los mensajes antes de escribir la traducción.
+        alLlegar: (entrega) => {
+          for (const m of entrega.mensajes) {
+            log.info({ id: m.id, tipo: m.tipo }, "mensaje de WhatsApp sin adaptador todavía");
+          }
+        },
+      }),
+    });
+    log.info({ ruta }, "webhook de WhatsApp escuchando");
+  } else if (secretoWhatsApp !== "" || tokenWhatsApp !== "") {
+    log.warn(
+      "WhatsApp a medias: hacen falta WHATSAPP_APP_SECRET y WHATSAPP_VERIFY_TOKEN, no una sola",
+    );
+  } else {
+    log.info("webhook de WhatsApp apagado: no hay credenciales configuradas");
+  }
 
   // El orden importa: primero se registra cómo cerrar, después se abre. Si se
   // abriera antes, un fallo entre las dos líneas dejaría el polling activo sin

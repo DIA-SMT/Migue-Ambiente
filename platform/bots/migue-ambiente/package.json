@@ -9,6 +9,7 @@
     "start": "node --env-file=.env src/index.ts",
     "dev": "node --env-file=.env --watch src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "node --test",
     "start:worker": "node --env-file=.env src/worker/index.ts",
     "dev:worker": "node --env-file=.env --watch src/worker/index.ts"
   },

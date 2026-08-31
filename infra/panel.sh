@@ -26,6 +26,12 @@ VPS_HOST="${VPS_HOST:-195.35.42.168}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/multibot_vps}"
 PUERTO_PANEL="${PUERTO_PANEL:-3001}"
 
+# El webhook de WhatsApp. Tiene que coincidir con WHATSAPP_WEBHOOK_PUERTO y
+# WHATSAPP_WEBHOOK_RUTA del .env del bot; si no, nginx proxea a un puerto donde
+# no hay nadie y Meta recibe 502 sin explicación.
+PUERTO_WEBHOOK="${PUERTO_WEBHOOK:-3002}"
+RUTA_WEBHOOK="${RUTA_WEBHOOK:-/hooks/whatsapp}"
+
 DOMINIO=""
 CORREO=""
 CON_CERTBOT=1
@@ -84,6 +90,31 @@ server {
     # desde el navegador, no pasan por acá, así que 2 MB alcanza de sobra para
     # los formularios. Un tope alto sería superficie regalada.
     client_max_body_size 2m;
+
+    # Webhook de WhatsApp Cloud API.
+    #
+    # POR QUÉ ACÁ Y NO EN /etc/nginx/bots.d/, que existe justo para esto. Los
+    # drop-ins de bots.d cuelgan del server por defecto (server_name _), que
+    # escucha SÓLO en el puerto 80. Meta exige HTTPS con certificado válido, y
+    # el certificado lo tiene este server. Un webhook en bots.d nunca llega a
+    # darse de alta.
+    #
+    # nginx elige por prefijo más largo, así que esto le gana a «location /»
+    # sin depender del orden.
+    location ${RUTA_WEBHOOK} {
+        proxy_pass http://127.0.0.1:${PUERTO_WEBHOOK};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              \$host;
+        proxy_set_header X-Real-IP         \$remote_addr;
+        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        # Corto a propósito: el bot contesta 200 antes de procesar nada, así que
+        # si tarda más que esto es que está caído, y conviene que Meta lo vea
+        # como error rápido en vez de quedarse esperando.
+        proxy_read_timeout 15s;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:${PUERTO_PANEL};
