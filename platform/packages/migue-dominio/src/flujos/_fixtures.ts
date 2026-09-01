@@ -77,8 +77,11 @@ const PUNTOS: PuntoVerde[] = [
   { id: "2", nombre: "PV Viamonte", direccion: "Viamonte e Italia", tipo: "contenedor", horario: "24 hs", materiales: ["reciclables"], observaciones: null, orden: 20 },
 ];
 
+// Los días son los de la migración 036, no los de la spec: Norte carga lunes,
+// MIÉRCOLES y viernes. Con «martes» —lo que decía el Anexo de Datos— el martes
+// quedaba en las dos zonas y el miércoles en ninguna.
 const ZONAS: ZonaRecoleccion[] = [
-  { id: "1", nombre: "Zona Norte", dias: ["lunes", "martes", "viernes"], horaSacar: "14:30 hs", observaciones: null },
+  { id: "1", nombre: "Zona Norte", dias: ["lunes", "miercoles", "viernes"], horaSacar: "14:30 hs", observaciones: null },
   { id: "2", nombre: "Zona Sur", dias: ["martes", "jueves", "sabado"], horaSacar: "14:30 hs", observaciones: null },
 ];
 
@@ -171,11 +174,15 @@ const TEXTOS = new Map<string, string>([
     "separa_fuera_de_avenidas",
     "Tu domicilio está fuera de las 4 avenidas. Para coordinar el retiro necesito: tu nombre, teléfono, dirección exacta, una foto de los reciclables limpios, qué materiales son y en qué franja horaria estás.",
   ],
-  // VACÍA, igual que en producción: Ambiente todavía no pasó la URL del mapa de
-  // recorridos. El fixture espeja la base, no lo que sería lindo tener — si acá
-  // tuviera texto, las pruebas del flujo de reclamo estarían midiendo un
-  // comportamiento que ningún vecino recibe.
-  ["reclamo_info_turnos", ""],
+  // Estuvo vacía hasta la migración 036, cuando apareció la URL del mapa en el
+  // bot propio del área. El fixture espeja la base: ahora que en producción hay
+  // texto, dejarlo vacío acá haría que la suite midiera un mensaje que el
+  // vecino sí recibe. La rama vacía se prueba armando el catálogo a mano, en
+  // `reclamoRecoleccion.test.ts`.
+  [
+    "reclamo_info_turnos",
+    "Mientras tanto podés confirmar qué día y en qué turno le toca a tu domicilio:\nhttps://smtendatos.gob.ar/mapa-interactivo-de-recoleccion-de-residuos-por-turno/",
+  ],
   // La encuesta al terminar un trámite. Pregunta por el PROCESO, no por el
   // contenido: un pulgar abajo acá se arregla cambiando los pasos del flujo,
   // no escribiendo una respuesta mejor.

@@ -8,22 +8,30 @@ import { esDiaHabil } from "../reglas/sla.ts";
 describe("apertura", () => {
   it("pide los tres datos del diagnóstico en un solo mensaje", () => {
     const s = simular(flujo, []);
-    assert.equal(s.dichos.length, 1, "no fragmenta el pedido en tres preguntas");
-    assert.match(s.dichos[0]!, /direcci[oó]n/i);
+    // Se mira el PRIMER mensaje y no la cantidad total: desde la migración 036
+    // detrás viene el enlace al mapa de recorridos, que es información y no una
+    // cuarta pregunta. Contar mensajes hacía que este test midiera eso.
+    const diagnostico = s.dichos[0]!;
+    assert.match(diagnostico, /direcci[oó]n/i, "no fragmenta el pedido en tres preguntas");
+    assert.match(diagnostico, /foto/i, "no fragmenta el pedido en tres preguntas");
+    assert.match(diagnostico, /desde cu[aá]ndo/i, "no fragmenta el pedido en tres preguntas");
   });
 
   it("suma el enlace a los recorridos sólo si está cargado", () => {
-    // Ambiente todavía no nos pasó la URL del mapa. Sin este condicional el
-    // vecino recibiría el marcador «[falta texto: ...]».
-    const sinEnlace = simular(flujo, []);
-    assert.equal(sinEnlace.dichos.length, 1);
-    assert.equal(dijo(sinEnlace.dichos, "falta texto"), false);
-
-    const textos = new Map(catalogoPrueba().textos);
-    textos.set("reclamo_info_turnos", "Verificá tu turno en el mapa: ejemplo.gob.ar/mapa");
-    const conEnlace = simular(flujo, [], contextoPrueba(catalogoPrueba({ textos })));
+    // Desde la migración 036 la URL del mapa está cargada, así que el caso por
+    // defecto es CON enlace y son dos mensajes.
+    const conEnlace = simular(flujo, []);
     assert.equal(conEnlace.dichos.length, 2);
     assert.ok(dijo(conEnlace.dichos, "mapa"));
+
+    // Y sigue siendo opcional: vaciarlo desde el panel tiene que apagar el
+    // mensaje, no mandarle «[falta texto: ...]» al vecino. Se arma a mano
+    // porque el fixture ya no es este caso.
+    const textos = new Map(catalogoPrueba().textos);
+    textos.set("reclamo_info_turnos", "");
+    const sinEnlace = simular(flujo, [], contextoPrueba(catalogoPrueba({ textos })));
+    assert.equal(sinEnlace.dichos.length, 1);
+    assert.equal(dijo(sinEnlace.dichos, "falta texto"), false);
   });
 });
 
