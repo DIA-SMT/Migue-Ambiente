@@ -43,6 +43,35 @@ describe("saludos y despedidas", () => {
     assert.equal(puertos.almacen.tamano(), 0, "no debería guardar estado");
   });
 
+  it("y detrás del saludo va el menú, con las opciones intactas", async () => {
+    const { puertos } = await conversar([{ texto: "hola" }], { intencion: "saludo" });
+
+    assert.equal(puertos.registro.salientes.length, 2, "bienvenida y menú");
+    assert.match(puertos.registro.salientes[0]!.texto, /Migue Ambiente/);
+    // Los ids tienen que llegar tal cual. `conReferente` le pega el id del
+    // mensaje a las opciones de los salientes que no son el primero, y si se lo
+    // hiciera al menú, `resolverOpcion` dejaría de reconocer lo que el vecino
+    // toca. Hoy no lo hace porque sólo reescribe cuando TODAS las opciones son
+    // de voto; esta prueba es lo que avisa si eso cambia.
+    assert.deepEqual(
+      puertos.registro.salientes[1]!.opciones.map((o) => o.id),
+      OPCIONES_MENU.map((o) => o.id),
+    );
+  });
+
+  it("el menú del saludo NO gasta el intento previo a derivar", async () => {
+    // `yaVioElMenu` mira el origen del último saliente del turno. Si el menú del
+    // saludo quedara con origen «fallback», el próximo mensaje que el
+    // clasificador leyera mal se derivaría a Migue sin que el bot haya fallado
+    // nunca — justo lo que la migración 026 decidió evitar.
+    const { puertos } = await conversar([{ texto: "hola" }], { intencion: "saludo" });
+    assert.notEqual(
+      puertos.registro.salientes.at(-1)!.traza.origenRespuesta,
+      "fallback",
+      "saludar no es un fallo nuestro",
+    );
+  });
+
   it("una despedida cierra la conversación", async () => {
     const { puertos } = await conversar([{ texto: "gracias" }], { intencion: "despedida" });
     assert.deepEqual(puertos.registro.cierres, ["cerrada"]);

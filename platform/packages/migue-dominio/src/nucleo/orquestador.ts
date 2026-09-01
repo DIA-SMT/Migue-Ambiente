@@ -483,8 +483,25 @@ export async function procesarMensaje(
 
   switch (decision.tipo) {
     case "saludar":
+      // La bienvenida y DETRÁS el menú. La bienvenida enumera en prosa lo que
+      // Migue puede hacer, pero enumerar no es ofrecer: el vecino que no sabe
+      // qué pedir necesita ver las opciones, y en Telegram son botones.
+      //
+      // El origen sigue siendo `flujo` y el menú va SEGUNDO, así que
+      // `registrarSaliente` le pone origen null. Es deliberado y es la parte
+      // delicada: `yaVioElMenu` mira el origen del último saliente, y si acá
+      // quedara `fallback` el próximo mensaje que el clasificador leyera mal se
+      // derivaría a Migue directo. La política de la 026 es que el menú se
+      // ofrece una vez ANTE UN FALLO NUESTRO, y saludar no es un fallo.
+      //
+      // Consecuencia aceptada: si después del saludo el vecino escribe algo que
+      // no encaja, ve el menú una segunda vez. Es preferible a mandarlo a otro
+      // número por un error de clasificación.
       return await responderCon(
-        [decir(leerTexto(catalogo, "bienvenida"), "texto")],
+        [
+          decir(leerTexto(catalogo, "bienvenida"), "texto"),
+          preguntar(leerTexto(catalogo, "menu_principal"), OPCIONES_MENU),
+        ],
         { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos: [] },
         { ...trazaRouter, origenRespuesta: "flujo" },
         puertos,
