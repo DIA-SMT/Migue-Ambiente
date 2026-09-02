@@ -26,7 +26,6 @@ import {
   quiereSalir,
 } from "../flujos/motor.ts";
 import { flujoRetiroNoHabitual } from "../flujos/retiroNoHabitual.ts";
-import { flujoPedirAsesor } from "../flujos/pedirAsesor.ts";
 import { flujoReclamoRecoleccion } from "../flujos/reclamoRecoleccion.ts";
 import {
   flujoProgramaEduca,
@@ -70,7 +69,6 @@ const FLUJOS: Readonly<Record<NombreFlujo, DefinicionFlujo>> = {
   programa_educa: flujoProgramaEduca,
   programa_transforma: flujoProgramaTransforma,
   programa_separa: flujoProgramaSepara,
-  pedir_asesor: flujoPedirAsesor,
 };
 
 // ---------------------------------------------------------------------------
@@ -621,16 +619,39 @@ export async function procesarMensaje(
       );
     }
 
+    case "alertar_asesor": {
+      // Pidió una persona: se registra la alerta —que es lo que enciende el
+      // panel— y se le confirma en el mismo turno. No hay nada que preguntarle:
+      // en Telegram decidimos no pedir teléfono (no hay a quién llamarlo desde
+      // afuera igual; la respuesta le llega por este chat), y en WhatsApp el
+      // número va a venir con el mensaje.
+      //
+      // El guard de `seleccion` es el de comentarVoto y derivarAMigue: el id
+      // de un botón no es un motivo que valga la pena archivar.
+      const efectos = await puertos.persistencia.aplicarEfectos(
+        [
+          {
+            tipo: "crear_alerta_asesor",
+            datos: {
+              telefono: null,
+              motivo: entrante.seleccion == null && texto !== "" ? recortar(texto, 500) : null,
+            },
+          },
+        ],
+        procedencia,
+      );
+
+      return await responderCon(
+        [decir(leerTexto(catalogo, "asesor_confirmacion"), "nada")],
+        { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos },
+        { ...trazaRouter, origenRespuesta: "flujo" },
+        puertos,
+      );
+    }
+
     case "iniciar_flujo": {
       const definicion = FLUJOS[decision.flujo];
-      // Al pedido de asesor le viaja el mensaje original como MOTIVO: es lo que
-      // el área lee antes de llamar. El guard de `seleccion` es el mismo que
-      // usan comentarVoto y derivarAMigue — un id de botón no es un motivo.
-      const datosIniciales =
-        decision.flujo === "pedir_asesor" && entrante.seleccion == null && texto !== ""
-          ? { motivo: recortar(texto, 500) }
-          : {};
-      const inicio = iniciarFlujo(definicion, { catalogo, ahora: puertos.ahora() }, datosIniciales);
+      const inicio = iniciarFlujo(definicion, { catalogo, ahora: puertos.ahora() });
 
       // Un flujo puede resolverse en su apertura sin necesitar más mensajes.
       if (inicio.estado !== null) {

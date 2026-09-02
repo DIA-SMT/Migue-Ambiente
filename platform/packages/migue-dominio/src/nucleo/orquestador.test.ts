@@ -114,23 +114,38 @@ describe("arranque de flujo", () => {
 });
 
 describe("pedido de asesor", () => {
-  it("arranca el flujo, pide teléfono, y el motivo original viaja a la alerta", async () => {
+  it("registra la alerta y confirma EN EL MISMO TURNO, sin pedir nada", async () => {
+    // Decisión con el área: en Telegram no se pide teléfono —la respuesta le
+    // llega por el chat— así que no hay flujo: alerta y confirmación, y listo.
     const { puertos, ultimo } = await conversar(
-      [{ texto: "quiero hablar con una persona por las ramas" }, { texto: "381 5123456" }],
+      [{ texto: "quiero hablar con una persona por las ramas" }],
       { intencion: "pedir_asesor", confianza: 0.95 },
     );
-    assert.equal(ultimo.flujoActivo, null, "el flujo cerró");
+    assert.equal(ultimo.flujoActivo, null, "no queda ningún flujo abierto");
+    assert.equal(puertos.almacen.tamano(), 0, "sin estado guardado");
     const alerta = puertos.registro.efectos.find((e) => e.tipo === "crear_alerta_asesor");
     if (alerta?.tipo !== "crear_alerta_asesor") throw new Error("no hubo alerta");
-    assert.equal(alerta.datos.telefono, "381 5123456");
+    assert.equal(alerta.datos.telefono, null, "en Telegram no se captura teléfono");
     assert.equal(alerta.datos.motivo, "quiero hablar con una persona por las ramas");
+    assert.match(dicho(puertos), /avis/i, "le confirma que el equipo está avisado");
   });
 
-  it("completar el pedido de asesor NO dispara la encuesta de trámite", async () => {
-    const { puertos } = await conversar(
-      [{ texto: "quiero un asesor" }, { texto: "no" }],
-      { intencion: "pedir_asesor", confianza: 0.95 },
+  it("con confianza baja NO alerta: muestra el menú por si se leyó mal", async () => {
+    const { puertos } = await conversar([{ texto: "persona basural?" }], {
+      intencion: "pedir_asesor",
+      confianza: 0.3,
+    });
+    assert.equal(
+      puertos.registro.efectos.some((e) => e.tipo === "crear_alerta_asesor"),
+      false,
     );
+  });
+
+  it("no dispara la encuesta de trámite", async () => {
+    const { puertos } = await conversar([{ texto: "quiero un asesor" }], {
+      intencion: "pedir_asesor",
+      confianza: 0.95,
+    });
     assert.equal(
       dicho(puertos).includes("¿Te resultó fácil"),
       false,

@@ -2089,10 +2089,16 @@ begin
     raise exception 'falta la config modelo_vision';
   end if;
   select count(*) into n from public.textos_bot
-   where clave in ('asesor_pedir_telefono','asesor_reintento_telefono',
-                   'asesor_confirmacion','asesor_sin_telefono','retiro_foto_no_corresponde');
-  if n <> 5 then
-    raise exception 'faltan textos del flujo de asesor: hay % de 5', n;
+   where clave in ('asesor_confirmacion','retiro_foto_no_corresponde');
+  if n <> 2 then
+    raise exception 'faltan textos de la 037: hay % de 2', n;
+  end if;
+  -- Y las claves del flujo de pedir teléfono —de la primera versión de la
+  -- 037— no tienen que existir: nadie las lee.
+  select count(*) into n from public.textos_bot
+   where clave in ('asesor_pedir_telefono','asesor_reintento_telefono','asesor_sin_telefono');
+  if n <> 0 then
+    raise exception 'quedaron % texto(s) huérfano(s) del flujo de teléfono', n;
   end if;
   -- La marca del estilo nuevo. Vale en las 3 pasadas porque el update de la
   -- 037 es condicional: la primera lo cambia, las otras no matchean y no tocan.

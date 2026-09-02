@@ -143,3 +143,34 @@ describe("los límites del atajo", () => {
     assert.equal(porAtajo("/reclamo"), null);
   });
 });
+
+describe("pedido de asesor por atajo", () => {
+  it("las frases directas se resuelven sin modelo", () => {
+    for (const frase of [
+      "asesor",
+      "quiero hablar con una persona",
+      "necesito un asesor",
+      "me atiende un humano",
+      "que me llame alguien",
+    ]) {
+      assert.equal(porAtajo(frase), "pedir_asesor", `«${frase}»`);
+    }
+  });
+
+  it("la cortesía alrededor no lo tapa", () => {
+    assert.equal(porAtajo("hola, quiero hablar con una persona"), "pedir_asesor");
+    assert.equal(porAtajo("gracias, quiero hablar con alguien"), "pedir_asesor");
+  });
+
+  it("mencionar a una persona NO es pedirla: eso lo decide el modelo", () => {
+    // «el operador me dijo...» habla DE un operador; el atajo compara la frase
+    // exacta tras quitar cortesía, así que esto va al clasificador.
+    assert.equal(porAtajo("el operador me dijo que saque la basura"), null);
+    assert.equal(porAtajo("necesito un asesor para retirar escombros"), null);
+  });
+
+  it("los saludos y despedidas siguen funcionando igual tras el refactor", () => {
+    assert.equal(porAtajo("hola"), "saludo");
+    assert.equal(porAtajo("listo gracias"), "despedida");
+  });
+});

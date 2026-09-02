@@ -186,28 +186,18 @@ insert into public.configuracion (clave, valor, descripcion, categoria) values
    'ia')
 on conflict (clave) do nothing;
 
--- Los textos del flujo pedir_asesor y la repregunta de foto. El formato de
--- estas tuplas es parseado por catalogo.claves.test.ts: cada una abre su
--- propia línea con ('clave', — no lo cambies (ver 033).
+-- Los textos: la confirmación del pedido de asesor y la repregunta de foto.
+-- El pedido de asesor NO pide teléfono. Decisión del área: en Telegram no hay
+-- a quién llamar desde afuera igual (el canal no da número), la respuesta le
+-- llega al vecino por el mismo chat, y cuando el bot migre a WhatsApp el
+-- número va a venir solo con el mensaje.
+--
+-- El formato de estas tuplas es parseado por catalogo.claves.test.ts: cada una
+-- abre su propia línea con ('clave', — no lo cambies (ver 033).
 insert into public.textos_bot (clave, texto, descripcion, opcional) values
-  ('asesor_pedir_telefono',
-   E'Dale, le aviso al equipo de Ambiente para que se contacten con vos.\n\n¿Me dejás un teléfono para que te llamen? Escribilo con característica, por ejemplo 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.',
-   'Flujo pedir_asesor: se pide el teléfono porque en Telegram no hay otro dato de contacto. No dejar vacío.',
-   false),
-
-  ('asesor_reintento_telefono',
-   'No llegué a encontrar un teléfono en tu mensaje. ¿Me lo escribís con característica? Por ejemplo: 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.',
-   'Flujo pedir_asesor: reintento único cuando el mensaje no trae un teléfono reconocible.',
-   false),
-
   ('asesor_confirmacion',
-   'Listo, ya avisé al equipo. Te van a contactar al {telefono} en el horario de atención. Si mientras tanto necesitás otra cosa de Ambiente, escribime.',
-   'Flujo pedir_asesor: confirmación cuando el vecino dictó un teléfono. El marcador {telefono} se reemplaza por el número.',
-   false),
-
-  ('asesor_sin_telefono',
-   'Listo, ya avisé al equipo igual. Como no tengo un teléfono tuyo, la respuesta te va a llegar por acá. Si mientras tanto necesitás otra cosa de Ambiente, escribime.',
-   'Flujo pedir_asesor: confirmación cuando el vecino prefirió no dar teléfono.',
+   'Listo, ya le avisé al equipo de Ambiente: una persona va a ver tu pedido y te responden por acá en el horario de atención. Si mientras tanto necesitás otra cosa, escribime.',
+   'Confirmación cuando el vecino pide hablar con una persona. La alerta queda en el panel; la respuesta del equipo llega por el mismo chat.',
    false),
 
   ('retiro_foto_no_corresponde',
@@ -215,6 +205,24 @@ insert into public.textos_bot (clave, texto, descripcion, opcional) values
    'Retiro: repregunta única cuando el modelo de visión dice que la foto no corresponde. {detalle} se reemplaza por la explicación del modelo. VACIARLO apaga la repregunta: el bot acepta la foto y sólo marca el ticket.',
    true)
 on conflict (clave) do nothing;
+
+-- Limpieza por si se aplicó la versión anterior de ESTA misma migración, que
+-- sembraba un flujo de pedir teléfono con tres textos más y una confirmación
+-- con {telefono}. Los delete y el update van condicionados al texto EXACTO
+-- sembrado: si el área ya escribió algo propio en esas claves, no se toca.
+delete from public.textos_bot
+ where clave in ('asesor_pedir_telefono', 'asesor_reintento_telefono', 'asesor_sin_telefono')
+   and texto in (
+     E'Dale, le aviso al equipo de Ambiente para que se contacten con vos.\n\n¿Me dejás un teléfono para que te llamen? Escribilo con característica, por ejemplo 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.',
+     'No llegué a encontrar un teléfono en tu mensaje. ¿Me lo escribís con característica? Por ejemplo: 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.',
+     'Listo, ya avisé al equipo igual. Como no tengo un teléfono tuyo, la respuesta te va a llegar por acá. Si mientras tanto necesitás otra cosa de Ambiente, escribime.'
+   );
+
+update public.textos_bot
+   set texto = 'Listo, ya le avisé al equipo de Ambiente: una persona va a ver tu pedido y te responden por acá en el horario de atención. Si mientras tanto necesitás otra cosa, escribime.',
+       descripcion = 'Confirmación cuando el vecino pide hablar con una persona. La alerta queda en el panel; la respuesta del equipo llega por el mismo chat.'
+ where clave = 'asesor_confirmacion'
+   and texto = 'Listo, ya avisé al equipo. Te van a contactar al {telefono} en el horario de atención. Si mientras tanto necesitás otra cosa de Ambiente, escribime.';
 
 -- ---------------------------------------------------------------------------
 -- 5 · Mejor pluma, sólo si nadie la eligió ya

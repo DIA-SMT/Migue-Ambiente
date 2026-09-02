@@ -79,17 +79,14 @@ const { data: cfg } = await supabase
 if ((cfg ?? []).length === 1) bien("configuracion.modelo_vision presente");
 else mal("falta la config modelo_vision");
 
-const CLAVES = [
-  "asesor_pedir_telefono", "asesor_reintento_telefono", "asesor_confirmacion",
-  "asesor_sin_telefono", "retiro_foto_no_corresponde",
-];
+const CLAVES = ["asesor_confirmacion", "retiro_foto_no_corresponde"];
 const { data: textos } = await supabase
   .from("textos_bot")
   .select("clave")
   .in("clave", CLAVES);
 const presentes = new Set((textos ?? []).map((t) => t.clave));
 const faltan = CLAVES.filter((c) => !presentes.has(c));
-if (faltan.length === 0) bien("los 5 textos del flujo de asesor y la repregunta de foto");
+if (faltan.length === 0) bien("la confirmación del asesor y la repregunta de foto");
 else mal(`faltan textos: ${faltan.join(", ")}`);
 
 /* --- 5 · El padrón, sin el cual nada de esto se ve ------------------------- */

@@ -49,8 +49,6 @@ export const MARCADORES_POR_TEXTO: Readonly<Record<string, readonly string[]>> =
   derivar_a_migue: ["{migue}"],
   // `reclamoRecoleccion.ts`, el aviso de lo que quedó sin cargar.
   pedido_pendientes: ["{faltante}"],
-  // `pedirAsesor.ts`, la confirmación con el número que dictó el vecino.
-  asesor_confirmacion: ["{telefono}"],
   // `retiroNoHabitual.ts`, la repregunta cuando la foto no corresponde.
   // `{detalle}` es la explicación del modelo de visión.
   retiro_foto_no_corresponde: ["{detalle}"],

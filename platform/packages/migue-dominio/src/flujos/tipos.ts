@@ -38,11 +38,6 @@ export const NOMBRES_FLUJO = [
   "programa_educa",
   "programa_transforma",
   "programa_separa",
-  // «Quiero hablar con una persona». Es un flujo y no una respuesta suelta
-  // porque hay que capturar un teléfono: en Telegram no existe NINGÚN dato de
-  // contacto (ni username ni número), así que sin pedirlo la alerta del panel
-  // no le sirve a nadie.
-  "pedir_asesor",
 ] as const;
 
 export type NombreFlujo = (typeof NOMBRES_FLUJO)[number];
@@ -114,9 +109,13 @@ export interface DatosSolicitudPrograma {
 }
 
 export interface DatosAlertaAsesor {
-  /** El número que el vecino dictó, o null si prefirió no darlo. */
+  /**
+   * Teléfono de contacto. En Telegram es siempre null —el canal no lo da y
+   * DECIDIMOS no pedírselo al vecino: se lo contesta por el chat—. El campo
+   * queda porque en WhatsApp el número viene con el mensaje.
+   */
   readonly telefono: string | null;
-  /** Con qué palabras pidió el asesor, para dar contexto al llamar. */
+  /** Con qué palabras pidió el asesor, para dar contexto al responder. */
   readonly motivo: string | null;
 }
 

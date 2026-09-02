@@ -23,6 +23,11 @@ import type { NombreFlujo } from "../flujos/tipos.ts";
 
 export type Intencion =
   | NombreFlujo
+  // Quiere que lo atienda una PERSONA. No es un flujo: no hay nada que
+  // preguntarle —en Telegram decidimos no pedir teléfono; la respuesta le
+  // llega por el chat— así que se registra la alerta y se le confirma, en el
+  // mismo turno.
+  | "pedir_asesor"
   | "consulta_libre"
   | "fuera_de_alcance"
   | "saludo"
@@ -48,11 +53,11 @@ const FLUJOS: readonly NombreFlujo[] = [
   "programa_educa",
   "programa_transforma",
   "programa_separa",
-  "pedir_asesor",
 ];
 
 const INTENCIONES: readonly Intencion[] = [
   ...FLUJOS,
+  "pedir_asesor",
   "consulta_libre",
   "fuera_de_alcance",
   "saludo",
@@ -404,6 +409,8 @@ export type Decision =
   | { readonly tipo: "saludar" }
   | { readonly tipo: "despedir" }
   | { readonly tipo: "derivar" }
+  /** Registrar que pidió una persona y confirmárselo, en el mismo turno. */
+  | { readonly tipo: "alertar_asesor" }
   | { readonly tipo: "mostrar_menu" };
 
 /**
@@ -462,6 +469,15 @@ export function decidir(
     case "consulta_libre":
       return responderPrimero
         ? { tipo: "consultar_conocimiento" }
+        : { tipo: "mostrar_menu" };
+
+    case "pedir_asesor":
+      // Registrar la alerta es barato y reversible (el panel la descarta con
+      // un clic); mandar al menú a alguien que pidió una persona es justo lo
+      // que vino a evitar esta intención. Con confianza baja, menú: puede ser
+      // otra cosa mal leída.
+      return clasificacion.confianza >= umbral
+        ? { tipo: "alertar_asesor" }
         : { tipo: "mostrar_menu" };
 
     default: {

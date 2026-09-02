@@ -17,7 +17,7 @@ import type { ReglaExclusion } from "../reglas/exclusiones.ts";
 import type { LimiteVolumen } from "../reglas/volumen.ts";
 import type { MensajeEntrante, MediaEntrante, VeredictoFoto } from "../mensajeria.ts";
 import { avanzarFlujo, iniciarFlujo } from "./motor.ts";
-import type { ContextoFlujo, DatosFlujo, DefinicionFlujo, Efecto, EstadoFlujo } from "./tipos.ts";
+import type { ContextoFlujo, DefinicionFlujo, Efecto, EstadoFlujo } from "./tipos.ts";
 
 export const LIMITES_PRUEBA: LimiteVolumen[] = [
   {
@@ -207,22 +207,12 @@ const TEXTOS = new Map<string, string>([
     "Eso no lo atiende la Secretaría de Ambiente, pero no te quedes sin respuesta: escribile a Migue, el asistente general de la Municipalidad." +
       "\n\n{migue}",
   ],
-  // El flujo pedir_asesor (migración 037). TEXTUALES de la migración.
-  [
-    "asesor_pedir_telefono",
-    "Dale, le aviso al equipo de Ambiente para que se contacten con vos.\n\n¿Me dejás un teléfono para que te llamen? Escribilo con característica, por ejemplo 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.",
-  ],
-  [
-    "asesor_reintento_telefono",
-    "No llegué a encontrar un teléfono en tu mensaje. ¿Me lo escribís con característica? Por ejemplo: 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.",
-  ],
+  // La confirmación del pedido de asesor (migración 037). TEXTUAL de la
+  // migración. La respuesta del equipo llega por el mismo chat: en Telegram no
+  // se pide teléfono.
   [
     "asesor_confirmacion",
-    "Listo, ya avisé al equipo. Te van a contactar al {telefono} en el horario de atención. Si mientras tanto necesitás otra cosa de Ambiente, escribime.",
-  ],
-  [
-    "asesor_sin_telefono",
-    "Listo, ya avisé al equipo igual. Como no tengo un teléfono tuyo, la respuesta te va a llegar por acá. Si mientras tanto necesitás otra cosa de Ambiente, escribime.",
+    "Listo, ya le avisé al equipo de Ambiente: una persona va a ver tu pedido y te responden por acá en el horario de atención. Si mientras tanto necesitás otra cosa, escribime.",
   ],
   // La repregunta de la foto (migración 037). Con {detalle} del modelo de visión.
   [
@@ -333,10 +323,8 @@ export function simular(
   definicion: DefinicionFlujo,
   turnos: readonly Turno[],
   ctx: ContextoFlujo = contextoPrueba(),
-  // Lo que el orquestador pasa al arrancar: el motivo del pedido de asesor.
-  datosIniciales: DatosFlujo = {},
 ): Simulacion {
-  const inicio = iniciarFlujo(definicion, ctx, datosIniciales);
+  const inicio = iniciarFlujo(definicion, ctx);
   let estado = inicio.estado;
   const dichos = inicio.salientes.map((m) => m.texto);
   const efectos: Efecto[] = [...inicio.efectos];
