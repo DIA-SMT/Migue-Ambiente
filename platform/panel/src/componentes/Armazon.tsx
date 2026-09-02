@@ -4,6 +4,7 @@ import { Salir } from "./Salir";
 import { Tema } from "./Tema";
 import {
   Hojas,
+  IconoAsesor,
   IconoCasos,
   IconoClima,
   IconoConversaciones,
@@ -15,6 +16,7 @@ import {
   IconoRespuestas,
   IconoTablero,
 } from "./Botanica";
+import { InsigniaAsesor } from "./InsigniaAsesor";
 
 /**
  * El armazón del panel: barra lateral fija más el área de contenido.
@@ -65,6 +67,11 @@ const GRUPOS = [
       // no sirve para lo primero: seis preguntas aparecen como una sola fila.
       { href: "/interacciones", texto: "Interacciones", Icono: IconoMensajes, listo: true },
       { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
+      // Entre Conversaciones y Casos: los tres son «vecinos esperando algo».
+      // Es el único ítem con insignia: un vecino esperando que lo LLAMEN es lo
+      // más perecedero que muestra el panel, y tiene que verse desde cualquier
+      // pantalla sin entrar a mirar.
+      { href: "/alertas", texto: "Pedidos de asesor", Icono: IconoAsesor, listo: true },
       { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
       { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: true },
     ],
@@ -126,6 +133,10 @@ export function Armazon({
                   >
                     <Icono className="icono" />
                     {texto}
+                    {/* La insignia vive en el ítem y no en el layout: es un
+                        client component chico que consulta solo; el resto de la
+                        barra sigue siendo server component. */}
+                    {href === "/alertas" && <InsigniaAsesor />}
                   </Link>
                 ) : (
                   <div key={href} className="pendiente" title="Todavía no construida">

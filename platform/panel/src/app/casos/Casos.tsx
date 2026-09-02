@@ -10,6 +10,7 @@ import {
   ESTADOS_TICKET,
   fechaLegible,
   situacionSla,
+  veredictoDeFoto,
   type SolicitudPrograma,
   type Ticket,
 } from "@/lib/tipos";
@@ -183,6 +184,18 @@ export function Casos({
                           {t.exceeds_limit && (
                             <span className="chip curso" style={{ marginTop: 4 }}>
                               excede el límite
+                            </span>
+                          )}
+                          {/* Sólo los veredictos problemáticos: en la lista, un
+                              chip por foto verificada sería ruido; el detalle
+                              completo vive en la ficha. */}
+                          {(t.photo_verdict === "no_corresponde" || t.photo_verdict === "dudosa") && (
+                            <span
+                              className={`chip ${veredictoDeFoto(t)!.tono}`}
+                              style={{ marginTop: 4 }}
+                              title={t.photo_detail ?? undefined}
+                            >
+                              {veredictoDeFoto(t)!.etiqueta}
                             </span>
                           )}
                           {faltan.length > 0 && (

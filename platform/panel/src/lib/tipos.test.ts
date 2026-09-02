@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CATEGORIA_FOTO_LEGIBLE,
   datosFaltantes,
   esEstadoConocido,
   estadoDeLaPregunta,
@@ -9,6 +10,7 @@ import {
   riesgoDelDisparador,
   situacionSla,
   tamanoLegible,
+  veredictoDeFoto,
   type Documento,
   type PreguntaSinResponder,
   type Ticket,
@@ -175,6 +177,9 @@ describe("situacionSla", () => {
       derived_to: null,
       photo_ref: "f1",
       photo_url: null,
+      photo_verdict: null,
+      photo_category: null,
+      photo_detail: null,
       notes: null,
       sla_deadline: "2026-08-28T19:00:00Z",
       resolved_at: null,
@@ -247,6 +252,9 @@ describe("datosFaltantes", () => {
       derived_to: null,
       photo_ref: null,
       photo_url: null,
+      photo_verdict: null,
+      photo_category: null,
+      photo_detail: null,
       notes: null,
       sla_deadline: null,
       resolved_at: null,
@@ -306,7 +314,8 @@ describe("un ticket cerrado por el bot anterior", () => {
       address: "Lamadrid 50", user_name: null, chat_id: null, channel: null,
       waste_type: null, quantity: null, quantity_value: null, quantity_unit: null,
       exceeds_limit: null, partial_pickup: null, days_without_service: null,
-      derived_to: null, photo_ref: null, photo_url: null, notes: null,
+      derived_to: null, photo_ref: null, photo_url: null,
+      photo_verdict: null, photo_category: null, photo_detail: null, notes: null,
       sla_deadline: "2026-02-20T12:00:00Z",
       resolved_at: null,
       created_at: "2026-02-17T12:00:00Z", updated_at: "2026-02-17T12:00:00Z",
@@ -324,7 +333,8 @@ describe("un ticket cerrado por el bot anterior", () => {
       address: null, user_name: null, chat_id: null, channel: null,
       waste_type: null, quantity: null, quantity_value: null, quantity_unit: null,
       exceeds_limit: null, partial_pickup: null, days_without_service: null,
-      derived_to: null, photo_ref: null, photo_url: null, notes: null,
+      derived_to: null, photo_ref: null, photo_url: null,
+      photo_verdict: null, photo_category: null, photo_detail: null, notes: null,
       sla_deadline: "2026-02-20T12:00:00Z", resolved_at: null,
       created_at: "2026-02-17T12:00:00Z", updated_at: "2026-02-17T12:00:00Z",
       conversation_id: null,
@@ -459,6 +469,31 @@ describe("MOTIVOS_SIN_RESPUESTA", () => {
     const TONOS = ["ok", "curso", "pend", "alerta"];
     for (const [clave, m] of Object.entries(MOTIVOS_SIN_RESPUESTA)) {
       assert.ok(TONOS.includes(m.tono), `${clave} usa el tono «${m.tono}», que no existe`);
+    }
+  });
+});
+
+describe("veredictoDeFoto", () => {
+  const TONOS = ["ok", "curso", "pend", "alerta"];
+
+  it("cubre los cuatro veredictos del CHECK de la base, y null para sin foto", () => {
+    for (const v of ["valida", "dudosa", "no_corresponde", "no_evaluada"] as const) {
+      const chip = veredictoDeFoto({ photo_verdict: v });
+      assert.ok(chip, `«${v}» tendría que dar chip`);
+      assert.ok(TONOS.includes(chip.tono), `«${v}» usa el tono «${chip.tono}», que no existe`);
+    }
+    assert.equal(veredictoDeFoto({ photo_verdict: null }), null);
+  });
+
+  it("los problemáticos llaman la atención y el resto no", () => {
+    assert.equal(veredictoDeFoto({ photo_verdict: "no_corresponde" })!.tono, "alerta");
+    assert.equal(veredictoDeFoto({ photo_verdict: "dudosa" })!.tono, "curso");
+    assert.equal(veredictoDeFoto({ photo_verdict: "valida" })!.tono, "ok");
+  });
+
+  it("toda categoría del CHECK tiene traducción legible", () => {
+    for (const c of ["basural", "volcadero", "rnh", "barrido", "limpieza_cestos", "otros"]) {
+      assert.ok(CATEGORIA_FOTO_LEGIBLE[c], `falta la traducción de «${c}»`);
     }
   });
 });

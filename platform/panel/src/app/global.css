@@ -720,6 +720,15 @@ tr.de-baja td {
   color: var(--alerta);
 }
 
+/* El contador de la barra lateral: se empuja al borde derecho del ítem. Sobre
+   la barra verde el piso translúcido del chip no contrasta, así que acá el
+   fondo es el color de alerta pleno con texto blanco. */
+.barra-nav .insignia-asesor {
+  margin-left: auto;
+  background: var(--alerta);
+  color: #fff;
+}
+
 .detalle-problema {
   margin-top: 7px;
   padding: 9px 11px;

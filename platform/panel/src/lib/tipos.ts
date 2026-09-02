@@ -306,6 +306,11 @@ export interface Ticket {
   derived_to: string | null;
   photo_ref: string | null;
   photo_url: string | null;
+  // Lo que el modelo de visión dijo de la foto (037). Lo escribe el bot;
+  // el panel lo MUESTRA y no lo edita: es la opinión del modelo.
+  photo_verdict: "valida" | "dudosa" | "no_corresponde" | "no_evaluada" | null;
+  photo_category: string | null;
+  photo_detail: string | null;
   notes: string | null;
   sla_deadline: string | null;
   resolved_at: string | null;
@@ -313,6 +318,59 @@ export interface Ticket {
   updated_at: string;
   conversation_id: string | null;
 }
+
+/* ---------------------------------------------------- pedidos de asesor --- */
+
+/** Espejo de `alertas_asesor` (037): un vecino esperando que lo llamen. */
+export interface AlertaAsesor {
+  id: string;
+  conversacion_id: string | null;
+  canal: string;
+  nombre_usuario: string | null;
+  /** El número que el vecino dictó. En Telegram es el ÚNICO dato de contacto. */
+  telefono: string | null;
+  motivo: string | null;
+  estado: "pendiente" | "atendida" | "descartada";
+  atendida_por: string | null;
+  atendida_en: string | null;
+  notas: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+/**
+ * El veredicto de la foto, dicho como se lee.
+ *
+ * null cuando no hay nada que mostrar: ticket sin foto, o anterior a la 037.
+ * `valida` también devuelve chip —tono ok— porque confirma que alguien (el
+ * modelo) miró la foto; la ausencia de chip queda para «nadie la miró».
+ */
+export function veredictoDeFoto(
+  t: Pick<Ticket, "photo_verdict">,
+): { etiqueta: string; tono: "ok" | "curso" | "pend" | "alerta" } | null {
+  switch (t.photo_verdict) {
+    case "valida":
+      return { etiqueta: "foto verificada", tono: "ok" };
+    case "dudosa":
+      return { etiqueta: "foto dudosa", tono: "curso" };
+    case "no_corresponde":
+      return { etiqueta: "la foto no corresponde", tono: "alerta" };
+    case "no_evaluada":
+      return { etiqueta: "foto sin evaluar", tono: "pend" };
+    default:
+      return null;
+  }
+}
+
+/** La categoría que vio el modelo, en palabras del área. */
+export const CATEGORIA_FOTO_LEGIBLE: Readonly<Record<string, string>> = {
+  basural: "basural",
+  volcadero: "volcadero",
+  rnh: "retiro no habitual",
+  barrido: "barrido",
+  limpieza_cestos: "cesto desbordado",
+  otros: "otros residuos",
+};
 
 export interface SolicitudPrograma {
   id: string;

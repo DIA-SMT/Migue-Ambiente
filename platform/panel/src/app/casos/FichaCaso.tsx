@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import {
+  CATEGORIA_FOTO_LEGIBLE,
   datosFaltantes,
   fechaLegible,
   situacionSla,
+  veredictoDeFoto,
   type SolicitudPrograma,
   type Ticket,
 } from "@/lib/tipos";
@@ -138,6 +140,22 @@ export function FichaCaso({
           </dl>
 
           <h3 style={{ marginTop: 22 }}>Foto</h3>
+          {/* Lo que la visión dijo de la foto. Es la opinión del MODELO, no un
+              dato del vecino: se muestra junto a la imagen para que quien mira
+              la ficha la contraste con sus propios ojos. */}
+          {ticket && veredictoDeFoto(ticket) && (
+            <p style={{ marginTop: 8 }}>
+              <span className={`chip ${veredictoDeFoto(ticket)!.tono}`}>
+                {veredictoDeFoto(ticket)!.etiqueta}
+              </span>
+              {ticket.photo_category && (
+                <span className="sub-fila" style={{ marginLeft: 8 }}>
+                  {CATEGORIA_FOTO_LEGIBLE[ticket.photo_category] ?? ticket.photo_category}
+                </span>
+              )}
+              {ticket.photo_detail && <span className="ayuda" style={{ display: "block", marginTop: 4 }}>«{ticket.photo_detail}»</span>}
+            </p>
+          )}
           {foto ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img

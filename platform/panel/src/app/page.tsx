@@ -54,7 +54,7 @@ export default async function Inicio() {
 
   const supabase = await clienteServidor();
 
-  const [conversaciones, mensajes, tickets, votos, sinResponder, config] = await Promise.all([
+  const [conversaciones, mensajes, tickets, votos, sinResponder, asesores, config] = await Promise.all([
     supabase
       .from("conversaciones")
       .select(
@@ -89,6 +89,13 @@ export default async function Inicio() {
     // el mismo patrón que usa la pantalla de Conocimiento.
     supabase
       .from("v_sin_respuesta")
+      .select("id", { count: "exact", head: true })
+      .eq("estado", "pendiente"),
+
+    // Vecinos esperando que alguien los llame. Mismo count-head, sobre el
+    // índice parcial de pendientes de la 037.
+    supabase
+      .from("alertas_asesor")
       .select("id", { count: "exact", head: true })
       .eq("estado", "pendiente"),
 
@@ -138,6 +145,7 @@ export default async function Inicio() {
         tickets={tickets.data ?? []}
         votosPorConversacion={votos.data ?? []}
         preguntasPendientes={sinResponder.count ?? 0}
+        asesoresPendientes={asesores.count ?? 0}
         ventanaHoras={ventanaHoras}
         cotizacion={cotizacion}
         alcanzoElLimite={(mensajes.data ?? []).length >= LIMITE_FILAS}
