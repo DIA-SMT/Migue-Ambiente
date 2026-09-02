@@ -83,6 +83,13 @@ export interface MensajeEntrante {
    * que decide si eso cuenta como selección.
    */
   readonly seleccion?: string | null;
+  /**
+   * Id del mensaje EN EL CANAL de origen (el «wamid» en WhatsApp). Es la llave
+   * del dedupe de la migración 035: los webhooks de Meta se reintentan, y dos
+   * entregas del mismo wamid tienen que producir UN solo turno. Telegram manda
+   * null a propósito — el long polling entrega una sola vez.
+   */
+  readonly canalMensajeId?: string | null;
   readonly recibidoEn: Date;
 }
 

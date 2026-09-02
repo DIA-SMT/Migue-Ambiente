@@ -119,21 +119,55 @@ export async function obtenerOAbrirConversacion(
   };
 }
 
-/** Registra lo que escribió el vecino. */
+export interface EntranteRegistrado {
+  /** null sólo cuando duplicado === true. */
+  readonly id: string | null;
+  /** true si (conversacion_id, canal_mensaje_id) ya estaba: un reintento del canal. */
+  readonly duplicado: boolean;
+}
+
+/**
+ * Registra lo que escribió el vecino, deduplicando por id de mensaje del canal.
+ *
+ * El dedupe es el de la migración 035: WhatsApp REINTENTA los webhooks, y sin
+ * esto un reintento crea un segundo ticket — dos camiones al mismo domicilio.
+ * La mecánica es un INSERT pelado que deja que Postgres arbitre con el índice
+ * único parcial: un SELECT previo tendría una carrera entre dos webhooks
+ * simultáneos, y el upsert de PostgREST no puede usar un índice parcial (genera
+ * el ON CONFLICT sin el predicado y Postgres no lo infiere).
+ *
+ * Telegram manda canalMensajeId null y nunca es duplicado: el long polling
+ * entrega una sola vez, y dos textos iguales del vecino son dos mensajes.
+ */
 export async function registrarEntrante(
   conversacionId: string,
   entrante: MensajeEntrante,
   traza: TrazaMensaje = {},
-): Promise<string> {
-  return insertarMensaje(conversacionId, {
-    direccion: "entrante",
-    // Se recorta para que un pegado gigante no infle la tabla.
-    texto: entrante.texto === null ? null : recortar(entrante.texto, 4000),
-    media_tipo: entrante.media?.tipo ?? null,
-    media_ruta: entrante.media?.referencia ?? null,
-    creado_en: entrante.recibidoEn.toISOString(),
-    ...trazaAColumnas(traza),
-  });
+): Promise<EntranteRegistrado> {
+  const { data, error } = await obtenerCliente()
+    .from("mensajes")
+    .insert({
+      conversacion_id: conversacionId,
+      direccion: "entrante",
+      // Se recorta para que un pegado gigante no infle la tabla.
+      texto: entrante.texto === null ? null : recortar(entrante.texto, 4000),
+      media_tipo: entrante.media?.tipo ?? null,
+      media_ruta: entrante.media?.referencia ?? null,
+      canal_mensaje_id: entrante.canalMensajeId ?? null,
+      creado_en: entrante.recibidoEn.toISOString(),
+      ...trazaAColumnas(traza),
+    })
+    .select("id")
+    .single();
+
+  // 23505 = unique_violation. La única unique que tocan estas columnas es
+  // mensajes_canal_mensaje_idx (035); la guarda del canalMensajeId es el
+  // cinturón por si la tabla ganara otra unique algún día.
+  if (error?.code === "23505" && (entrante.canalMensajeId ?? null) !== null) {
+    return { id: null, duplicado: true };
+  }
+  if (error || !data) throw new ErrorDeEscritura("mensajes", error?.message ?? "sin datos");
+  return { id: data.id as string, duplicado: false };
 }
 
 /**

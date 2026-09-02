@@ -14,47 +14,10 @@ import {
 import { createLogger } from "@bots/core";
 import { normalizarMensaje, normalizarSeleccion } from "./normalizar.ts";
 import { renderizar } from "./renderizar.ts";
+import { crearLimiteDeFrecuencia } from "../limite.ts";
+import { AVISO_FRECUENCIA, DISCULPA_ERROR } from "../comun.ts";
 
 const log = createLogger("telegram");
-
-/**
- * Límite de frecuencia por usuario.
- *
- * En memoria y no en Redis, a propósito: el bot corre con `instances: 1` porque
- * el long polling de Telegram no se puede clusterizar —dos procesos leyendo el
- * mismo update lo procesarían dos veces—. Con un solo proceso, un Map alcanza
- * y evita un viaje a Redis en cada mensaje.
- */
-const VENTANA_MS = 60_000;
-const MAX_POR_VENTANA = 20;
-
-interface Cubeta {
-  cuenta: number;
-  desde: number;
-}
-
-const cubetas = new Map<string, Cubeta>();
-
-function excedeLimite(usuario: string): boolean {
-  const ahora = Date.now();
-  const cubeta = cubetas.get(usuario);
-
-  if (cubeta === undefined || ahora - cubeta.desde > VENTANA_MS) {
-    cubetas.set(usuario, { cuenta: 1, desde: ahora });
-    return false;
-  }
-
-  cubeta.cuenta++;
-  return cubeta.cuenta > MAX_POR_VENTANA;
-}
-
-/** Limpieza periódica: sin esto el Map crece con cada usuario que escribió una vez. */
-function limpiarCubetas(): void {
-  const ahora = Date.now();
-  for (const [usuario, cubeta] of cubetas) {
-    if (ahora - cubeta.desde > VENTANA_MS * 2) cubetas.delete(usuario);
-  }
-}
 
 export interface OpcionesAdaptador {
   readonly token: string;
@@ -64,6 +27,11 @@ export interface OpcionesAdaptador {
 export function crearBot(opciones: OpcionesAdaptador): Bot {
   const bot = new Bot(opciones.token);
 
+  // En memoria y no en Redis, a propósito: el bot corre con `instances: 1`
+  // (bots.json), así que un Map alcanza y evita un viaje a Redis por mensaje.
+  // Instancia propia del canal: la cubeta de WhatsApp es otra.
+  const limite = crearLimiteDeFrecuencia();
+
   // El handler sólo necesita `reply` y `replyWithChatAction`, que están en el
   // Context base. Tiparlo con el contexto estrecho de cada filtro obligaría a
   // una firma distinta por handler sin ganar nada.
@@ -72,11 +40,9 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
 
     const usuario = entrante.canalUsuarioId;
 
-    if (excedeLimite(usuario)) {
+    if (limite.excede(usuario)) {
       log.warn({ usuario }, "límite de frecuencia excedido");
-      await ctx.reply(
-        "Estás enviando mensajes muy seguido. Esperá un momento y volvé a escribirme.",
-      );
+      await ctx.reply(AVISO_FRECUENCIA);
       return;
     }
 
@@ -134,18 +100,8 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
         { usuario, err: descripcionDeError(error) },
         "falló al atender",
       );
-      await ctx
-        .reply(
-          // El único texto al vecino que sigue clavado en el código, y con
-          // motivo: esto corre cuando atender el mensaje FALLÓ, y leer el
-          // catálogo para saber cómo se llama el área puede ser exactamente lo
-          // que acaba de fallar. Un mensaje de error que también falla deja al
-          // vecino sin nada. El nombre está verificado contra los Planes
-          // Rectores del municipio.
-          "Tuve un problema para procesar tu mensaje. Probá de nuevo en un momento, " +
-            "o escribí a la Secretaría de Ambiente y Desarrollo Sustentable si es urgente.",
-        )
-        .catch(() => undefined);
+      // El porqué de que la disculpa esté clavada en código vive en comun.ts.
+      await ctx.reply(DISCULPA_ERROR).catch(() => undefined);
     }
   };
 
@@ -180,9 +136,6 @@ export function crearBot(opciones: OpcionesAdaptador): Bot {
       log.error({ err: descripcionDeError(causa) }, "error no manejado");
     }
   });
-
-  const limpieza = setInterval(limpiarCubetas, VENTANA_MS);
-  limpieza.unref();
 
   return bot;
 }

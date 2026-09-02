@@ -87,6 +87,8 @@ export function normalizarMensaje(mensaje: Message): MensajeEntrante {
     texto: mensaje.text ?? mensaje.caption ?? null,
     media: extraerMedia(mensaje),
     seleccion: null,
+    // Telegram entrega una sola vez (long polling): sin id no hay dedupe que hacer.
+    canalMensajeId: null,
     recibidoEn: new Date(mensaje.date * 1000),
   };
 }
@@ -109,6 +111,7 @@ export function normalizarSeleccion(consulta: CallbackQuery): MensajeEntrante | 
     texto: null,
     media: null,
     seleccion: consulta.data ?? null,
+    canalMensajeId: null,
     recibidoEn: new Date(),
   };
 }

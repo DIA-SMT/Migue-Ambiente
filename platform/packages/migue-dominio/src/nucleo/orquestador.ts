@@ -50,6 +50,7 @@ import {
   decir,
   preguntar,
   textoEfectivo,
+  type Canal,
   type MensajeEntrante,
   type VeredictoFoto,
   type MensajeSaliente,
@@ -58,7 +59,7 @@ import {
 import { almacenEnMemoria, claveDeEstado, type AlmacenEstado } from "./almacen.ts";
 import type { DefinicionFlujo, Efecto, EstadoFlujo, NombreFlujo } from "../flujos/tipos.ts";
 import type { Respuesta } from "../conocimiento/responder.ts";
-import type { OrigenRespuesta, TrazaMensaje } from "../datos/conversaciones.ts";
+import type { EntranteRegistrado, OrigenRespuesta, TrazaMensaje } from "../datos/conversaciones.ts";
 import type { MotivoSinRespuesta, Procedencia } from "../datos/registros.ts";
 import type { ResultadoEfecto } from "../datos/efectos.ts";
 
@@ -78,7 +79,7 @@ const FLUJOS: Readonly<Record<NombreFlujo, DefinicionFlujo>> = {
 /** Escritura durable. Se inyecta para poder falsearla en las pruebas. */
 export interface Persistencia {
   abrirConversacion(entrante: MensajeEntrante): Promise<{ id: string; esNueva: boolean }>;
-  registrarEntrante(conversacionId: string, entrante: MensajeEntrante): Promise<string>;
+  registrarEntrante(conversacionId: string, entrante: MensajeEntrante): Promise<EntranteRegistrado>;
   registrarSaliente(
     conversacionId: string,
     saliente: MensajeSaliente,
@@ -144,7 +145,11 @@ export interface Puertos {
    */
   readonly analizarFoto: (
     referencia: string,
-    contexto: { readonly flujo: "retiro_no_habitual" | "reclamo_recoleccion" },
+    contexto: {
+      readonly flujo: "retiro_no_habitual" | "reclamo_recoleccion";
+      /** La referencia es opaca y por canal: el bot elige de dónde descargar. */
+      readonly canal: Canal;
+    },
   ) => Promise<VeredictoFoto | null>;
   readonly persistencia: Persistencia;
   /** Inyectado y no `new Date()`: es lo que hace testeables los plazos. */
@@ -168,6 +173,12 @@ export interface Resultado {
   readonly origenRespuesta: OrigenRespuesta;
   readonly flujoActivo: NombreFlujo | null;
   readonly efectos: readonly ResultadoEfecto[];
+  /**
+   * true si el entrante era un reintento ya visto (mismo canalMensajeId): no
+   * hubo turno. Los salientes vienen vacíos; el campo existe para que el
+   * adaptador pueda loguear la verdad en vez de un «atendido» que no pasó.
+   */
+  readonly duplicado?: boolean;
   /**
    * El teclado del mensaje que se acaba de tocar ya no sirve: el canal tiene
    * que quitarlo.
@@ -195,7 +206,23 @@ export async function procesarMensaje(
 ): Promise<Resultado> {
   const catalogo = await puertos.obtenerCatalogo();
   const conversacion = await puertos.persistencia.abrirConversacion(entrante);
-  const mensajeId = await puertos.persistencia.registrarEntrante(conversacion.id, entrante);
+  const registrado = await puertos.persistencia.registrarEntrante(conversacion.id, entrante);
+
+  // Un reintento del canal (mismo wamid) corta ACÁ: antes de las exclusiones,
+  // del voto, del flujo y del modelo. Cero efectos y cero salientes — la
+  // primera entrega ya contestó. Es la otra mitad del dedupe de la 035.
+  if (registrado.duplicado) {
+    return {
+      salientes: [],
+      conversacionId: conversacion.id,
+      origenRespuesta: "fallback",
+      flujoActivo: null,
+      efectos: [],
+      quitarBotones: false,
+      duplicado: true,
+    };
+  }
+  const mensajeId = registrado.id;
 
   const texto = textoEfectivo(entrante);
   const clave = claveDeEstado(entrante.canal, entrante.canalUsuarioId);
@@ -376,6 +403,7 @@ export async function procesarMensaje(
         const veredicto = await puertos
           .analizarFoto(entrante.media.referencia, {
             flujo: estadoPrevio.flujo as "retiro_no_habitual" | "reclamo_recoleccion",
+            canal: entrante.canal,
           })
           .catch(() => null);
         if (veredicto !== null) {
@@ -624,7 +652,7 @@ export async function procesarMensaje(
       // panel— y se le confirma en el mismo turno. No hay nada que preguntarle:
       // en Telegram decidimos no pedir teléfono (no hay a quién llamarlo desde
       // afuera igual; la respuesta le llega por este chat), y en WhatsApp el
-      // número va a venir con el mensaje.
+      // número viene con el mensaje — `entrante.telefono` lo trae el adaptador.
       //
       // El guard de `seleccion` es el de comentarVoto y derivarAMigue: el id
       // de un botón no es un motivo que valga la pena archivar.
@@ -633,7 +661,7 @@ export async function procesarMensaje(
           {
             tipo: "crear_alerta_asesor",
             datos: {
-              telefono: null,
+              telefono: entrante.telefono ?? null,
               motivo: entrante.seleccion == null && texto !== "" ? recortar(texto, 500) : null,
             },
           },

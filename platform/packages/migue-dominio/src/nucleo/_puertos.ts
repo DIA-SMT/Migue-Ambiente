@@ -11,7 +11,7 @@ import type { Clasificacion, Intencion } from "../ia/router.ts";
 import type { Respuesta } from "../conocimiento/responder.ts";
 import type { Catalogo } from "../datos/catalogo.ts";
 import type { Efecto } from "../flujos/tipos.ts";
-import type { MensajeSaliente, VeredictoFoto } from "../mensajeria.ts";
+import type { MensajeEntrante, MensajeSaliente, VeredictoFoto } from "../mensajeria.ts";
 import type { TrazaMensaje } from "../datos/conversaciones.ts";
 import type { MotivoSinRespuesta, Procedencia } from "../datos/registros.ts";
 import { AHORA, catalogoPrueba } from "../flujos/_fixtures.ts";
@@ -42,7 +42,10 @@ export interface Registro {
   readonly cierres: Array<"cerrada" | "derivada" | "abandonada">;
   readonly flujosGuardados: Array<{ flujo: string | null; paso: string | null }>;
   /** Las fotos que el orquestador mandó a analizar, para afirmar cuándo NO llama. */
-  readonly fotosAnalizadas: Array<{ referencia: string; flujo: string }>;
+  readonly fotosAnalizadas: Array<{ referencia: string; flujo: string; canal: string }>;
+  /** Los wamid ya vistos (imita el índice de la 035) y los reintentos detectados. */
+  readonly wamidsVistos: Set<string>;
+  readonly entrantesDuplicados: string[];
 }
 
 export interface PuertosPrueba extends Puertos {
@@ -83,6 +86,8 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
     cierres: [],
     flujosGuardados: [],
     fotosAnalizadas: [],
+    wamidsVistos: new Set<string>(),
+    entrantesDuplicados: [],
   };
   // `conversacionesAbiertas` y `entrantes` son contadores; se mutan por
   // referencia sobre un objeto mutable interno.
@@ -93,9 +98,21 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
       contadores.conversaciones++;
       return { id: "conv-prueba", esNueva: contadores.conversaciones === 1 };
     },
-    async registrarEntrante() {
+    // Imita el índice único de la 035, igual que `mensajesVotados` imita el
+    // candado de la 029: sin esto, la rama del duplicado jamás correría en la
+    // suite y el dedupe sería un dibujo.
+    async registrarEntrante(conversacionId: string, entrante: MensajeEntrante) {
       contadores.entrantes++;
-      return `msg-${contadores.entrantes}`;
+      const wamid = entrante.canalMensajeId ?? null;
+      if (wamid !== null) {
+        const claveDedupe = `${conversacionId}:${wamid}`;
+        if (registro.wamidsVistos.has(claveDedupe)) {
+          registro.entrantesDuplicados.push(wamid);
+          return { id: null, duplicado: true };
+        }
+        registro.wamidsVistos.add(claveDedupe);
+      }
+      return { id: `msg-${contadores.entrantes}`, duplicado: false };
     },
     // DEVUELVE UN ID, igual que el real, y no es un detalle: el orquestador usa
     // el id del primer saliente para pegárselo a los botones de voto. Un doble
@@ -179,7 +196,7 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
     },
 
     async analizarFoto(referencia, contexto) {
-      registro.fotosAnalizadas.push({ referencia, flujo: contexto.flujo });
+      registro.fotosAnalizadas.push({ referencia, flujo: contexto.flujo, canal: contexto.canal });
       return opciones.veredictoFoto ?? null;
     },
 

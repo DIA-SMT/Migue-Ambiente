@@ -113,6 +113,62 @@ describe("arranque de flujo", () => {
   });
 });
 
+describe("dedupe por canalMensajeId (la otra mitad de la 035)", () => {
+  it("el mismo wamid dos veces: la segunda no produce nada de nada", async () => {
+    const puertos = puertosPrueba({ intencion: "retiro_no_habitual", confianza: 0.95 });
+
+    const primera = await procesarMensaje(
+      msg({ texto: "retiren escombros", canalMensajeId: "wamid.AAA" }),
+      puertos,
+    );
+    assert.notEqual(primera.duplicado, true);
+    const salientesTrasPrimera = puertos.registro.salientes.length;
+    const efectosTrasPrimera = puertos.registro.efectos.length;
+    const pasoTrasPrimera = await puertos.almacen.leer(CLAVE);
+
+    // Meta reintenta: llega EXACTAMENTE el mismo mensaje otra vez.
+    const segunda = await procesarMensaje(
+      msg({ texto: "retiren escombros", canalMensajeId: "wamid.AAA" }),
+      puertos,
+    );
+
+    assert.equal(segunda.duplicado, true);
+    assert.equal(segunda.salientes.length, 0, "sin respuesta: la primera ya contestó");
+    assert.equal(puertos.registro.salientes.length, salientesTrasPrimera, "no se registró saliente");
+    assert.equal(puertos.registro.efectos.length, efectosTrasPrimera, "cero efectos nuevos");
+    assert.deepEqual(await puertos.almacen.leer(CLAVE), pasoTrasPrimera, "el flujo no se movió");
+    assert.deepEqual(puertos.registro.entrantesDuplicados, ["wamid.AAA"]);
+  });
+
+  it("el duplicado no consume clasificador ni conocimiento", async () => {
+    let clasificaciones = 0;
+    const puertos = puertosPrueba({ intencion: "consulta_libre" });
+    const original = puertos.clasificar;
+    const espiado = {
+      ...puertos,
+      clasificar: async (t: string, c: Parameters<typeof original>[1]) => {
+        clasificaciones++;
+        return original(t, c);
+      },
+    };
+
+    await procesarMensaje(msg({ texto: "donde reciclo?", canalMensajeId: "wamid.BBB" }), espiado);
+    await procesarMensaje(msg({ texto: "donde reciclo?", canalMensajeId: "wamid.BBB" }), espiado);
+    assert.equal(clasificaciones, 1, "el reintento no paga una llamada al modelo");
+  });
+
+  it("sin canalMensajeId nunca hay duplicado: dos textos iguales son dos mensajes", async () => {
+    // Telegram entrega una sola vez; un vecino que repite «hola» merece dos
+    // respuestas, no un silencio por parecerse a sí mismo.
+    const { resultados } = await conversar(
+      [{ texto: "hola" }, { texto: "hola" }],
+      { intencion: "saludo" },
+    );
+    assert.notEqual(resultados[0]!.duplicado, true);
+    assert.notEqual(resultados[1]!.duplicado, true);
+  });
+});
+
 describe("pedido de asesor", () => {
   it("registra la alerta y confirma EN EL MISMO TURNO, sin pedir nada", async () => {
     // Decisión con el área: en Telegram no se pide teléfono —la respuesta le
@@ -125,9 +181,19 @@ describe("pedido de asesor", () => {
     assert.equal(puertos.almacen.tamano(), 0, "sin estado guardado");
     const alerta = puertos.registro.efectos.find((e) => e.tipo === "crear_alerta_asesor");
     if (alerta?.tipo !== "crear_alerta_asesor") throw new Error("no hubo alerta");
-    assert.equal(alerta.datos.telefono, null, "en Telegram no se captura teléfono");
+    assert.equal(alerta.datos.telefono, null, "en Telegram el entrante no trae teléfono");
     assert.equal(alerta.datos.motivo, "quiero hablar con una persona por las ramas");
     assert.match(dicho(puertos), /avis/i, "le confirma que el equipo está avisado");
+  });
+
+  it("cuando el canal trae el teléfono (WhatsApp), la alerta lo lleva", async () => {
+    const { puertos } = await conversar(
+      [{ canal: "whatsapp", telefono: "5493815123456", texto: "quiero un asesor" }],
+      { intencion: "pedir_asesor", confianza: 0.95 },
+    );
+    const alerta = puertos.registro.efectos.find((e) => e.tipo === "crear_alerta_asesor");
+    if (alerta?.tipo !== "crear_alerta_asesor") throw new Error("no hubo alerta");
+    assert.equal(alerta.datos.telefono, "5493815123456");
   });
 
   it("con confianza baja NO alerta: muestra el menú por si se leyó mal", async () => {
@@ -197,7 +263,7 @@ describe("continuidad del flujo", () => {
     );
 
     assert.deepEqual(puertos.registro.fotosAnalizadas, [
-      { referencia: "foto-abc", flujo: "retiro_no_habitual" },
+      { referencia: "foto-abc", flujo: "retiro_no_habitual", canal: "telegram" },
     ]);
     const ticket = puertos.registro.efectos.find((e) => e.tipo === "crear_ticket");
     if (ticket?.tipo !== "crear_ticket") throw new Error("no hubo ticket");

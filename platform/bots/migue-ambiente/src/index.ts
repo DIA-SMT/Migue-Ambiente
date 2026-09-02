@@ -99,9 +99,14 @@ async function main(): Promise<void> {
     obtenerCatalogo,
     clasificar,
     responder: responderConsulta,
-    // Visión: baja la foto de Telegram y la evalúa. Se apaga desde el panel
-    // vaciando `modelo_vision`; cualquier fallo degrada a no_evaluada.
-    analizarFoto: crearAnalizadorDeFotos({ token: env.TELEGRAM_BOT_TOKEN }),
+    // Visión: baja la foto del canal que corresponda y la evalúa. Se apaga
+    // desde el panel vaciando `modelo_vision`; cualquier fallo degrada a
+    // no_evaluada. Las credenciales de WhatsApp se cablean cuando el canal
+    // esté encendido (más abajo se arma configWhatsApp).
+    analizarFoto: crearAnalizadorDeFotos({
+      tokenTelegram: env.TELEGRAM_BOT_TOKEN,
+      whatsapp: null,
+    }),
     persistencia,
     ahora: () => new Date(),
   };
