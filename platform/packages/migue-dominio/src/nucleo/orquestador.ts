@@ -552,11 +552,58 @@ export async function procesarMensaje(
     latenciaMs: clasificacion.latenciaMs,
   };
 
+  // -------------------------------------------------------------------------
+  // 5b · «Otra consulta» no es una consulta: es alguien que va a hacer una
+  // -------------------------------------------------------------------------
+  // ESTO ES EL ARREGLO DE UN BUG QUE SE VIO PROBANDO EL BOT, y vale escribir por
+  // qué: tocar «Otra consulta» en el menú devolvía «no tengo esa información con
+  // la certeza suficiente», sin que el vecino hubiera preguntado nada.
+  //
+  // El camino era éste. `texto` es `textoEfectivo()`, o sea `seleccion ?? texto`,
+  // así que el toque del botón deja `texto = "consulta_libre"`. Eso viajaba a
+  // `puertos.responder()`, que buscaba en el corpus la frase «consulta_libre»,
+  // no encontraba nada —claro— y contestaba la disculpa. Con dos daños más:
+  //
+  //   · Se pagaba una llamada al modelo para buscar un id interno.
+  //   · Y quedaba una fila en `sin_respuesta` con la pregunta «consulta_libre»,
+  //     que es la tabla del circuito de mejora del panel: el área veía como
+  //     hueco de conocimiento algo que nunca preguntó ningún vecino.
+  //
+  // Lo que corresponde es invitarlo a escribir y esperar. No hace falta guardar
+  // estado: el mensaje siguiente entra por el camino normal —clasificador y
+  // cadena de conocimiento— que es exactamente lo que tiene que pasar con una
+  // pregunta escrita con las palabras del vecino.
+  //
+  // Se pregunta por `delMenu` y no por la intención, y ahí está la distinción
+  // importante: `delMenu` es no nulo SÓLO cuando el mensaje ES la elección —el
+  // botón, el «6», la etiqueta exacta— porque `resolverOpcion` no busca palabras
+  // sueltas dentro de una frase. Quien ESCRIBE una pregunta cae en
+  // `consultar_conocimiento` como siempre y se le responde.
+  //
+  // El origen es `flujo` y no `fallback` por el mismo motivo que el menú del
+  // saludo: `yaVioElMenu` mira el origen del último saliente, y dejar `fallback`
+  // acá haría que la próxima pregunta mal clasificada se derivara a Migue. El
+  // vecino usó el menú como se esperaba; no hubo ningún fallo nuestro.
+  if (delMenu === "consulta_libre") {
+    return await responderCon(
+      [decir(leerTexto(catalogo, "consulta_invitacion"), "texto")],
+      { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos: [] },
+      { ...trazaRouter, origenRespuesta: "flujo" },
+      puertos,
+    );
+  }
+
   switch (decision.tipo) {
     case "saludar":
-      // La bienvenida y DETRÁS el menú. La bienvenida enumera en prosa lo que
-      // Migue puede hacer, pero enumerar no es ofrecer: el vecino que no sabe
-      // qué pedir necesita ver las opciones, y en Telegram son botones.
+      // La bienvenida y DETRÁS el menú, y cada mensaje hace UNA cosa: el
+      // primero presenta a Migue, el segundo pregunta y ofrece las opciones.
+      //
+      // Antes la bienvenida también enumeraba en prosa lo que Migue puede
+      // hacer, y eso venía de cuando el menú era un texto numerado. Desde la
+      // 020 el menú se manda con opciones de verdad —botones en Telegram, lista
+      // en WhatsApp—, así que la prosa repetía las mismas cuatro cosas que el
+      // vecino ve abajo como seis opciones, y los dos mensajes le preguntaban
+      // qué necesitaba. La 038 reparte: uno presenta, el otro pregunta.
       //
       // El origen sigue siendo `flujo` y el menú va SEGUNDO, así que
       // `registrarSaliente` le pone origen null. Es deliberado y es la parte

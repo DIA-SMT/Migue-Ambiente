@@ -76,8 +76,14 @@ function recortarPorPalabra(texto: string, maximo: number): string {
 /**
  * Etiqueta larga → título de fila + descripción con la etiqueta COMPLETA.
  *
- * Así no se pierde información: «Taller o charla para una institución (EDUCÁ)»
- * no entra en 24, pero la descripción de la fila la muestra entera.
+ * Así no se pierde información: una etiqueta como «Taller o charla para una
+ * institución (EDUCÁ)» —la que tenía el menú antes de la 038— no entra en 24,
+ * pero la descripción de la fila la muestra entera.
+ *
+ * Hoy ninguna opción del menú lo necesita: la 038 las acortó justamente para que
+ * se lean de un vistazo. Esto sigue acá porque las opciones de los PASOS de un
+ * flujo salen de la base —las categorías de residuo, por ejemplo— y ahí el largo
+ * lo decide quien las carga desde el panel.
  */
 export function partirEtiqueta(etiqueta: string): { titulo: string; descripcion: string | null } {
   if (largo(etiqueta) <= MAX_TITULO_FILA) return { titulo: etiqueta, descripcion: null };

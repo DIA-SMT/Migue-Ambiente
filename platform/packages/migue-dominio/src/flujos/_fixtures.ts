@@ -103,17 +103,29 @@ const REGLAS: ReglaExclusion[] = [
 const TEXTOS = new Map<string, string>([
   // Textuales de la migración 008. El fixture espeja producción: si divergen,
   // un test verde no dice nada sobre lo que va a recibir el vecino.
-  [
-    "bienvenida",
-    "Hola, soy Migue Ambiente 🌱 de la Municipalidad de San Miguel de Tucumán.\n\n" +
-      "Puedo ayudarte con retiro de residuos especiales, reclamos de recolección, " +
-      "programas ambientales y Puntos Verdes.\n\nContame qué necesitás.",
-  ],
+  // Sólo la presentación, como la dejó la 038. Antes enumeraba en prosa las
+  // cuatro cosas que Migue hace y el menú de abajo las repetía como seis
+  // opciones, así que el vecino leía lo mismo dos veces y se le preguntaba qué
+  // necesitaba otras dos.
+  ["bienvenida", "Hola, soy Migue Ambiente 🌱, de la Municipalidad de San Miguel de Tucumán."],
   // Una sola línea, sin la lista numerada. La 020 le quitó los números porque el
   // menú ahora se manda con opciones de verdad —botones en Telegram— y tener los
   // números en el texto ADEMÁS de los botones hacía que el vecino escribiera «3»
-  // refiriéndose a un orden distinto al de las opciones reales.
-  ["menu_principal", "Decime con qué necesitás que te ayude."],
+  // refiriéndose a un orden distinto al de las opciones reales. La 038 le sumó
+  // el aviso de que puede escribir sin elegir nada, que es lo que decía la 008 y
+  // se había perdido al quitarle los números.
+  [
+    "menu_principal",
+    "¿Con qué necesitás que te ayude? Elegí una de estas opciones, o escribime directamente lo que necesitás.",
+  ],
+  // La invitación a escribir cuando elige «Otra consulta» (038). El vecino que
+  // toca ese botón todavía no preguntó nada: antes de esto el bot buscaba el id
+  // interno «consulta_libre» en el corpus y le contestaba que no tenía esa
+  // información.
+  [
+    "consulta_invitacion",
+    "Dale, escribime tu consulta y te busco la información. Puede ser sobre horarios de recolección, Puntos Verdes, reciclado o cualquier otro tema de Ambiente.",
+  ],
   // Los tres del voto (022). Los dos últimos son opcionales: vaciarlos desde el
   // panel apaga la respuesta de Migue al voto sin dejar de registrarlo.
   ["seguimiento_tras_responder", "¿Te sirvió esta respuesta?"],

@@ -65,6 +65,10 @@ describe("renderizar: botones (hasta 3 opciones)", () => {
 });
 
 describe("renderizar: lista (4 a 10 opciones)", () => {
+  // Son las etiquetas LARGAS que tenía el menú antes de la 038, y quedan a
+  // propósito: lo que este bloque prueba son los topes de Meta y el recorte a
+  // título + descripción, y con las etiquetas cortas de hoy ninguna fila los
+  // tocaría. Los ids sí son los reales, que es lo que tiene que llegar intacto.
   const MENU = [
     { id: "retiro_no_habitual", etiqueta: "Retirar escombros, poda o muebles" },
     { id: "reclamo_recoleccion", etiqueta: "El camión no pasó" },

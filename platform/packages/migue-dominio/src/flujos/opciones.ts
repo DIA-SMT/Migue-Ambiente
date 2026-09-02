@@ -159,13 +159,20 @@ export function resolverOpcion(
  * con estos ids: si alguien reordenara la lista desde el panel, los números que
  * ve el vecino dejarían de coincidir con las intenciones. El texto de
  * presentación SÍ es editable —es `menu_principal`— y es donde se ajusta el tono.
+ *
+ * Y son CORTAS a propósito. Las primeras etiquetas eran frases —«Taller o charla
+ * para una institución (EDUCÁ)»— y seis frases apiladas, en Telegram una por
+ * fila, se leen como un muro: el vecino ya venía de un saludo que enumeraba lo
+ * mismo en prosa. Ahora la presentación no enumera y las seis opciones se
+ * recorren de un vistazo. El límite duro más chico es el título de fila de
+ * WhatsApp (24 code points), y ninguna lo pasa: así ninguna se recorta.
  */
 export const OPCIONES_MENU: readonly OpcionElegible[] = [
-  { id: "retiro_no_habitual", etiqueta: "Retirar escombros, poda o muebles" },
+  { id: "retiro_no_habitual", etiqueta: "Escombros, poda, muebles" },
   { id: "reclamo_recoleccion", etiqueta: "El camión no pasó" },
   { id: "programa_separa", etiqueta: "Reciclables y SEPARÁ" },
-  { id: "programa_educa", etiqueta: "Taller o charla para una institución (EDUCÁ)" },
-  { id: "programa_transforma", etiqueta: "Mural o intervención en un espacio (TRANSFORMÁ)" },
+  { id: "programa_educa", etiqueta: "Talleres (EDUCÁ)" },
+  { id: "programa_transforma", etiqueta: "Murales (TRANSFORMÁ)" },
   { id: "consulta_libre", etiqueta: "Otra consulta" },
 ];
 

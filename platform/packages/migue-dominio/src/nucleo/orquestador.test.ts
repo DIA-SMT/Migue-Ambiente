@@ -609,6 +609,78 @@ describe("elegir del menú escribiendo el número", () => {
     assert.equal(llamadas, 1, "una pregunta tiene que pasar por el clasificador");
   });
 
+  it("«Otra consulta» invita a escribir, no contesta una disculpa", async () => {
+    // EL BUG DE LA 038, y era visible en la primera conversación de cualquier
+    // vecino: tocar «Otra consulta» devolvía «no tengo esa información con la
+    // certeza suficiente» sin que hubiera preguntado nada. El toque del botón
+    // deja el id interno como texto del mensaje, así que el bot buscaba en el
+    // corpus la frase «consulta_libre».
+    const { puertos, ultimo } = await conversar([{ seleccion: "consulta_libre" }], sinForzar);
+
+    assert.match(dicho(puertos), /escribime tu consulta/i);
+    assert.doesNotMatch(dicho(puertos), /no tengo esa informaci/i);
+    assert.equal(ultimo.flujoActivo, null, "no abre ningún flujo: espera un mensaje");
+    // Que el adaptador sepa que lo que viene es texto libre, no una opción.
+    assert.equal(ultimo.salientes.at(-1)?.espera, "texto");
+  });
+
+  it("y no gasta la cadena de conocimiento ni ensucia `sin_respuesta`", async () => {
+    // Los dos daños de costado del bug. El de `sin_respuesta` es el peor: es la
+    // tabla del circuito de mejora del panel, y el área veía como hueco de
+    // conocimiento la palabra «consulta_libre», que ningún vecino preguntó.
+    let consultas = 0;
+    const base = puertosPrueba(sinForzar);
+    const espiado = {
+      ...base,
+      responder: async (t: string, c: Parameters<typeof base.responder>[1]) => {
+        consultas++;
+        return base.responder(t, c);
+      },
+    };
+
+    await procesarMensaje(msg({ seleccion: "consulta_libre" }), espiado);
+    assert.equal(consultas, 0, "buscó en el corpus el id de un botón");
+    assert.deepEqual(base.registro.sinRespuesta, []);
+  });
+
+  it("escribir «6» hace lo mismo que tocar el botón", async () => {
+    const { puertos } = await conversar([{ texto: "6" }], sinForzar);
+    assert.match(dicho(puertos), /escribime tu consulta/i);
+  });
+
+  it("y la consulta que escribe DESPUÉS sí se responde", async () => {
+    // El turno de la invitación no guarda estado a propósito: el mensaje
+    // siguiente entra por el camino normal —clasificador y conocimiento—, que
+    // es exactamente lo que corresponde con una pregunta escrita a mano.
+    const { puertos, ultimo } = await conversar(
+      [{ seleccion: "consulta_libre" }, { texto: "donde llevo los reciclables" }],
+      sinForzar,
+    );
+    assert.equal(ultimo.origenRespuesta, "faq");
+    assert.match(dicho(puertos), /Puntos Verdes/);
+  });
+
+  it("elegir «Otra consulta» NO gasta el intento previo a derivar", async () => {
+    // Mismo cuidado que con el menú del saludo: `yaVioElMenu` mira el origen del
+    // último saliente, y si la invitación quedara con origen «fallback», la
+    // pregunta que el vecino escriba a continuación se derivaría a Migue en
+    // cuanto el clasificador la leyera mal. Usar el menú no es un fallo nuestro.
+    const { puertos } = await conversar([{ seleccion: "consulta_libre" }], sinForzar);
+    assert.notEqual(puertos.registro.salientes.at(-1)!.traza.origenRespuesta, "fallback");
+  });
+
+  it("REGRESIÓN · una consulta ESCRITA sigue yendo a la cadena de conocimiento", async () => {
+    // La contracara del atajo, y es lo que no hay que romper: el corte vale sólo
+    // cuando el mensaje ES la elección. Quien escribe su pregunta tiene que
+    // recibir la respuesta en el mismo turno, no una invitación a repetirla.
+    const { puertos, ultimo } = await conversar(
+      [{ texto: "donde llevo los reciclables" }],
+      sinForzar,
+    );
+    assert.equal(ultimo.origenRespuesta, "faq");
+    assert.doesNotMatch(dicho(puertos), /escribime tu consulta/i);
+  });
+
   it("dentro de un flujo, el número elige la opción de ESE paso", async () => {
     // El menú ya no está: las opciones vigentes son las del paso. Un «2» acá es
     // «Restos de poda / ramas», no la opción 2 del menú.
