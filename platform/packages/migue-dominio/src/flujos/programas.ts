@@ -164,6 +164,7 @@ function solicitud(
       direccion: parcial.direccion,
       telefonoContacto: parcial.telefonoContacto ?? null,
       informacionAdicional: parcial.informacionAdicional ?? null,
+      fotoReferencia: parcial.fotoReferencia ?? null,
     },
   };
 }
@@ -216,6 +217,7 @@ function pasoDeSolicitud(opciones: {
           cantidadAlumnos: extraerAlumnos(acumulado),
           telefonoContacto: extraerTelefono(acumulado),
           informacionAdicional: recortar(acumulado, 1000),
+          fotoReferencia,
         }),
       ];
       if (fotoReferencia !== null) {
@@ -393,6 +395,7 @@ export const flujoProgramaSepara: DefinicionFlujo = {
             ]
               .filter(Boolean)
               .join(" | "),
+            fotoReferencia,
           }),
         ];
         if (fotoReferencia !== null) {

@@ -82,6 +82,14 @@ describe("TRANSFORMÁ · murales y carteles", () => {
     assert.equal(d.programa, "transforma");
     assert.equal(d.direccion, "Lavalle 500");
     assert.equal(efectoDe(s.efectos, "guardar_media")?.referencia, "foto-t1");
+    // La solicitud lleva la referencia: sin esto el worker subía el archivo y
+    // el update de photo_url no encontraba la fila (foto huérfana en el bucket).
+    assert.equal(d.fotoReferencia, "foto-t1");
+  });
+
+  it("sin foto la solicitud sale con fotoReferencia null", () => {
+    const s = simular(flujoProgramaTransforma, [{ texto: "Lavalle 500" }]);
+    assert.equal(efectoDe(s.efectos, "crear_solicitud_programa")!.datos.fotoReferencia, null);
   });
 
   it("sin foto registra igual, pero la pide para después", () => {
@@ -159,6 +167,7 @@ describe("SEPARÁ · la información va primero", () => {
     assert.match(d.informacionAdicional ?? "", /Franja: de 9 a 12 hs/);
     assert.match(d.informacionAdicional ?? "", /carton y plastico/, "los materiales se conservan");
     assert.equal(efectoDe(s.efectos, "guardar_media")?.referencia, "foto-s1");
+    assert.equal(d.fotoReferencia, "foto-s1", "la solicitud lleva la referencia de la foto");
   });
 
   it("reconoce franjas descritas con palabras", () => {

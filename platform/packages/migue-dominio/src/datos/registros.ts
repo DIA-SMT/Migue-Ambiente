@@ -92,6 +92,9 @@ export async function crearSolicitudPrograma(
       address: recortar(datos.direccion, 500),
       contact_phone: datos.telefonoContacto,
       additional_info: datos.informacionAdicional,
+      // Sin esto el worker subía la foto al bucket y el update de photo_url no
+      // encontraba la fila: la columna existe desde la 012 y nadie la escribía.
+      photo_ref: datos.fotoReferencia,
       status: "Pendiente",
       channel: procedencia.canal,
       chat_id: procedencia.canalUsuarioId,

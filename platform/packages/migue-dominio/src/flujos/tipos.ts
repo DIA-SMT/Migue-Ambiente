@@ -85,6 +85,15 @@ export interface DatosSolicitudPrograma {
   readonly direccion: string;
   readonly telefonoContacto: string | null;
   readonly informacionAdicional: string | null;
+  /**
+   * Referencia de la foto en el canal, o null si no mandó.
+   *
+   * Faltaba, y la ausencia tenía un costo silencioso: los flujos emitían
+   * `guardar_media` igual, el worker subía el archivo al bucket, y al no haber
+   * `photo_ref` en la fila el update de `photo_url` no encontraba a quién
+   * pegarle. La foto quedaba huérfana en Storage y el panel decía «sin foto».
+   */
+  readonly fotoReferencia: string | null;
 }
 
 export type Efecto =

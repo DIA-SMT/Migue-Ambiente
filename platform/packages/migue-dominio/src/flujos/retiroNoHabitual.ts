@@ -88,6 +88,20 @@ function cerrarRetiro(ctx: ContextoFlujo, d: DatosRetiro, direccion: string): Tr
           derivadoA: null,
         },
       },
+      // La descarga se encola DESPUÉS del ticket y en el mismo array a
+      // propósito: `aplicarEfectos` corre en serie, así el trabajo nace con la
+      // fila ya insertada y `registrarMediaGuardada` la encuentra. Es el mismo
+      // patrón del reclamo. El file_id aguanta sin problema los minutos que
+      // separan la foto del cierre.
+      ...(d.fotoReferencia
+        ? [
+            {
+              tipo: "guardar_media",
+              referencia: d.fotoReferencia,
+              proposito: "retiro_no_habitual",
+            } as const,
+          ]
+        : []),
     ],
   };
 }
@@ -127,8 +141,10 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
           tipo: "avanzar",
           a: "residuo",
           datos: { fotoReferencia: referencia, texto: acumulado },
-          // La descarga se encola: el flujo no espera a que bajen 5 MB.
-          efectos: [{ tipo: "guardar_media", referencia, proposito: "retiro_no_habitual" }],
+          // La descarga NO se encola acá: va junto al ticket, en el cierre.
+          // Encolarla en este turno creaba una carrera — el worker guardaba la
+          // foto antes de que el ticket existiera, `registrarMediaGuardada`
+          // actualizaba cero filas y `photo_url` quedaba null para siempre.
         };
       },
     },

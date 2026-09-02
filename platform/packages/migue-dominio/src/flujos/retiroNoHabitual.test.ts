@@ -55,9 +55,26 @@ describe("la foto es bloqueante", () => {
     assert.equal(efectoDe(s.efectos, "crear_ticket"), undefined, "sin datos no se crea ticket");
   });
 
-  it("con la foto avanza y encola la descarga sin esperarla", () => {
+  it("con la foto avanza SIN encolar la descarga todavía", () => {
+    // La descarga va con el ticket, en el cierre. Encolarla acá creaba la
+    // carrera del worker contra el ticket inexistente (photo_url null eterno).
     const s = simular(flujo, [{ imagen: "AgACAgEAAx-foto-123" }]);
     assert.equal(s.estado?.paso, "residuo");
+    assert.equal(efectoDe(s.efectos, "guardar_media"), undefined);
+  });
+
+  it("al cerrar, la descarga sale en el mismo array y DESPUÉS del ticket", () => {
+    const s = simular(flujo, [
+      { imagen: "AgACAgEAAx-foto-123" },
+      { texto: "3 bolsas de escombros" },
+      { texto: "Lavalle 500" },
+    ]);
+    assert.equal(s.estado, null, "el flujo terminó");
+    const tipos = s.efectos.map((e) => e.tipo);
+    const iTicket = tipos.indexOf("crear_ticket");
+    const iMedia = tipos.indexOf("guardar_media");
+    assert.notEqual(iMedia, -1, "la descarga se encoló");
+    assert.ok(iTicket < iMedia, "el ticket tiene que existir antes que el trabajo de descarga");
     const media = efectoDe(s.efectos, "guardar_media");
     assert.equal(media?.referencia, "AgACAgEAAx-foto-123");
     assert.equal(media?.proposito, "retiro_no_habitual");
