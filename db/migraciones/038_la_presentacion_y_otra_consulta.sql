@@ -80,8 +80,23 @@ update public.textos_bot
  where clave = 'bienvenida'
    and texto = E'Hola, soy Migue Ambiente \U0001F331 de la Municipalidad de San Miguel de Tucumán.\n\nPuedo ayudarte con retiro de residuos especiales, reclamos de recolección, programas ambientales y Puntos Verdes.\n\nContame qué necesitás.';
 
+-- `menu_principal` es la excepción a la comparación byte a byte, y la razón es
+-- la que hizo falta esta migración: en producción la fila decía
+--
+--   «Decime con qué necesitás que te ayudeeeee»
+--
+-- Cinco «e» y sin el punto final — una tecla repetida al editarla desde el
+-- panel, guardada tal cual. La comparación exacta contra el texto de la 020 no
+-- la reconocía, así que la guarda «no le pises la redacción al área» protegía
+-- justamente el typo que se venía a corregir, y en silencio: el update no
+-- coincidía y la migración terminaba bien.
+--
+-- Por eso acá se compara con una expresión regular anclada que admite la «e»
+-- repetida y el punto opcional. Sigue siendo estrecha —tiene que ser ESA frase
+-- de punta a punta— así que un texto que el área haya reescrito de verdad no
+-- entra. Verificado contra el valor real de producción antes de escribirla.
 update public.textos_bot
    set texto = '¿Con qué necesitás que te ayude? Elegí una de estas opciones, o escribime directamente lo que necesitás.',
        descripcion = 'Acompaña al menú de opciones. Es la ÚNICA pregunta de la presentación, y avisa que también puede escribir sin elegir nada. Las opciones no salen de acá: viven en el código porque cada una es una intención del router.'
  where clave = 'menu_principal'
-   and texto = 'Decime con qué necesitás que te ayude.';
+   and texto ~ '^Decime con qué necesitás que te ayude+\.?$';
