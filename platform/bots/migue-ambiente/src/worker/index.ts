@@ -32,6 +32,11 @@ async function main(): Promise<void> {
       "sin TELEGRAM_BOT_TOKEN: no voy a poder bajar las fotos que manden los vecinos",
     );
   }
+  if (!process.env["WHATSAPP_TOKEN"]?.trim()) {
+    log.warn(
+      "sin WHATSAPP_TOKEN: si WhatsApp está encendido, no voy a poder bajar sus fotos",
+    );
+  }
 
   if (!(await verificarConexion())) {
     throw new Error("no pude conectarme a Supabase; reviso credenciales y salgo");

@@ -43,6 +43,18 @@ export interface MensajeCrudo {
   readonly id: string;
   readonly de: string;
   readonly tipo: string;
+  /**
+   * El `profile.name` del `contacts[]` cuyo `wa_id` coincide con `de`.
+   *
+   * Se aparea ACÁ y no en el normalizador porque los contactos viajan al lado
+   * de los mensajes, dentro del mismo `value` — afuera de este recorrido ya no
+   * se puede saber cuál corresponde a cuál.
+   */
+  readonly nombre: string | null;
+  /** Epoch en segundos, como string, tal cual lo manda Meta. "" si no vino. */
+  readonly timestamp: string;
+  /** El objeto del mensaje tal como vino, para que el normalizador lo traduzca. */
+  readonly crudo: Record<string, unknown>;
 }
 
 export interface Entrega {
@@ -91,13 +103,30 @@ export function abrirEntrega(cuerpo: unknown): Entrega {
 
       estados += comoLista(valor["statuses"]).length;
 
+      // Los nombres de perfil viajan en `contacts[]`, al lado de los mensajes.
+      const nombres = new Map<string, string>();
+      for (const contacto of comoLista(valor["contacts"])) {
+        const c = comoObjeto(contacto);
+        const waId = comoTexto(c["wa_id"]);
+        const nombre = comoTexto(comoObjeto(c["profile"])["name"]);
+        if (waId !== "" && nombre !== "") nombres.set(waId, nombre);
+      }
+
       for (const mensaje of comoLista(valor["messages"])) {
         const m = comoObjeto(mensaje);
         const id = comoTexto(m["id"]);
         // Sin id no hay forma de deduplicar, y sin deduplicar es preferible
         // ignorarlo a arriesgar un ticket repetido.
         if (id === "") continue;
-        mensajes.push({ id, de: comoTexto(m["from"]), tipo: comoTexto(m["type"]) || "desconocido" });
+        const de = comoTexto(m["from"]);
+        mensajes.push({
+          id,
+          de,
+          tipo: comoTexto(m["type"]) || "desconocido",
+          nombre: nombres.get(de) ?? null,
+          timestamp: comoTexto(m["timestamp"]),
+          crudo: m,
+        });
       }
     }
   }

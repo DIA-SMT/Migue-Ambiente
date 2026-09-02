@@ -27,7 +27,7 @@ const log = createLogger("vision");
 
 export interface CredencialesWhatsAppVision {
   readonly token: string;
-  readonly versionApi?: string;
+  readonly versionApi?: string | undefined;
 }
 
 export function crearAnalizadorDeFotos(opciones: {

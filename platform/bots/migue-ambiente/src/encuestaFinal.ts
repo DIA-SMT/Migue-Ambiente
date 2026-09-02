@@ -31,6 +31,8 @@ import {
   prepararEncuestaDeCierre,
 } from "@migue/dominio";
 import { renderizar } from "./canal/telegram/renderizar.ts";
+import { renderizar as renderizarWhatsApp } from "./canal/whatsapp/renderizar.ts";
+import { enviarMensaje, trazaDeError, type ConfigWhatsApp } from "./canal/whatsapp/cliente.ts";
 import type { Bot } from "grammy";
 
 const log = createLogger("encuesta");
@@ -45,10 +47,13 @@ const log = createLogger("encuesta");
  */
 const CADA_MS = 30_000;
 
-/** Cuántas se mandan por barrido, para no ráfagear la API de Telegram. */
+/** Cuántas se mandan por barrido, para no ráfagear las APIs de los canales. */
 const POR_BARRIDO = 20;
 
-export async function barrerEncuestas(bot: Bot): Promise<number> {
+export async function barrerEncuestas(
+  bot: Bot,
+  whatsapp: ConfigWhatsApp | null = null,
+): Promise<number> {
   const catalogo = await obtenerCatalogo();
   const minutos = Number(leerConfig(catalogo, "encuesta_final_minutos", 1));
 
@@ -60,7 +65,15 @@ export async function barrerEncuestas(bot: Bot): Promise<number> {
   let enviadas = 0;
 
   for (const c of pendientes) {
-    if (c.canal !== "telegram") continue;
+    // Cada canal con su entrega; uno sin entrega (WhatsApp apagado, un canal
+    // futuro) se saltea sin marcar, así la encuesta sale si el canal enciende.
+    //
+    // WhatsApp entra en la ventana de servicio de Meta de 24 hs por dos
+    // guardas que ya existen: la consulta de la 031 exige actividad en las
+    // últimas 24 hs, y la encuesta dispara a minutos del último mensaje. Si un
+    // borde la excediera, Meta contesta 131047 (re-engagement), se loguea y
+    // esa encuesta se pierde — el lado correcto para equivocarse.
+    if (c.canal !== "telegram" && !(c.canal === "whatsapp" && whatsapp !== null)) continue;
 
     // El candado va ANTES del envío. Ver `marcarEncuestaEnviada`: marcando
     // después, la ventana entre mandar y marcar alcanza para que el vecino
@@ -74,18 +87,27 @@ export async function barrerEncuestas(bot: Bot): Promise<number> {
       const pregunta = await prepararEncuestaDeCierre(c.id, catalogo);
       if (pregunta === null) continue;
 
-      for (const envio of renderizar(pregunta)) {
-        await bot.api.sendMessage(c.canalUsuarioId, envio.texto, {
-          ...(envio.teclado ? { reply_markup: envio.teclado } : {}),
-          link_preview_options: { is_disabled: true },
-        });
+      if (c.canal === "telegram") {
+        for (const envio of renderizar(pregunta)) {
+          await bot.api.sendMessage(c.canalUsuarioId, envio.texto, {
+            ...(envio.teclado ? { reply_markup: envio.teclado } : {}),
+            link_preview_options: { is_disabled: true },
+          });
+        }
+      } else {
+        for (const envio of renderizarWhatsApp(pregunta)) {
+          await enviarMensaje(whatsapp!, c.canalUsuarioId, envio);
+        }
       }
       enviadas += 1;
     } catch (error) {
       // Un vecino que bloqueó al bot, o un chat borrado, devuelven 403 y no se
       // arreglan reintentando. Se anota y se sigue con la próxima: una encuesta
       // que no salió no puede frenar las demás.
-      log.warn({ conversacion: c.id, err: descripcionDeError(error) }, "no pude mandar la encuesta");
+      log.warn(
+        { conversacion: c.id, canal: c.canal, ...trazaDeError(error) },
+        "no pude mandar la encuesta",
+      );
     }
   }
 
@@ -94,11 +116,11 @@ export async function barrerEncuestas(bot: Bot): Promise<number> {
 }
 
 /** Arranca el barrido periódico. Devuelve cómo detenerlo. */
-export function arrancarEncuestas(bot: Bot): () => void {
+export function arrancarEncuestas(bot: Bot, whatsapp: ConfigWhatsApp | null = null): () => void {
   const t = setInterval(() => {
     // El barrido no puede tumbar el bot: si la base no responde, se anota y se
     // reintenta en treinta segundos.
-    barrerEncuestas(bot).catch((error) => {
+    barrerEncuestas(bot, whatsapp).catch((error) => {
       log.warn({ err: descripcionDeError(error) }, "falló el barrido de encuestas");
     });
   }, CADA_MS);

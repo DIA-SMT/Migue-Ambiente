@@ -141,11 +141,34 @@ describe("desafioDeAlta", () => {
 // ---------------------------------------------------------------------------
 
 describe("abrirEntrega", () => {
-  it("saca un mensaje de texto", () => {
+  it("saca un mensaje de texto, completo", () => {
     const e = abrirEntrega(sobre([MENSAJE_TEXTO]));
     assert.equal(e.mensajes.length, 1);
-    assert.deepEqual(e.mensajes[0], { id: "wamid.UNO", de: "5493810000001", tipo: "text" });
+    assert.deepEqual(e.mensajes[0], {
+      id: "wamid.UNO",
+      de: "5493810000001",
+      tipo: "text",
+      // El nombre sale del contacts[] que coincide con el from.
+      nombre: "Ana",
+      timestamp: "1787000000",
+      // El objeto del mensaje viaja tal cual: el normalizador lo traduce.
+      crudo: MENSAJE_TEXTO,
+    });
     assert.equal(e.estados, 0);
+  });
+
+  it("sin contacts el nombre queda null", () => {
+    const s = sobre([MENSAJE_TEXTO]) as {
+      entry: Array<{ changes: Array<{ value: Record<string, unknown> }> }>;
+    };
+    delete s.entry[0]!.changes[0]!.value["contacts"];
+    const e = abrirEntrega(s);
+    assert.equal(e.mensajes[0]?.nombre, null);
+  });
+
+  it("el contacto se aparea por wa_id: otro vecino no hereda el nombre", () => {
+    const e = abrirEntrega(sobre([{ ...MENSAJE_TEXTO, from: "5493810000099" }]));
+    assert.equal(e.mensajes[0]?.nombre, null, "el contacts[] es de otro número");
   });
 
   it("junta los mensajes de varias entradas, no sólo de la primera", () => {
