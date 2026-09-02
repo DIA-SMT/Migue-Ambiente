@@ -5003,13 +5003,13 @@ where not exists (
 --   2. El vecino puede pedir hablar con una persona. Hasta hoy ese pedido caía
 --      al azar: «no tengo esa información», el menú, o —peor— derivado a Migue,
 --      el bot general. Ahora genera una fila en `alertas_asesor` y el panel la
---      muestra hasta que alguien la atiende. Como en Telegram no existe ningún
---      dato de contacto (ni username ni teléfono), el bot le PIDE un teléfono;
---      darlo es optativo.
+--      muestra hasta que alguien la atiende. No se le pide teléfono: la
+--      respuesta le llega por el mismo chat, y cuando el bot migre a WhatsApp
+--      el número va a venir solo con el mensaje.
 --
 -- Sin Realtime, a propósito: el proyecto ya decidió en worker/bucle.ts que un
 -- websocket permanente es un modo de falla nuevo; el panel consulta cada
--- tanto, que para devolver un llamado alcanza y sobra.
+-- tanto, que para responder un pedido alcanza y sobra.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -5055,11 +5055,10 @@ comment on column public.tickets.photo_detail is
 -- ---------------------------------------------------------------------------
 -- 2 · Pedidos de asesor
 --
--- El teléfono se guarda ACÁ y no sale por ninguna vista. No contradice a la
--- 023 —que sacó canal_usuario_id de v_conversaciones porque en WhatsApp es el
--- teléfono del vecino y nadie lo usaba—: este caso es el opuesto. El vecino
--- DICTÓ el número justamente para que lo llamen, y lo lee sólo el padrón, por
--- RLS. La tabla contiene únicamente lo necesario para devolver el llamado.
+-- El teléfono queda como columna para el futuro WhatsApp (ahí el número viene
+-- con el mensaje). En Telegram va null: decidimos no pedírselo al vecino.
+-- La tabla contiene únicamente lo necesario para responder el pedido, y la
+-- lee sólo el padrón, por RLS.
 -- ---------------------------------------------------------------------------
 create table if not exists public.alertas_asesor (
   id              uuid primary key default gen_random_uuid(),
@@ -5082,14 +5081,13 @@ create table if not exists public.alertas_asesor (
 
 comment on table public.alertas_asesor is
   'Vecinos que pidieron hablar con una persona. Inserta el BOT con '
-  'service_role; el panel las lee y las cierra vía atender_alerta(). '
-  'Contiene datos personales: el teléfono que el vecino dictó.';
+  'service_role; el panel las lee y las cierra vía atender_alerta().';
 
 comment on column public.alertas_asesor.telefono is
-  'El número que el vecino dictó al pedir el asesor. En Telegram es el ÚNICO '
-  'dato de contacto que existe. Sólo lo lee el padrón (RLS).';
+  'Teléfono de contacto. En Telegram es null (el canal no lo da y no se pide); '
+  'en WhatsApp va a venir con el mensaje. Sólo lo lee el padrón (RLS).';
 comment on column public.alertas_asesor.motivo is
-  'El mensaje del vecino que disparó el pedido, para dar contexto al llamar.';
+  'El mensaje del vecino que disparó el pedido, para dar contexto al responder.';
 
 -- Sirve al badge (count de pendientes) y a la lista de trabajo.
 create index if not exists alertas_asesor_pendientes_idx
