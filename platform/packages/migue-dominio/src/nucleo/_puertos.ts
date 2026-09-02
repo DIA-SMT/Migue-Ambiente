@@ -11,7 +11,7 @@ import type { Clasificacion, Intencion } from "../ia/router.ts";
 import type { Respuesta } from "../conocimiento/responder.ts";
 import type { Catalogo } from "../datos/catalogo.ts";
 import type { Efecto } from "../flujos/tipos.ts";
-import type { MensajeSaliente } from "../mensajeria.ts";
+import type { MensajeSaliente, VeredictoFoto } from "../mensajeria.ts";
 import type { TrazaMensaje } from "../datos/conversaciones.ts";
 import type { MotivoSinRespuesta, Procedencia } from "../datos/registros.ts";
 import { AHORA, catalogoPrueba } from "../flujos/_fixtures.ts";
@@ -41,6 +41,8 @@ export interface Registro {
   readonly comentariosIntentados: string[];
   readonly cierres: Array<"cerrada" | "derivada" | "abandonada">;
   readonly flujosGuardados: Array<{ flujo: string | null; paso: string | null }>;
+  /** Las fotos que el orquestador mandó a analizar, para afirmar cuándo NO llama. */
+  readonly fotosAnalizadas: Array<{ referencia: string; flujo: string }>;
 }
 
 export interface PuertosPrueba extends Puertos {
@@ -55,6 +57,8 @@ export interface OpcionesPuertos {
   readonly confianza?: number;
   /** Respuesta que devuelve la cadena de conocimiento falsa. */
   readonly respuesta?: Respuesta;
+  /** Lo que la visión falsa devuelve. null (el default) = «no se pudo». */
+  readonly veredictoFoto?: VeredictoFoto | null;
   readonly ahora?: Date;
 }
 
@@ -78,6 +82,7 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
     comentariosIntentados: [],
     cierres: [],
     flujosGuardados: [],
+    fotosAnalizadas: [],
   };
   // `conversacionesAbiertas` y `entrantes` son contadores; se mutan por
   // referencia sobre un objeto mutable interno.
@@ -171,6 +176,11 @@ export function puertosPrueba(opciones: OpcionesPuertos = {}): PuertosPrueba {
         porAtajo: false,
         ...TRAZA_IA,
       };
+    },
+
+    async analizarFoto(referencia, contexto) {
+      registro.fotosAnalizadas.push({ referencia, flujo: contexto.flujo });
+      return opciones.veredictoFoto ?? null;
     },
 
     async responder(): Promise<Respuesta> {

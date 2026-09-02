@@ -113,6 +113,32 @@ describe("arranque de flujo", () => {
   });
 });
 
+describe("pedido de asesor", () => {
+  it("arranca el flujo, pide teléfono, y el motivo original viaja a la alerta", async () => {
+    const { puertos, ultimo } = await conversar(
+      [{ texto: "quiero hablar con una persona por las ramas" }, { texto: "381 5123456" }],
+      { intencion: "pedir_asesor", confianza: 0.95 },
+    );
+    assert.equal(ultimo.flujoActivo, null, "el flujo cerró");
+    const alerta = puertos.registro.efectos.find((e) => e.tipo === "crear_alerta_asesor");
+    if (alerta?.tipo !== "crear_alerta_asesor") throw new Error("no hubo alerta");
+    assert.equal(alerta.datos.telefono, "381 5123456");
+    assert.equal(alerta.datos.motivo, "quiero hablar con una persona por las ramas");
+  });
+
+  it("completar el pedido de asesor NO dispara la encuesta de trámite", async () => {
+    const { puertos } = await conversar(
+      [{ texto: "quiero un asesor" }, { texto: "no" }],
+      { intencion: "pedir_asesor", confianza: 0.95 },
+    );
+    assert.equal(
+      dicho(puertos).includes("¿Te resultó fácil"),
+      false,
+      "la encuesta es para trámites, no para pedir una persona",
+    );
+  });
+});
+
 describe("continuidad del flujo", () => {
   const arranque = { intencion: "retiro_no_habitual" as const, confianza: 0.95 };
 
@@ -139,6 +165,65 @@ describe("continuidad del flujo", () => {
     assert.equal(ultimo.flujoActivo, null, "el flujo terminó");
     assert.equal(puertos.almacen.tamano(), 0, "el estado se limpió");
     assert.match(dicho(puertos), /Solicitud registrada/);
+  });
+
+  it("la foto del paso foto pasa por la visión y el veredicto llega al ticket", async () => {
+    const { puertos } = await conversar(
+      [
+        { texto: "necesito que retiren escombros" },
+        { media: { tipo: "imagen", referencia: "foto-abc" } },
+        { texto: "4 bolsas de escombros" },
+        { texto: "Lamadrid 50" },
+      ],
+      {
+        ...arranque,
+        veredictoFoto: { veredicto: "valida", categoria: "rnh", detalle: "escombros embolsados" },
+      },
+    );
+
+    assert.deepEqual(puertos.registro.fotosAnalizadas, [
+      { referencia: "foto-abc", flujo: "retiro_no_habitual" },
+    ]);
+    const ticket = puertos.registro.efectos.find((e) => e.tipo === "crear_ticket");
+    if (ticket?.tipo !== "crear_ticket") throw new Error("no hubo ticket");
+    assert.equal(ticket.datos.fotoVeredicto, "valida");
+    assert.equal(ticket.datos.fotoCategoria, "rnh");
+  });
+
+  it("si la visión devuelve null el flujo avanza igual y el ticket queda no_evaluada", async () => {
+    // veredictoFoto no seteado = el puerto falso devuelve null («no se pudo»).
+    const { puertos, ultimo } = await conversar(
+      [
+        { texto: "necesito que retiren escombros" },
+        { media: { tipo: "imagen", referencia: "foto-x" } },
+        { texto: "4 bolsas de escombros" },
+        { texto: "Lamadrid 50" },
+      ],
+      arranque,
+    );
+    assert.equal(ultimo.flujoActivo, null, "el trámite cerró igual");
+    const ticket = puertos.registro.efectos.find((e) => e.tipo === "crear_ticket");
+    if (ticket?.tipo !== "crear_ticket") throw new Error("no hubo ticket");
+    assert.equal(ticket.datos.fotoVeredicto, "no_evaluada");
+  });
+
+  it("una foto suelta sin flujo NO paga visión", async () => {
+    const { puertos } = await conversar([{ media: { tipo: "imagen", referencia: "suelta" } }]);
+    assert.equal(puertos.registro.fotosAnalizadas.length, 0);
+    assert.match(dicho(puertos), /Recibí la foto/, "sigue el camino de media sin contexto");
+  });
+
+  it("una foto en un paso que no la espera NO paga visión", async () => {
+    const { puertos } = await conversar(
+      [
+        { texto: "necesito que retiren escombros" },
+        { media: { tipo: "imagen", referencia: "foto-1" } },
+        // El paso residuo no espera fotos: una segunda imagen no se analiza.
+        { media: { tipo: "imagen", referencia: "foto-2" } },
+      ],
+      arranque,
+    );
+    assert.equal(puertos.registro.fotosAnalizadas.length, 1, "sólo la del paso foto");
   });
 
   it("el clasificador NO se llama mientras hay un flujo activo", async () => {

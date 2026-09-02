@@ -36,12 +36,20 @@ import type {
   Efecto,
   Transicion,
 } from "./tipos.ts";
-import type { MensajeSaliente } from "../mensajeria.ts";
+import type { CategoriaFoto, EstadoVeredicto, MensajeSaliente } from "../mensajeria.ts";
 
 interface DatosReclamo extends DatosFlujo {
   readonly direccion?: string;
   readonly diasSinServicio?: number | null;
   readonly fotoReferencia?: string | null;
+  /**
+   * Lo que la visión dijo de la foto. Acá NUNCA se repregunta —la foto es
+   * opcional, y objetar un dato optativo es hacer ruido— pero el veredicto va
+   * al ticket para que el panel marque los reclamos con foto que no acompaña.
+   */
+  readonly fotoVeredicto?: EstadoVeredicto | null;
+  readonly fotoCategoria?: CategoriaFoto | null;
+  readonly fotoDetalle?: string | null;
 }
 
 /**
@@ -137,6 +145,14 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
         const foto = entrante.media?.tipo === "imagen" ? entrante.media.referencia : null;
         const fotoReferencia = foto ?? previo.fotoReferencia ?? null;
 
+        // El veredicto acompaña a la foto del turno; si la foto vino antes, se
+        // conserva el de aquel turno. Sin foto no hay veredicto que guardar.
+        const v = foto !== null ? (entrante.media!.veredicto ?? null) : null;
+        const fotoVeredicto =
+          foto !== null ? (v?.veredicto ?? "no_evaluada") : (previo.fotoVeredicto ?? null);
+        const fotoCategoria = foto !== null ? (v?.categoria ?? null) : (previo.fotoCategoria ?? null);
+        const fotoDetalle = foto !== null ? (v?.detalle ?? null) : (previo.fotoDetalle ?? null);
+
         // `buscarDireccion` y no `interpretarDireccion`: acá el vecino cuenta el
         // problema y da el domicilio en el mismo mensaje —«hace 3 días, Lavalle
         // 500»— y el texto entero no es una dirección. El primero prueba el
@@ -164,7 +180,7 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
             // Se conserva TODO lo aprendido, no sólo la foto: si el vecino la
             // mandó primero y la dirección después, no hay que volver a pedirle
             // nada de lo que ya dijo.
-            datos: { fotoReferencia, diasSinServicio },
+            datos: { fotoReferencia, diasSinServicio, fotoVeredicto, fotoCategoria, fotoDetalle },
             mensaje: decir(pregunta, "texto"),
           };
         }
@@ -194,6 +210,9 @@ export const flujoReclamoRecoleccion: DefinicionFlujo = {
               diasSinServicio,
               vencimiento,
               derivadoA: null,
+              fotoVeredicto,
+              fotoCategoria,
+              fotoDetalle,
             },
           },
         ];

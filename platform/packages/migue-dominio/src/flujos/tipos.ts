@@ -11,7 +11,12 @@
  * flujo con efectos secundarios adentro sólo se puede probar levantando todo.
  */
 import type { Catalogo } from "../datos/catalogo.ts";
-import type { MensajeEntrante, MensajeSaliente } from "../mensajeria.ts";
+import type {
+  CategoriaFoto,
+  EstadoVeredicto,
+  MensajeEntrante,
+  MensajeSaliente,
+} from "../mensajeria.ts";
 
 /**
  * Los flujos que existen, como VALOR y no solo como tipo.
@@ -33,6 +38,11 @@ export const NOMBRES_FLUJO = [
   "programa_educa",
   "programa_transforma",
   "programa_separa",
+  // «Quiero hablar con una persona». Es un flujo y no una respuesta suelta
+  // porque hay que capturar un teléfono: en Telegram no existe NINGÚN dato de
+  // contacto (ni username ni número), así que sin pedirlo la alerta del panel
+  // no le sirve a nadie.
+  "pedir_asesor",
 ] as const;
 
 export type NombreFlujo = (typeof NOMBRES_FLUJO)[number];
@@ -75,6 +85,13 @@ export interface DatosTicket {
   readonly diasSinServicio: number | null;
   readonly vencimiento: Date;
   readonly derivadoA: string | null;
+  /**
+   * Lo que el modelo de visión dijo de la foto. Opcionales: un ticket sin foto
+   * no tiene veredicto, y los constructores viejos no se rompen.
+   */
+  readonly fotoVeredicto?: EstadoVeredicto | null;
+  readonly fotoCategoria?: CategoriaFoto | null;
+  readonly fotoDetalle?: string | null;
 }
 
 export interface DatosSolicitudPrograma {
@@ -96,6 +113,13 @@ export interface DatosSolicitudPrograma {
   readonly fotoReferencia: string | null;
 }
 
+export interface DatosAlertaAsesor {
+  /** El número que el vecino dictó, o null si prefirió no darlo. */
+  readonly telefono: string | null;
+  /** Con qué palabras pidió el asesor, para dar contexto al llamar. */
+  readonly motivo: string | null;
+}
+
 export type Efecto =
   | { readonly tipo: "crear_ticket"; readonly datos: DatosTicket }
   | { readonly tipo: "crear_solicitud_programa"; readonly datos: DatosSolicitudPrograma }
@@ -104,6 +128,11 @@ export type Efecto =
    * sigue, para que un vecino no quede esperando la bajada de 5 MB.
    */
   | { readonly tipo: "guardar_media"; readonly referencia: string; readonly proposito: string }
+  /**
+   * Registra que un vecino pidió hablar con una persona. Canal, nombre y
+   * conversación no van acá: salen de la Procedencia, igual que en el ticket.
+   */
+  | { readonly tipo: "crear_alerta_asesor"; readonly datos: DatosAlertaAsesor }
   | { readonly tipo: "cerrar_conversacion"; readonly motivo: string };
 
 // ---------------------------------------------------------------------------

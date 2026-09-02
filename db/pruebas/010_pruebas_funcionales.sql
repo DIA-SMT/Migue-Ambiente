@@ -1930,6 +1930,186 @@ begin
 end $$;
 \echo '   OK: nadie se autobloquea, el SQL Editor sigue pudiendo arreglar, y solo un admin ve las cuentas'
 
+-- ===========================================================================
+\echo '== Q · alertas de asesor y veredicto de foto (037) =='
+-- ===========================================================================
+-- La 037 trae una tabla con datos personales (el telefono que el vecino dicto)
+-- y una funcion que la cierra. Se prueba el EFECTO, no la definicion: rol
+-- authenticated de verdad, como el bloque J.
+do $$
+declare
+  v_intruso    uuid := '77777777-7777-7777-7777-777777777777';
+  v_del_padron uuid := '88888888-8888-8888-8888-888888888888';
+  v_alerta     uuid;
+  v_ticket     uuid;
+  n int;
+  r record;
+begin
+  insert into auth.users (id, email, email_confirmed_at) values
+    (v_intruso,    'intruso.q@gmail.com',  now()),
+    (v_del_padron, 'operador.q@smt.gob.ar', now())
+  on conflict (id) do nothing;
+  insert into public.personal_panel (usuario_id, correo, nombre, rol)
+  values (v_del_padron, 'operador.q@smt.gob.ar', 'Operador Q', 'operador')
+  on conflict (usuario_id) do update set activo = true;
+
+  -- El bot (aca: postgres, que como service_role saltea RLS) crea la alerta.
+  insert into public.alertas_asesor (canal, nombre_usuario, telefono, motivo)
+  values ('telegram', 'Vecino Q', '381 5000000', 'quiero hablar con una persona')
+  returning id into v_alerta;
+
+  -- 1 - anon no ve nada.
+  set local role anon;
+  select count(*) into n from public.alertas_asesor;
+  reset role;
+  if n <> 0 then
+    raise exception 'anon leyo % alerta(s) con telefonos de vecinos', n;
+  end if;
+
+  -- 2 - Una cuenta fuera del padron tampoco.
+  perform set_config('request.jwt.claim.sub', v_intruso::text, true);
+  set local role authenticated;
+  select count(*) into n from public.alertas_asesor;
+  reset role;
+  if n <> 0 then
+    raise exception 'una cuenta fuera del padron leyo % alerta(s)', n;
+  end if;
+
+  -- 3 - El padron la ve.
+  perform set_config('request.jwt.claim.sub', v_del_padron::text, true);
+  set local role authenticated;
+  select count(*) into n from public.alertas_asesor where id = v_alerta;
+  reset role;
+  if n <> 1 then
+    raise exception 'el padron no pudo leer la alerta (leyo %)', n;
+  end if;
+
+  -- 4 - El padron NO inserta (eso es del bot) ni borra (descartar es un estado).
+  perform set_config('request.jwt.claim.sub', v_del_padron::text, true);
+  set local role authenticated;
+  begin
+    insert into public.alertas_asesor (canal) values ('telegram');
+    reset role;
+    raise exception 'el padron pudo INSERTAR una alerta a mano';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from public.alertas_asesor where id = v_alerta;
+    if found then
+      reset role;
+      raise exception 'el padron pudo BORRAR una alerta';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+  -- Ni la actualiza directo: la escritura va por atender_alerta().
+  begin
+    update public.alertas_asesor set telefono = 'reescrito' where id = v_alerta;
+    if found then
+      reset role;
+      raise exception 'el padron pudo reescribir el telefono que dicto el vecino';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+
+  -- 5 - atender_alerta sella quien y cuando; el cliente no los elige.
+  perform set_config('request.jwt.claim.sub', v_del_padron::text, true);
+  set local role authenticated;
+  perform public.atender_alerta(v_alerta, 'atendida', 'lo llame y quedamos para el martes');
+  reset role;
+  select * into r from public.alertas_asesor where id = v_alerta;
+  if r.estado <> 'atendida' then raise exception 'atender_alerta no cambio el estado'; end if;
+  if r.atendida_por is distinct from v_del_padron then
+    raise exception 'atendida_por quedo en % (esperaba el uuid del operador)', r.atendida_por;
+  end if;
+  if r.atendida_en is null then raise exception 'atendida_en quedo null'; end if;
+  if r.notas <> 'lo llame y quedamos para el martes' then
+    raise exception 'la nota no se guardo';
+  end if;
+
+  -- 6 - Reabrir limpia el sello y conserva la nota.
+  perform set_config('request.jwt.claim.sub', v_del_padron::text, true);
+  set local role authenticated;
+  perform public.atender_alerta(v_alerta, 'pendiente');
+  reset role;
+  select * into r from public.alertas_asesor where id = v_alerta;
+  if r.estado <> 'pendiente' or r.atendida_por is not null or r.atendida_en is not null then
+    raise exception 'reabrir no limpio el sello';
+  end if;
+  if r.notas <> 'lo llame y quedamos para el martes' then
+    raise exception 'reabrir borro la nota';
+  end if;
+
+  -- 7 - Estado invalido y alerta inexistente: excepcion, no silencio.
+  perform set_config('request.jwt.claim.sub', v_del_padron::text, true);
+  set local role authenticated;
+  begin
+    perform public.atender_alerta(v_alerta, 'cerradisima');
+    reset role;
+    raise exception 'atender_alerta acepto un estado invalido';
+  exception when others then
+    if sqlerrm not like '%estado invalido%' then reset role; raise; end if;
+  end;
+  begin
+    perform public.atender_alerta('00000000-0000-0000-0000-000000000000', 'atendida');
+    reset role;
+    raise exception 'atender_alerta acepto un id inexistente';
+  exception when others then
+    if sqlerrm not like '%no existe%' then reset role; raise; end if;
+  end;
+  reset role;
+
+  -- 8 - Fuera del padron, la funcion rechaza aunque el rol sea authenticated.
+  perform set_config('request.jwt.claim.sub', v_intruso::text, true);
+  set local role authenticated;
+  begin
+    perform public.atender_alerta(v_alerta, 'atendida');
+    reset role;
+    raise exception 'una cuenta fuera del padron pudo atender una alerta';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+
+  -- 9 - Los CHECK del veredicto de foto rechazan inventos y aceptan la lista.
+  insert into public.tickets (ticket_type, status, address, chat_id, user_name, sla_deadline)
+  values ('Pedido No Habitual', 'En Proceso', 'Direccion de prueba Q', '998', 'Vecino Q',
+          now() + interval '3 days')
+  returning id into v_ticket;
+  begin
+    update public.tickets set photo_verdict = 'cualquiercosa' where id = v_ticket;
+    raise exception 'photo_verdict acepto un valor fuera de la lista';
+  exception when check_violation then null;
+  end;
+  update public.tickets
+     set photo_verdict = 'dudosa', photo_category = 'basural', photo_detail = 'bolsas lejos'
+   where id = v_ticket;
+
+  -- 10 - Las semillas de la 037 estan.
+  if not exists (select 1 from public.configuracion where clave = 'modelo_vision') then
+    raise exception 'falta la config modelo_vision';
+  end if;
+  select count(*) into n from public.textos_bot
+   where clave in ('asesor_pedir_telefono','asesor_reintento_telefono',
+                   'asesor_confirmacion','asesor_sin_telefono','retiro_foto_no_corresponde');
+  if n <> 5 then
+    raise exception 'faltan textos del flujo de asesor: hay % de 5', n;
+  end if;
+  -- La marca del estilo nuevo. Vale en las 3 pasadas porque el update de la
+  -- 037 es condicional: la primera lo cambia, las otras no matchean y no tocan.
+  if not exists (select 1 from public.configuracion
+                  where clave = 'estilo_respuesta' and valor::text like '%muletillas%') then
+    raise exception 'el estilo_respuesta no es el de la 037 (y nadie lo edito antes en esta base)';
+  end if;
+
+  -- Limpieza.
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.alertas_asesor where id = v_alerta;
+  delete from public.tickets where id = v_ticket;
+  delete from public.personal_panel where usuario_id = v_del_padron;
+  delete from auth.users where id in (v_intruso, v_del_padron);
+end $$;
+\echo '   OK: la alerta la ve solo el padron, atender_alerta sella y reabre, y el veredicto respeta la lista'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='

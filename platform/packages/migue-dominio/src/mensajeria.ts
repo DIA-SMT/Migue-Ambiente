@@ -13,6 +13,36 @@ export type Canal = "telegram" | "whatsapp" | "web";
 
 export type TipoMedia = "imagen" | "audio" | "video" | "documento" | "ubicacion";
 
+// ---------------------------------------------------------------------------
+// Veredicto de foto
+// ---------------------------------------------------------------------------
+
+export type EstadoVeredicto = "valida" | "dudosa" | "no_corresponde" | "no_evaluada";
+
+/** Taxonomía del área, heredada del relevamiento del bot propio de Ambiente. */
+export type CategoriaFoto =
+  | "basural"
+  | "volcadero"
+  | "rnh"
+  | "barrido"
+  | "limpieza_cestos"
+  | "otros";
+
+/**
+ * Lo que el modelo de visión dijo de la foto.
+ *
+ * Vive acá y no en `ia/` porque viaja pegado a la media del mensaje entrante, y
+ * `mensajeria.ts` es la hoja que importan todos: un tipo de mensajería que
+ * importara de `ia/` invertiría la dependencia.
+ */
+export interface VeredictoFoto {
+  readonly veredicto: EstadoVeredicto;
+  /** null cuando el veredicto es no_corresponde (no hay residuos que clasificar). */
+  readonly categoria: CategoriaFoto | null;
+  /** Una frase corta del modelo: qué se ve. La lee el área, y el vecino si se repregunta. */
+  readonly detalle: string | null;
+}
+
 export interface MediaEntrante {
   readonly tipo: TipoMedia;
   /**
@@ -26,6 +56,14 @@ export interface MediaEntrante {
   readonly referencia: string;
   readonly mime?: string | null;
   readonly bytes?: number | null;
+  /**
+   * Veredicto de la verificación por visión, si el orquestador la corrió.
+   *
+   * Es DATO para el reductor puro: el flujo lo lee, jamás lo produce. Ausente
+   * significa que no se corrió — foto suelta sin flujo, un paso que no espera
+   * foto, o la visión apagada desde el panel.
+   */
+  readonly veredicto?: VeredictoFoto | null;
 }
 
 export interface MensajeEntrante {

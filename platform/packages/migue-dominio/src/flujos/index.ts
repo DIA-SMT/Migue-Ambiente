@@ -10,6 +10,7 @@ export {
 
 export { flujoRetiroNoHabitual } from "./retiroNoHabitual.ts";
 export { flujoReclamoRecoleccion } from "./reclamoRecoleccion.ts";
+export { flujoPedirAsesor } from "./pedirAsesor.ts";
 export {
   flujoProgramaEduca,
   flujoProgramaTransforma,
@@ -23,6 +24,7 @@ export type {
   DatosFlujo,
   DatosTicket,
   DatosSolicitudPrograma,
+  DatosAlertaAsesor,
   Efecto,
   ContextoFlujo,
   Transicion,

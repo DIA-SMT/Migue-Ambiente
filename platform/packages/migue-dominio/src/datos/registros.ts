@@ -10,7 +10,7 @@ import { obtenerCliente } from "./cliente.ts";
 import { ErrorDeEscritura } from "./conversaciones.ts";
 import { recortar } from "../texto.ts";
 import type { Canal } from "../mensajeria.ts";
-import type { DatosSolicitudPrograma, DatosTicket } from "../flujos/tipos.ts";
+import type { DatosAlertaAsesor, DatosSolicitudPrograma, DatosTicket } from "../flujos/tipos.ts";
 
 /** Datos del canal que acompañan a todo registro. */
 export interface Procedencia {
@@ -61,6 +61,11 @@ export async function crearTicket(
       days_without_service: datos.diasSinServicio,
       // Referencia del canal, no URL: el worker la resuelve y llena photo_url.
       photo_ref: datos.fotoReferencia,
+      // El veredicto del modelo de visión (037). El panel lo muestra junto a
+      // la foto; corregirlo a mano sería falsificar la evidencia.
+      photo_verdict: datos.fotoVeredicto ?? null,
+      photo_category: datos.fotoCategoria ?? null,
+      photo_detail: datos.fotoDetalle ? recortar(datos.fotoDetalle, 500) : null,
       sla_deadline: datos.vencimiento.toISOString(),
       derived_to: datos.derivadoA,
       notes: notas.length > 0 ? notas.join(" ") : null,
@@ -106,6 +111,36 @@ export async function crearSolicitudPrograma(
 
   if (error || !data) {
     throw new ErrorDeEscritura("program_requests", error?.message ?? "sin datos");
+  }
+  return data.id as string;
+}
+
+/**
+ * Registra que un vecino pidió hablar con una persona.
+ *
+ * La fila es lo que el panel muestra hasta que alguien lo llama. Contiene sólo
+ * lo necesario para devolver el llamado: nombre, canal, el teléfono que el
+ * vecino dictó (o null) y sus palabras. La lee únicamente el padrón, por RLS.
+ */
+export async function crearAlertaAsesor(
+  datos: DatosAlertaAsesor,
+  procedencia: Procedencia,
+): Promise<string> {
+  const { data, error } = await obtenerCliente()
+    .from("alertas_asesor")
+    .insert({
+      conversacion_id: procedencia.conversacionId,
+      canal: procedencia.canal,
+      nombre_usuario: procedencia.nombreUsuario,
+      telefono: datos.telefono,
+      motivo: datos.motivo ? recortar(datos.motivo, 500) : null,
+      // `estado` lo pone el default de la tabla: 'pendiente'.
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    throw new ErrorDeEscritura("alertas_asesor", error?.message ?? "sin datos");
   }
   return data.id as string;
 }

@@ -48,6 +48,7 @@ const FLUJOS: readonly NombreFlujo[] = [
   "programa_educa",
   "programa_transforma",
   "programa_separa",
+  "pedir_asesor",
 ];
 
 const INTENCIONES: readonly Intencion[] = [
@@ -140,6 +141,12 @@ export function porAtajo(texto: string): Intencion | null {
   // más de ocho palabras no es un saludo por más que empiece con «hola».
   if (norm.split(" ").length > 8) return null;
 
+  // El pedido de asesor va ANTES que saludos y despedidas: «gracias, quiero
+  // hablar con una persona» no es una despedida. Y dispara sólo si al quitar
+  // la cortesía el texto ES una de las frases, exacto: «el operador me dijo
+  // que saque la basura el martes» no matchea y lo resuelve el modelo.
+  if (PEDIDOS_DE_ASESOR.has(sinCortesia(norm).trim())) return "pedir_asesor";
+
   // Los más largos primero: «listo gracias» tiene que ganarle a «gracias», para
   // que lo que sobra sea vacío y no «listo».
   const porLargo = (a: string, b: string) => normalizar(b).length - normalizar(a).length;
@@ -166,14 +173,51 @@ export function porAtajo(texto: string): Intencion | null {
 }
 
 /**
+ * Frases con que un vecino pide que lo atienda una PERSONA.
+ *
+ * Se comparan EXACTAS contra el texto ya sin cortesía, no por «contiene»: la
+ * mecánica de `soloCortesia` está calibrada para saludos, y con un contiene
+ * «el operador me dijo que saque la basura el martes» dispararía en falso.
+ * Normalizadas al construir el Set, así la comparación no depende de tildes.
+ */
+const PEDIDOS_DE_ASESOR: ReadonlySet<string> = new Set(
+  [
+    "asesor", "un asesor", "quiero un asesor", "necesito un asesor",
+    "quiero hablar con un asesor", "hablar con un asesor",
+    "operador", "un operador", "hablar con un operador",
+    "quiero hablar con un operador",
+    "humano", "un humano", "me atiende un humano", "atencion humana",
+    "hablar con un humano", "quiero hablar con un humano",
+    "persona real", "una persona real", "hablar con una persona",
+    "quiero hablar con una persona", "puedo hablar con una persona",
+    "hablar con alguien", "quiero hablar con alguien",
+    "que me llame alguien", "que me atienda una persona", "que me llamen",
+    "quiero que me llamen", "necesito hablar con alguien",
+  ].map(normalizar),
+);
+
+/**
  * ¿El texto está hecho SÓLO de cortesía?
  *
- * Se quitan todos los términos de las dos listas, del más largo al más corto
- * —«buenas tardes» antes que «buenas», «listo gracias» antes que «gracias»— y
- * después el relleno. Si no queda nada, era un saludo o una despedida y nada
- * más.
+ * Si al quitar saludos, despedidas y relleno no queda nada, era un saludo o
+ * una despedida y nada más.
  */
 function soloCortesia(norm: string): boolean {
+  return sinCortesia(norm)
+    .split(" ")
+    .map((w) => w.trim())
+    .every((w) => w === "" || RELLENO.has(w));
+}
+
+/**
+ * El texto sin los términos de cortesía, para mirar lo que sobra.
+ *
+ * Se quitan todos los términos de las dos listas, del más largo al más corto
+ * —«buenas tardes» antes que «buenas», «listo gracias» antes que «gracias»—.
+ * El relleno NO se quita acá: `soloCortesia` lo tolera palabra por palabra, y
+ * el atajo de asesor compara la frase completa que queda.
+ */
+function sinCortesia(norm: string): string {
   const terminos = [...SALUDOS, ...DESPEDIDAS]
     .map(normalizar)
     .filter((t) => t !== "")
@@ -190,10 +234,7 @@ function soloCortesia(norm: string): boolean {
     );
   }
 
-  return resto
-    .split(" ")
-    .map((w) => w.trim())
-    .every((w) => w === "" || RELLENO.has(w));
+  return resto.replace(/\s+/g, " ").trim();
 }
 
 /** Escapa un término para poder buscarlo como palabra completa. */
@@ -229,6 +270,10 @@ function instrucciones(catalogo: Catalogo): string {
     "programa_transforma  pide un mural, un cartel o una intervención en un espacio.",
     "programa_separa      pregunta por la recolección de reciclables en su domicilio,",
     "                     o quiere coordinar la entrega de reciclables.",
+    "pedir_asesor         quiere que lo atienda una PERSONA: pide hablar con un",
+    "                     humano, un asesor o un operador, o que alguien lo llame.",
+    "                     «quiero hablar con una persona», «¿me atiende un humano?»,",
+    "                     «necesito un asesor», «que me llame alguien».",
     "consulta_libre       cualquier otra pregunta sobre temas de Ambiente: horarios,",
     "                     Puntos Verdes, qué se puede reciclar, programas, normativa,",
     "                     residuos, arbolado, limpieza.",
@@ -256,6 +301,12 @@ function instrucciones(catalogo: Catalogo): string {
     "  «Quiero pedir un retiro», «necesito un camión», «quiero sacar unos",
     "  escombros» son retiro_no_habitual. No hace falta que describa el síntoma",
     "  para que se entienda qué quiere.",
+    "- pedir_asesor es pedir el CONTACTO humano, no mencionar a una persona.",
+    "  «el operador me dijo que saque la basura el martes» es una consulta sobre",
+    "  lo que le dijeron; «quiero que me atienda un operador» es pedir_asesor.",
+    "  Y si además del asesor describe un trámite concreto («quiero un asesor",
+    "  para que retiren mis escombros»), clasificá el trámite: el flujo lo",
+    "  resuelve más rápido que una llamada.",
     "- LA DISTINCIÓN MÁS IMPORTANTE: `no_entendido` es «no sé qué me pediste».",
     "  `fuera_de_alcance` es «sé perfectamente qué me pediste y no es mío». Con la",
     "  primera el bot muestra las opciones de Ambiente; con la segunda lo manda al",

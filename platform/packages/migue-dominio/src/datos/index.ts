@@ -38,6 +38,7 @@ export {
 export {
   crearTicket,
   crearSolicitudPrograma,
+  crearAlertaAsesor,
   registrarSinRespuesta,
   type Procedencia,
   type MotivoSinRespuesta,

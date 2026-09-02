@@ -63,6 +63,106 @@ describe("la foto es bloqueante", () => {
     assert.equal(efectoDe(s.efectos, "guardar_media"), undefined);
   });
 
+  it("el veredicto de la visión viaja hasta el ticket", () => {
+    const s = simular(flujo, [
+      {
+        imagen: "foto-v1",
+        veredicto: { veredicto: "valida", categoria: "rnh", detalle: "bolsas frente a una casa" },
+      },
+      { texto: "3 bolsas de escombros" },
+      { texto: "Lavalle 500" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "valida");
+    assert.equal(t.fotoCategoria, "rnh");
+    assert.equal(t.fotoDetalle, "bolsas frente a una casa");
+  });
+
+  it("sin veredicto (visión apagada o caída) el ticket queda no_evaluada", () => {
+    const s = simular(flujo, [
+      { imagen: "foto-v2" },
+      { texto: "3 bolsas de escombros" },
+      { texto: "Lavalle 500" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "no_evaluada");
+    assert.equal(t.fotoCategoria, null);
+  });
+
+  it("una foto que no corresponde repregunta UNA vez, con el detalle del modelo", () => {
+    const s = simular(flujo, [
+      {
+        imagen: "selfie-1",
+        veredicto: { veredicto: "no_corresponde", categoria: null, detalle: "es una selfie" },
+      },
+    ]);
+    assert.equal(s.estado?.paso, "foto", "no avanzó");
+    assert.ok(dijo(s.dichos, "es una selfie"), "el detalle se interpola");
+    assert.equal(dijo(s.dichos, "{detalle}"), false, "sin marcadores sueltos");
+  });
+
+  it("a la segunda foto objetada se acepta y el ticket queda marcado", () => {
+    const rechazo = {
+      veredicto: "no_corresponde",
+      categoria: null,
+      detalle: "es una selfie",
+    } as const;
+    const s = simular(flujo, [
+      { imagen: "selfie-1", veredicto: rechazo },
+      { imagen: "selfie-2", veredicto: rechazo },
+      { texto: "3 bolsas de escombros" },
+      { texto: "Lavalle 500" },
+    ]);
+    assert.equal(s.estado, null, "el flujo terminó igual: nunca bloquea");
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "no_corresponde");
+    assert.equal(t.fotoReferencia, "selfie-2", "quedó la segunda foto");
+  });
+
+  it("tras la objeción, una foto válida pisa el veredicto", () => {
+    const s = simular(flujo, [
+      {
+        imagen: "selfie-1",
+        veredicto: { veredicto: "no_corresponde", categoria: null, detalle: "es una selfie" },
+      },
+      {
+        imagen: "foto-buena",
+        veredicto: { veredicto: "valida", categoria: "rnh", detalle: "escombros embolsados" },
+      },
+      { texto: "3 bolsas de escombros" },
+      { texto: "Lavalle 500" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "valida");
+    assert.equal(t.fotoReferencia, "foto-buena");
+  });
+
+  it("una foto dudosa NO repregunta: avanza y marca", () => {
+    const s = simular(flujo, [
+      {
+        imagen: "foto-lejos",
+        veredicto: { veredicto: "dudosa", categoria: "otros", detalle: "se ve borroso" },
+      },
+    ]);
+    assert.equal(s.estado?.paso, "residuo", "avanzó sin objetar");
+  });
+
+  it("con retiro_foto_no_corresponde vacío la repregunta se apaga desde el panel", () => {
+    const textos = new Map(catalogoPrueba().textos);
+    textos.set("retiro_foto_no_corresponde", "");
+    const s = simular(
+      flujo,
+      [
+        {
+          imagen: "selfie-1",
+          veredicto: { veredicto: "no_corresponde", categoria: null, detalle: "es una selfie" },
+        },
+      ],
+      contextoPrueba(catalogoPrueba({ textos })),
+    );
+    assert.equal(s.estado?.paso, "residuo", "aceptó directo, sin repreguntar");
+  });
+
   it("al cerrar, la descarga sale en el mismo array y DESPUÉS del ticket", () => {
     const s = simular(flujo, [
       { imagen: "AgACAgEAAx-foto-123" },

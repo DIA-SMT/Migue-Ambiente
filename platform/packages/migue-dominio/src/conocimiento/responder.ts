@@ -236,7 +236,10 @@ export async function responderConsulta(
     const r = await chat({
       modelo: modeloRespuesta,
       maxTokens: 600,
-      temperatura: 0.2,
+      // 0.3 y no 0.2: la fidelidad al contexto la garantiza la REGLA ABSOLUTA
+      // del prompt, no la temperatura, y el pelín de soltura es lo que pide el
+      // estilo nuevo. El router y la expansión siguen en 0: ahí no hay tono.
+      temperatura: 0.3,
       json: true,
       mensajes: [
         { role: "system", content: instrucciones(catalogo) },

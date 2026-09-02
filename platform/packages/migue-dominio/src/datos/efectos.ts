@@ -14,7 +14,12 @@
 import { descripcionDeError } from "../errores.ts";
 import { obtenerCliente } from "./cliente.ts";
 import { cerrarConversacion } from "./conversaciones.ts";
-import { crearSolicitudPrograma, crearTicket, type Procedencia } from "./registros.ts";
+import {
+  crearAlertaAsesor,
+  crearSolicitudPrograma,
+  crearTicket,
+  type Procedencia,
+} from "./registros.ts";
 import type { Efecto } from "../flujos/tipos.ts";
 
 export interface ResultadoEfecto {
@@ -75,6 +80,11 @@ async function aplicarUno(efecto: Efecto, procedencia: Procedencia): Promise<Res
 
     case "guardar_media": {
       const id = await encolarDescarga(efecto.referencia, efecto.proposito, procedencia);
+      return { efecto: efecto.tipo, ok: true, id };
+    }
+
+    case "crear_alerta_asesor": {
+      const id = await crearAlertaAsesor(efecto.datos, procedencia);
       return { efecto: efecto.tipo, ok: true, id };
     }
 

@@ -26,6 +26,7 @@ import {
   quiereSalir,
 } from "../flujos/motor.ts";
 import { flujoRetiroNoHabitual } from "../flujos/retiroNoHabitual.ts";
+import { flujoPedirAsesor } from "../flujos/pedirAsesor.ts";
 import { flujoReclamoRecoleccion } from "../flujos/reclamoRecoleccion.ts";
 import {
   flujoProgramaEduca,
@@ -45,12 +46,13 @@ import {
 } from "../flujos/opciones.ts";
 import { decidir, type Clasificacion } from "../ia/router.ts";
 import { leerConfig, leerTexto, tieneTexto, type Catalogo } from "../datos/catalogo.ts";
-import { interpolar } from "../texto.ts";
+import { interpolar, recortar } from "../texto.ts";
 import {
   decir,
   preguntar,
   textoEfectivo,
   type MensajeEntrante,
+  type VeredictoFoto,
   type MensajeSaliente,
   type OpcionRespuesta,
 } from "../mensajeria.ts";
@@ -61,13 +63,14 @@ import type { OrigenRespuesta, TrazaMensaje } from "../datos/conversaciones.ts";
 import type { MotivoSinRespuesta, Procedencia } from "../datos/registros.ts";
 import type { ResultadoEfecto } from "../datos/efectos.ts";
 
-/** Los cinco flujos, indexados por nombre. */
+/** Los flujos, indexados por nombre. El Record obliga a registrar todos. */
 const FLUJOS: Readonly<Record<NombreFlujo, DefinicionFlujo>> = {
   retiro_no_habitual: flujoRetiroNoHabitual,
   reclamo_recoleccion: flujoReclamoRecoleccion,
   programa_educa: flujoProgramaEduca,
   programa_transforma: flujoProgramaTransforma,
   programa_separa: flujoProgramaSepara,
+  pedir_asesor: flujoPedirAsesor,
 };
 
 // ---------------------------------------------------------------------------
@@ -135,10 +138,31 @@ export interface Puertos {
   readonly obtenerCatalogo: () => Promise<Catalogo>;
   readonly clasificar: (texto: string, catalogo: Catalogo) => Promise<Clasificacion>;
   readonly responder: (consulta: string, catalogo: Catalogo) => Promise<Respuesta>;
+  /**
+   * Verifica la foto con el modelo de visión. Lo implementa el bot: descarga
+   * los bytes del canal y llama a `evaluarFoto`. null significa «no se pudo»
+   * y el flujo lo trata como no_evaluada. No debería lanzar, pero el
+   * orquestador igual lo envuelve en catch: una foto jamás tumba el turno.
+   */
+  readonly analizarFoto: (
+    referencia: string,
+    contexto: { readonly flujo: "retiro_no_habitual" | "reclamo_recoleccion" },
+  ) => Promise<VeredictoFoto | null>;
   readonly persistencia: Persistencia;
   /** Inyectado y no `new Date()`: es lo que hace testeables los plazos. */
   readonly ahora: () => Date;
 }
+
+/**
+ * En qué paso de qué flujo vale la pena mirar la foto.
+ *
+ * El gate es (flujo, paso) y no sólo el flujo: una foto tardía en un paso que
+ * la ignora pagaría descarga y modelo para que nadie lea el veredicto.
+ */
+const PASOS_CON_VISION: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["retiro_no_habitual", new Set(["foto"])],
+  ["reclamo_recoleccion", new Set(["diagnostico"])],
+]);
 
 export interface Resultado {
   readonly salientes: readonly MensajeSaliente[];
@@ -340,9 +364,30 @@ export async function procesarMensaje(
       await puertos.almacen.borrar(clave);
       await puertos.persistencia.actualizarFlujo(conversacion.id, null, null);
     } else {
-      const avance = quiereSalir(entrante)
+      // Si el turno trae una foto y el paso la espera, se evalúa con visión
+      // ANTES de avanzar, y el veredicto viaja pegado a la media: el reductor
+      // sigue puro —lo lee como dato— y el fallo degrada a «sin veredicto»,
+      // que el flujo registra como no_evaluada. Nunca bloquea ni lanza.
+      const saliendo = quiereSalir(entrante);
+      let paraElFlujo = entrante;
+      if (
+        !saliendo &&
+        entrante.media?.tipo === "imagen" &&
+        PASOS_CON_VISION.get(estadoPrevio.flujo)?.has(estadoPrevio.paso) === true
+      ) {
+        const veredicto = await puertos
+          .analizarFoto(entrante.media.referencia, {
+            flujo: estadoPrevio.flujo as "retiro_no_habitual" | "reclamo_recoleccion",
+          })
+          .catch(() => null);
+        if (veredicto !== null) {
+          paraElFlujo = { ...entrante, media: { ...entrante.media, veredicto } };
+        }
+      }
+
+      const avance = saliendo
         ? cancelar()
-        : avanzarFlujo(definicion, estadoPrevio, entrante, {
+        : avanzarFlujo(definicion, estadoPrevio, paraElFlujo, {
             catalogo,
             ahora: puertos.ahora(),
           });
@@ -578,7 +623,14 @@ export async function procesarMensaje(
 
     case "iniciar_flujo": {
       const definicion = FLUJOS[decision.flujo];
-      const inicio = iniciarFlujo(definicion, { catalogo, ahora: puertos.ahora() });
+      // Al pedido de asesor le viaja el mensaje original como MOTIVO: es lo que
+      // el área lee antes de llamar. El guard de `seleccion` es el mismo que
+      // usan comentarVoto y derivarAMigue — un id de botón no es un motivo.
+      const datosIniciales =
+        decision.flujo === "pedir_asesor" && entrante.seleccion == null && texto !== ""
+          ? { motivo: recortar(texto, 500) }
+          : {};
+      const inicio = iniciarFlujo(definicion, { catalogo, ahora: puertos.ahora() }, datosIniciales);
 
       // Un flujo puede resolverse en su apertura sin necesitar más mensajes.
       if (inicio.estado !== null) {

@@ -24,9 +24,10 @@ import {
   type Categoria,
 } from "../reglas/volumen.ts";
 import { calcularVencimiento, describirPlazo, formatearFechaLocal } from "../reglas/sla.ts";
-import { configSla, describirPuntosVerdes, leerConfig, leerTexto } from "../datos/catalogo.ts";
+import { configSla, describirPuntosVerdes, leerConfig, leerTexto, tieneTexto } from "../datos/catalogo.ts";
 import { interpolar } from "../texto.ts";
 import { decir, preguntar, textoEfectivo, tieneImagen } from "../mensajeria.ts";
+import type { CategoriaFoto, EstadoVeredicto } from "../mensajeria.ts";
 import type { ContextoFlujo, DatosFlujo, DefinicionFlujo, Transicion } from "./tipos.ts";
 
 /** Lo que el flujo va acumulando. Guardado en Redis entre mensajes. */
@@ -39,6 +40,12 @@ interface DatosRetiro extends DatosFlujo {
   readonly cantidadUnidad?: string;
   readonly excedeLimite?: boolean;
   readonly retiroParcial?: boolean;
+  /** Lo que la visión dijo de la foto aceptada. Va al ticket. */
+  readonly fotoVeredicto?: EstadoVeredicto;
+  readonly fotoCategoria?: CategoriaFoto | null;
+  readonly fotoDetalle?: string | null;
+  /** Ya se le pidió otra foto una vez: la próxima se acepta y se marca. */
+  readonly fotoObjetada?: boolean;
 }
 
 function leer(datos: DatosFlujo): DatosRetiro {
@@ -86,6 +93,11 @@ function cerrarRetiro(ctx: ContextoFlujo, d: DatosRetiro, direccion: string): Tr
           diasSinServicio: null,
           vencimiento,
           derivadoA: null,
+          // Si hubo foto pero el veredicto se perdió (estado viejo en Redis de
+          // antes del deploy), «no_evaluada» es la verdad: nadie la miró.
+          fotoVeredicto: d.fotoVeredicto ?? (d.fotoReferencia ? "no_evaluada" : null),
+          fotoCategoria: d.fotoCategoria ?? null,
+          fotoDetalle: d.fotoDetalle ?? null,
         },
       },
       // La descarga se encola DESPUÉS del ticket y en el mismo array a
@@ -137,10 +149,41 @@ export const flujoRetiroNoHabitual: DefinicionFlujo = {
         }
 
         const referencia = entrante.media!.referencia;
+        const v = entrante.media!.veredicto ?? null;
+
+        // UX decidida con el área: si la visión dice que la foto NO muestra
+        // residuos, se pide otra UNA vez; a la segunda se acepta y el ticket
+        // queda marcado. «dudosa» y «no_evaluada» avanzan siempre — el costo de
+        // equivocarse no es simétrico: repreguntar de más echa a un vecino con
+        // un pedido legítimo, marcar de más le suma un chip al panel.
+        // Vaciar `retiro_foto_no_corresponde` desde el panel apaga la repregunta.
+        if (
+          v?.veredicto === "no_corresponde" &&
+          leer(datos).fotoObjetada !== true &&
+          tieneTexto(ctx.catalogo, "retiro_foto_no_corresponde")
+        ) {
+          return {
+            tipo: "repetir",
+            datos: { texto: acumulado, fotoObjetada: true },
+            mensaje: decir(
+              interpolar(leerTexto(ctx.catalogo, "retiro_foto_no_corresponde"), {
+                detalle: v.detalle ?? "no llego a distinguir residuos en la imagen",
+              }),
+              "imagen",
+            ),
+          };
+        }
+
         return {
           tipo: "avanzar",
           a: "residuo",
-          datos: { fotoReferencia: referencia, texto: acumulado },
+          datos: {
+            fotoReferencia: referencia,
+            texto: acumulado,
+            fotoVeredicto: v?.veredicto ?? "no_evaluada",
+            fotoCategoria: v?.categoria ?? null,
+            fotoDetalle: v?.detalle ?? null,
+          },
           // La descarga NO se encola acá: va junto al ticket, en el cierre.
           // Encolarla en este turno creaba una carrera — el worker guardaba la
           // foto antes de que el ticket existiera, `registrarMediaGuardada`

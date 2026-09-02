@@ -54,6 +54,41 @@ describe("la dirección es lo único bloqueante", () => {
   });
 });
 
+describe("el veredicto de la visión", () => {
+  it("una foto que no corresponde NO repregunta acá: la foto es opcional; sólo marca", () => {
+    const s = simular(flujo, [
+      {
+        texto: "Lavalle 500",
+        imagen: "selfie-r",
+        veredicto: { veredicto: "no_corresponde", categoria: null, detalle: "es un documento" },
+      },
+    ]);
+    assert.equal(s.estado, null, "el reclamo cerró en el mismo turno");
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "no_corresponde");
+    assert.equal(t.fotoDetalle, "es un documento");
+  });
+
+  it("la foto en un turno y la dirección en otro conservan el veredicto", () => {
+    const s = simular(flujo, [
+      {
+        imagen: "foto-r1",
+        veredicto: { veredicto: "valida", categoria: "basural", detalle: "bolsas acumuladas" },
+      },
+      { texto: "Lavalle 500" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "valida");
+    assert.equal(t.fotoCategoria, "basural");
+  });
+
+  it("sin foto no hay veredicto que guardar", () => {
+    const s = simular(flujo, [{ texto: "Lavalle 500" }]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, null);
+  });
+});
+
 describe("la foto es opcional, a diferencia del flujo A", () => {
   it("sin foto el reclamo se registra igual", () => {
     // La spec dice «opcional pero deseable». Exigirla dejaría afuera al vecino

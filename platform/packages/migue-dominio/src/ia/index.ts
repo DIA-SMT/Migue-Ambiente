@@ -16,3 +16,12 @@ export {
   type Clasificacion,
   type Decision,
 } from "./router.ts";
+
+export {
+  evaluarFoto,
+  parsearVeredicto,
+  instruccionesDeVision,
+  VEREDICTO_NO_EVALUADO,
+  type ImagenParaEvaluar,
+  type ContextoVision,
+} from "./vision.ts";

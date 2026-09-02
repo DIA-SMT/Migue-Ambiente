@@ -125,8 +125,8 @@ function extraerResponsable(texto: string): string | null {
   return palabras.join(" ");
 }
 
-/** Teléfono argentino escrito de cualquier forma. */
-function extraerTelefono(texto: string): string | null {
+/** Teléfono argentino escrito de cualquier forma. También lo usa pedirAsesor. */
+export function extraerTelefono(texto: string): string | null {
   const m = /(?:\+?54\s?)?(?:9\s?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3}[\s-]?\d{4}\b/.exec(texto);
   if (!m) return null;
   const soloDigitos = m[0].replace(/\D/g, "");

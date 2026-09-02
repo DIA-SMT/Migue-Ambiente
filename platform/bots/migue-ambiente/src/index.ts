@@ -37,6 +37,7 @@ import {
 import { crearBot } from "./canal/telegram/adaptador.ts";
 import { rutasDelWebhook } from "./canal/whatsapp/webhook.ts";
 import { arrancarEncuestas } from "./encuestaFinal.ts";
+import { crearAnalizadorDeFotos } from "./vision.ts";
 
 const log = createLogger("main");
 
@@ -98,6 +99,9 @@ async function main(): Promise<void> {
     obtenerCatalogo,
     clasificar,
     responder: responderConsulta,
+    // Visión: baja la foto de Telegram y la evalúa. Se apaga desde el panel
+    // vaciando `modelo_vision`; cualquier fallo degrada a no_evaluada.
+    analizarFoto: crearAnalizadorDeFotos({ token: env.TELEGRAM_BOT_TOKEN }),
     persistencia,
     ahora: () => new Date(),
   };
