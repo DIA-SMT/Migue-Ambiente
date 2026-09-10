@@ -147,12 +147,32 @@ export function tamanoLegible(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Fecha corta en formato local, sin la hora cuando no aporta. */
+/**
+ * Fecha corta en formato local, sin la hora cuando no aporta.
+ *
+ * La hora se normaliza antes de devolverla, y eso NO es cosmética. En `es-AR`,
+ * `toLocaleTimeString` separa el «a.» del «m.» con un espacio DURO, y cuál usa
+ * lo decide el ICU de quien formatea. Medido con la misma fecha y la misma zona
+ * horaria: Node devuelve U+00A0 y Chrome un espacio común. El texto se ve
+ * idéntico y el byte no lo es, así que un `title` renderizado en el servidor no
+ * coincidía con el que armaba el navegador, y React lo reportaba en la pantalla
+ * de Alertas: «some attributes of the server rendered HTML didn't match ...
+ * This won't be patched up» — o sea que además se quedaba con el del servidor.
+ *
+ * Sólo pasa con `conHora`: la fecha sola coincide byte a byte en los dos lados.
+ * `fechaCorta` tampoco lo necesita porque usa `hour12: false` y nunca escribe
+ * «a. m.».
+ */
 export function fechaLegible(iso: string, conHora = false): string {
   const f = new Date(iso);
   const fecha = f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   if (!conHora) return fecha;
-  return `${fecha} ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+  const hora = f
+    .toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+    // Los dos espacios duros que usan las distintas versiones de ICU acá. Se
+    // cubren los dos para que actualizar Node o el navegador no lo reabra.
+    .replace(/[\u00A0\u202F]/g, " ");
+  return `${fecha} ${hora}`;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   esEstadoConocido,
   estadoDeLaPregunta,
   estadoVisible,
+  fechaLegible,
   MOTIVOS_SIN_RESPUESTA,
   riesgoDelDisparador,
   situacionSla,
@@ -495,5 +496,35 @@ describe("veredictoDeFoto", () => {
     for (const c of ["basural", "volcadero", "rnh", "barrido", "limpieza_cestos", "otros"]) {
       assert.ok(CATEGORIA_FOTO_LEGIBLE[c], `falta la traducción de «${c}»`);
     }
+  });
+});
+
+describe("fechaLegible", () => {
+  // Los dos espacios duros se escriben con `fromCharCode` y no con un escape:
+  // un U+00A0 copiado a mano termina siendo el caracter invisible en vez del
+  // texto, y entonces la prueba dice otra cosa que la que se leyó al escribirla.
+  const DUROS = [String.fromCharCode(0xa0), String.fromCharCode(0x202f)];
+
+  it("no deja espacios duros en la hora, que no coinciden entre servidor y navegador", () => {
+    // Una hora que cae de mañana y otra de tarde en cualquier zona razonable:
+    // el espacio duro está en el «a. m.» / «p. m.», así que hay que pasar por
+    // los dos. La prueba NO afirma cuál de los dos sale —eso depende de la zona
+    // de la máquina— sino qué bytes NO tienen que salir.
+    for (const iso of ["2026-09-10T14:08:00.000Z", "2026-09-10T02:30:00.000Z"]) {
+      const conHora = fechaLegible(iso, true);
+      for (const duro of DUROS) {
+        const punto = duro.codePointAt(0)!.toString(16).toUpperCase();
+        assert.ok(!conHora.includes(duro), `«${conHora}» todavía trae U+${punto}`);
+      }
+    }
+  });
+
+  it("sin hora devuelve sólo la fecha, y con hora la agrega adelante", () => {
+    const iso = "2026-09-10T14:08:00.000Z";
+    const soloFecha = fechaLegible(iso);
+    assert.equal(soloFecha.split("/").length, 3, "la fecha va como dd/mm/aaaa");
+    assert.ok(!soloFecha.includes(" "), "sin hora no tendría que traer espacios");
+    assert.ok(fechaLegible(iso, true).startsWith(soloFecha), "la fecha va primero");
+    assert.ok(fechaLegible(iso, true).length > soloFecha.length, "y la hora se agrega");
   });
 });

@@ -65,7 +65,29 @@ interface Interaccion {
   sinRespuesta: boolean;
 }
 
-/** Cómo se nombra cada intención en pantalla. Las del router, más los flujos. */
+/**
+ * Cómo se nombra cada intención en pantalla.
+ *
+ * Tiene que cubrir todo lo que se escribe en `mensajes.intencion`, que es más
+ * que lo que devuelve el router. Las fuentes, todas las que hay:
+ *
+ *   la intención del clasificador          orquestador.ts:546 y :809
+ *   el nombre del flujo activo             orquestador.ts:471
+ *   la opción del menú que se tocó         orquestador.ts:528
+ *   `voto_<voto>`, con los pulgares        orquestador.ts:346
+ *   `derivada_a_migue`                     orquestador.ts:971
+ *   `encuesta_cierre`                      encuestaCierre.ts:50
+ *
+ * Faltaban cinco, y el área los veía en crudo entre los nombres legibles: ids
+ * internos asomando a la superficie, la misma clase de fuga que el
+ * `consulta_libre` que le llegaba al vecino. `encuesta_cierre` es la que más
+ * fácil se escapa porque no la escribe el orquestador.
+ *
+ * Hay una fuente MÁS que no va acá, y es el motivo del `??` en el uso: cuando
+ * corta una regla de exclusión, la intención es el NOMBRE de la regla —«Fuga de
+ * gas»—, que ya está escrito para leerse y lo edita el área desde Reglas.
+ * Mapearlo exigiría mantener acá una copia de una tabla.
+ */
 const NOMBRE_DE_INTENCION: Readonly<Record<string, string>> = {
   retiro_no_habitual: "retiro",
   reclamo_recoleccion: "reclamo",
@@ -73,10 +95,15 @@ const NOMBRE_DE_INTENCION: Readonly<Record<string, string>> = {
   programa_transforma: "TRANSFORMÁ",
   programa_separa: "SEPARÁ",
   consulta_libre: "consulta",
+  pedir_asesor: "pidió una persona",
   saludo: "saludo",
   despedida: "despedida",
   fuera_de_alcance: "fuera de alcance",
   no_entendido: "no entendido",
+  derivada_a_migue: "derivada a Migue",
+  voto_util: "voto: le sirvió",
+  voto_no_util: "voto: no le sirvió",
+  encuesta_cierre: "encuesta de cierre",
 };
 
 function arma(
