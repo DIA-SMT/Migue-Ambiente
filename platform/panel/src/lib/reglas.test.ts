@@ -123,6 +123,15 @@ describe("numeroParaAviso · lo que NO puede entrar como destino", () => {
     });
   }
 
+  // El bloque 381-5XX-XXXX es el codigo de area de Tucuman. Se rechazaba por
+  // un recorte de «15» que miraba la posicion y no el largo, asi que el area
+  // no habria podido cargar su propio numero. Las dos formas de escribirlo
+  // tienen que dar lo mismo, que ademas es lo que hace que la dedupe sirva.
+  it("un numero 381-5XX-XXXX entra, con y sin el 15", () => {
+    assert.equal(numeroParaAviso("3815551234"), "5493815551234");
+    assert.equal(numeroParaAviso("0381 15 555 1234"), "5493815551234");
+  });
+
   // El mismo enlace se aceptaba o no segun si traia la cola «?text=».
   it("un enlace de wa.me entra con cola y sin cola", () => {
     assert.equal(numeroParaAviso("https://wa.me/5493812067777?text=hola"), "5493812067777");

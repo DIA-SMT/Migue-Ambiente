@@ -632,7 +632,13 @@ export function enlaceDeWhatsapp(crudo: string): string | null {
   }
 
   // Un número nacional, con o sin el 15. `3812067777` o `38115206777`.
-  const sinQuince = d.replace(/^(\d{2,4})15/, "$1");
+  // El 15 sólo puede estar en un número que lo LLEVA: los 10 dígitos
+  // significativos más esos dos. Sin condicionar por largo, este `replace` no
+  // buscaba el 15 de larga distancia sino el literal «15» en las posiciones 3
+  // y 4, y con eso volteaba el bloque 381-5XX-XXXX entero —números de Tucumán,
+  // el código de área de acá—: «3815551234» se rechazaba como «esto no es un
+  // teléfono», mientras que el MISMO número escrito con el 15 entraba bien.
+  const sinQuince = d.length === 12 ? d.replace(/^(\d{2,4})15/, "$1") : d;
   if (sinQuince.length >= 9 && sinQuince.length <= 11) {
     return `https://wa.me/549${sinQuince}`;
   }
