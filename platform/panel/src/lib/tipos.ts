@@ -196,6 +196,34 @@ export function fechaCorta(iso: string): string {
   return `${fecha} ${hora}`;
 }
 
+/**
+ * Texto comparable: sin tildes y en minúsculas.
+ *
+ * Acá se busca sobre todo por DIRECCIÓN, y nadie escribe «Córdoba» con tilde
+ * en un buscador. El de Interacciones no normaliza porque ahí se busca sobre
+ * lo que escribió el vecino, que ya viene como lo escribió.
+ */
+export function comparable(texto: string): string {
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/** Todo lo que de un caso tiene sentido buscar, en una sola cadena. */
+export function textoDelCaso(t: Ticket): string {
+  return comparable(
+    [
+      t.address,
+      t.ticket_type,
+      t.user_name,
+      t.waste_type,
+      t.quantity,
+      t.status,
+      t.notes,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
 /* ------------------------------------------------------------- respuestas --- */
 
 /**

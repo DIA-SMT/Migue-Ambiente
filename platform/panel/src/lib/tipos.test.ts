@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   CATEGORIA_FOTO_LEGIBLE,
+  comparable,
   datosFaltantes,
   esEstadoConocido,
   estadoDeLaPregunta,
@@ -11,6 +12,7 @@ import {
   riesgoDelDisparador,
   situacionSla,
   tamanoLegible,
+  textoDelCaso,
   veredictoDeFoto,
   type Documento,
   type PreguntaSinResponder,
@@ -496,6 +498,50 @@ describe("veredictoDeFoto", () => {
     for (const c of ["basural", "volcadero", "rnh", "barrido", "limpieza_cestos", "otros"]) {
       assert.ok(CATEGORIA_FOTO_LEGIBLE[c], `falta la traducción de «${c}»`);
     }
+  });
+});
+
+describe("buscar un caso", () => {
+  function tk(parcial: Partial<Ticket> = {}): Ticket {
+    return {
+      id: "t1", ticket_type: "Pedido No Habitual", status: "En Proceso",
+      address: "Córdoba 1250", user_name: "María Ñañez", chat_id: null,
+      channel: "telegram", waste_type: "escombros", quantity: "3 bolsas",
+      quantity_value: 3, quantity_unit: null, exceeds_limit: false, partial_pickup: false,
+      days_without_service: null, derived_to: null, photo_ref: null, photo_url: null,
+      photo_verdict: null, photo_category: null, photo_detail: null, notes: null,
+      sla_deadline: null, resolved_at: null, created_at: "2026-09-01T12:00:00Z",
+      updated_at: "2026-09-01T12:00:00Z", conversation_id: null,
+      ...parcial,
+    };
+  }
+
+  // Nadie escribe las tildes en un buscador, y acá se busca sobre todo por
+  // dirección: media ciudad tiene tilde en el nombre de la calle.
+  it("encuentra aunque no se escriban las tildes", () => {
+    assert.ok(textoDelCaso(tk()).includes(comparable("cordoba")));
+    assert.ok(textoDelCaso(tk()).includes(comparable("CÓRDOBA")));
+    assert.ok(textoDelCaso(tk()).includes(comparable("ñañez")));
+    assert.ok(textoDelCaso(tk()).includes(comparable("nanez")));
+  });
+
+  it("busca por dirección, tipo de caso, residuo, cantidad y nota interna", () => {
+    const t = tk({ notes: "llamar al encargado" });
+    for (const q of ["1250", "no habitual", "escombros", "3 bolsas", "en proceso", "encargado"]) {
+      assert.ok(textoDelCaso(t).includes(comparable(q)), `tendría que encontrar «${q}»`);
+    }
+  });
+
+  it("no encuentra lo que no está", () => {
+    assert.ok(!textoDelCaso(tk()).includes(comparable("Lamadrid")));
+  });
+
+  // Los campos vacíos no tienen que romper ni generar coincidencias falsas:
+  // un ticket del bot anterior puede venir sin dirección ni tipo de residuo.
+  it("aguanta un caso con campos vacíos", () => {
+    const pelado = tk({ address: null, user_name: null, waste_type: null, quantity: null });
+    assert.equal(typeof textoDelCaso(pelado), "string");
+    assert.ok(textoDelCaso(pelado).includes(comparable("no habitual")));
   });
 });
 
