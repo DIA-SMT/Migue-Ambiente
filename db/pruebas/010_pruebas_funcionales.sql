@@ -2116,6 +2116,26 @@ begin
 end $$;
 \echo '   OK: la alerta la ve solo el padron, atender_alerta sella y reabre, y el veredicto respeta la lista'
 
+-- ---------------------------------------------------------------------------
+-- 039 · la clave del aviso al asesor esta sembrada y es una lista
+-- ---------------------------------------------------------------------------
+-- Nace VACIA a proposito: los numeros los carga el area desde el panel, no la
+-- migracion. Lo que se comprueba es que exista y que sea un arreglo: el panel
+-- guarda una lista, y si alguien la dejara como cadena por SQL a mano, el
+-- codigo que la lea el dia del alta recibiria algo que no puede recorrer.
+do $$
+begin
+  if not exists (select 1 from public.configuracion where clave = 'asesor_avisar_a') then
+    raise exception 'falta la config asesor_avisar_a (migracion 039)';
+  end if;
+
+  if jsonb_typeof((select valor from public.configuracion
+                    where clave = 'asesor_avisar_a')) <> 'array' then
+    raise exception 'asesor_avisar_a tiene que ser un arreglo json, no otra cosa';
+  end if;
+end $$;
+\echo '   OK: la clave del aviso al asesor esta sembrada y es una lista'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='
