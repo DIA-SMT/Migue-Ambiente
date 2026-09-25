@@ -138,7 +138,25 @@ if ssh_do "test -d '$APP_ROOT/panel'"; then
 fi
 
 echo "==> Validando el registro"
-ssh_do "cd '$APP_ROOT' && node scripts/botctl.mjs doctor"
+
+# Se le pasan las carpetas que ESTE repo envía. Un bot registrado cuya carpeta
+# no salga de acá es de otro equipo: el doctor lo sigue mostrando, con su
+# problema si lo tiene, pero no frena nuestro deploy.
+#
+# El 2026-09-25 un bot ajeno con el entry faltante cortó el script justo antes
+# de recargar. El código nuevo quedó subido y compilado pero sin aplicar, que
+# es el peor de los estados: parece desplegado y no lo está.
+#
+# Lo NUESTRO sigue frenando el deploy, que es para lo que se escribió el
+# chequeo: una vez el panel se desplegó sin build y nginx devolvía 502.
+PROPIOS="panel"
+for d in "$PLATFORM_DIR"/bots/*/; do
+  [[ -d "$d" ]] || continue
+  PROPIOS="$PROPIOS,$(basename "$d")"
+done
+echo "    carpetas propias: $PROPIOS"
+
+ssh_do "cd '$APP_ROOT' && node scripts/botctl.mjs doctor --propios '$PROPIOS'"
 
 if [[ $RELOAD -eq 1 ]]; then
   echo "==> Recargando bots (sin downtime)"
