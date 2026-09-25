@@ -352,6 +352,32 @@ function puertoAbierto(puerto, host = "127.0.0.1", timeout = 1000) {
   });
 }
 
+// -------------------------------- nombres ----------------------------------
+/**
+ * Los nombres de PM2 que pertenecen a quien llama.
+ *
+ * Lo usa `deploy.sh` para recargar SOLO lo suyo. Antes recargaba el ecosystem
+ * entero, que se arma del `bots.json` compartido: el día que un bot de otro
+ * equipo esté sano, cada deploy nuestro se lo reiniciaba. Un reinicio ajeno en
+ * medio de nuestro deploy es de las cosas que nadie ata con nada.
+ *
+ * Sale una linea por nombre, para que el shell lo recorra sin parsear nada.
+ */
+function cmdNombres(argv) {
+  const i = argv.indexOf("--propios");
+  const propios =
+    i >= 0 && argv[i + 1]
+      ? new Set(argv[i + 1].split(",").map((x) => x.trim()).filter(Boolean))
+      : null;
+
+  const { bots } = readRegistry();
+  for (const bot of bots) {
+    if (bot.enabled === false) continue;
+    if (propios !== null && !propios.has(bot.dir)) continue;
+    console.log(bot.name);
+  }
+}
+
 // --------------------------------- main ------------------------------------
 const [comando, ...argv] = process.argv.slice(2);
 
@@ -360,12 +386,16 @@ switch (comando) {
   case "new": cmdNew(argv); break;
   case "rm": cmdRm(argv); break;
   case "doctor": await cmdDoctor(argv); break;
+  case "nombres": cmdNombres(argv); break;
   default:
     console.log(`botctl — gestion del registro multibot
 
   list                                  estado de todos los bots
   new <nombre> [--port N] [--webhook]   crear un bot desde la plantilla
   rm <nombre> [--purge]                 dar de baja un bot
+  nombres [--propios <dirs>]            los nombres de PM2 habilitados, uno
+                                        por linea; con --propios, solo los de
+                                        esas carpetas
   doctor [--propios <dirs>]             verificar entorno y registro
                                         --propios: carpetas de quien llama;
                                         los bots ajenos avisan pero no fallan

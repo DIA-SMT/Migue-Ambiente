@@ -160,7 +160,29 @@ ssh_do "cd '$APP_ROOT' && node scripts/botctl.mjs doctor --propios '$PROPIOS'"
 
 if [[ $RELOAD -eq 1 ]]; then
   echo "==> Recargando bots (sin downtime)"
-  ssh_do "cd '$APP_ROOT' && pm2 reload ecosystem.config.cjs --update-env && pm2 save"
+  # Se recarga bot por bot, SOLO los nuestros, y no el ecosystem entero.
+  #
+  # `pm2 reload ecosystem.config.cjs` recarga todas las apps del archivo, y ese
+  # archivo se arma del `bots.json` que es COMPARTIDO: el dia que un bot de otro
+  # equipo este sano, cada deploy nuestro se lo reiniciaba. Un reinicio ajeno en
+  # medio de nuestro deploy es de las cosas que nadie ata con nada.
+  #
+  # El ecosystem sigue describiendo la maquina entera, que es para lo que sirve:
+  # levantar todo despues de un reinicio del servidor. Lo que se acota es NUESTRO
+  # deploy.
+  #
+  # Uno por uno porque `pm2 reload` toma un destino: pasarle tres nombres recarga
+  # el primero y calla los otros dos. Verificado.
+  NUESTROS=$(ssh_do "cd '$APP_ROOT' && node scripts/botctl.mjs nombres --propios '$PROPIOS'")
+  if [[ -z "$NUESTROS" ]]; then
+    echo "    no hay bots propios habilitados en el registro; no se recarga nada" >&2
+  else
+    for bot in $NUESTROS; do
+      ssh_do "cd '$APP_ROOT' && pm2 reload $bot --update-env" | grep -E "Applying|✓|error" || true
+    done
+    ssh_do "cd '$APP_ROOT' && pm2 save" > /dev/null
+    echo "    recargados: $(echo $NUESTROS | xargs)"
+  fi
   ssh_do "cd '$APP_ROOT' && node scripts/botctl.mjs list"
 fi
 
