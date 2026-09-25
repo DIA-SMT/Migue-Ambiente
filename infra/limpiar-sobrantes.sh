@@ -50,6 +50,49 @@ SIMULAR=0
 
 cd "$RAIZ"
 
+# ---------------------------------------------------------------------------
+# LAS CARPETAS AJENAS NO SE TOCAN.
+#
+# El 2026-09-25 este script borro el codigo de `bots/cimba`, un bot de otro
+# equipo que vive en la misma VPS y no esta en este repo. El manifiesto solo
+# lista lo que ESTE repo envia, asi que todo lo de cimba figuraba como
+# sobrante. El proceso siguio vivo porque Node ya tenia el archivo en memoria;
+# se habria muerto en el primer reinicio, sin que nadie supiera por que.
+#
+# `/srv/bots` es una plataforma MULTIBOT y el registro lo mutan otros en el
+# servidor. Que una carpeta no este en nuestro manifiesto no significa que
+# sobre: puede significar que no es nuestra.
+#
+# La regla: si una subcarpeta de `bots/` o `packages/` no aparece NI UNA VEZ
+# en el manifiesto, es ajena y se respeta entera. Dentro de las que si son
+# nuestras, la limpieza sigue igual que antes, que es para lo que se escribio.
+# ---------------------------------------------------------------------------
+AJENAS=()
+for contenedor in bots packages; do
+  [[ -d "$contenedor" ]] || continue
+  for sub in "$contenedor"/*/; do
+    [[ -d "$sub" ]] || continue
+    nombre="${sub%/}"
+    if ! grep -q "^${nombre}/" "$MANIFIESTO"; then
+      AJENAS+=("$nombre")
+    fi
+  done
+done
+
+if [[ ${#AJENAS[@]} -gt 0 ]]; then
+  echo "    se respetan ${#AJENAS[@]} carpeta(s) ajenas a este repo: ${AJENAS[*]}"
+fi
+
+# Devuelve 0 si la ruta cae dentro de una carpeta ajena.
+es_ajena() {
+  local r="$1"
+  for a in "${AJENAS[@]:-}"; do
+    [[ -n "$a" ]] || continue
+    [[ "$r" == "$a"/* ]] && return 0
+  done
+  return 1
+}
+
 # Sólo las carpetas de código que viajan en el tar. node_modules, .next y logs
 # NO viajan, así que compararlos contra el manifiesto los borraría todos.
 CARPETAS=()
@@ -64,6 +107,9 @@ borrados=0
 # proyecto existen: hay documentos con espacios y acentos en el nombre.
 while IFS= read -r -d '' ruta; do
   limpia="${ruta#./}"
+  if es_ajena "$limpia"; then
+    continue
+  fi
   if ! grep -qxF "$limpia" "$MANIFIESTO"; then
     if [[ $SIMULAR -eq 1 ]]; then
       echo "    sobraría: $limpia"
