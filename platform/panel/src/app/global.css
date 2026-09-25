@@ -176,8 +176,14 @@
   --sombra-figura: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
 
   --radio: 12px;
-  --texto: "Asap", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  /* Poppins para las dos, pedido del área. Antes eran Asap y Archivo, elegidas
+     a ojo cuando no había definición de marca.
+
+     Poppins es GEOMÉTRICA y más ancha que Asap al mismo tamaño, así que el
+     cuerpo baja de 15 a 14.5px: sin eso las tablas densas —Interacciones sobre
+     todo, que se midió para entrar justa— se desbordan del contenedor. */
+  --texto: "Poppins", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display: "Poppins", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --ancho-barra: 244px;
 
@@ -290,7 +296,9 @@
 body {
   margin: 0;
   font-family: var(--texto);
-  font-size: 15px;
+  /* 14.5 y no 15: Poppins pinta más ancho y más alto que Asap al mismo tamaño.
+     Medido en la tabla de Interacciones, que ya estaba justa de ancho. */
+  font-size: 14.5px;
   line-height: 1.55;
   color: var(--tinta);
   background: var(--fondo);

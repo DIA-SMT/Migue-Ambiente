@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   comoLeFue,
-  fechaLegible,
+  fechaCorta,
   recortarTexto,
   type Conversacion,
 } from "@/lib/tipos";
@@ -139,7 +139,11 @@ export function Conversaciones({
                 <th>Vecino</th>
                 <th>Qué preguntó</th>
                 <th className="num">Mensajes</th>
-                <th>Última actividad</th>
+                {/* «Actividad» y no «Última actividad»: el encabezado largo
+                    pesaba 153px y era el que empujaba la tabla fuera del
+                    contenedor, no el dato. Mismo recorte que ya se le hizo a
+                    «De dónde salió la respuesta» en Interacciones. */}
+                <th>Actividad</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -171,7 +175,12 @@ export function Conversaciones({
                       )}
                     </td>
                     <td className="num">{c.cantidad_mensajes}</td>
-                    <td>{fechaLegible(c.ultima_actividad_en, true)}</td>
+                    {/* `fechaCorta` y no la fecha completa: sin el año y en 24
+                        horas. Es el mismo recorte que ya había hecho
+                        Interacciones y por la misma razón medida — la fecha
+                        larga pesa 177px y empujaba la última columna fuera del
+                        contenedor—. El año sigue estando en la transcripción. */}
+                    <td>{fechaCorta(c.ultima_actividad_en)}</td>
                     <td>
                       <button className="chico" onClick={() => setAbierta(c)}>
                         Ver la charla
