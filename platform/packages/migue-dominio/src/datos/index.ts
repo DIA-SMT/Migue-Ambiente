@@ -31,6 +31,7 @@ export {
   cerrarConversacion,
   ErrorDeEscritura,
   type Conversacion,
+  type EntranteRegistrado,
   type OrigenRespuesta,
   type TrazaMensaje,
 } from "./conversaciones.ts";
@@ -38,6 +39,7 @@ export {
 export {
   crearTicket,
   crearSolicitudPrograma,
+  crearAlertaAsesor,
   registrarSinRespuesta,
   type Procedencia,
   type MotivoSinRespuesta,

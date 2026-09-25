@@ -120,8 +120,94 @@ for (const [tema, vars] of [["claro", claro], ["oscuro", oscuro]]) {
   // del fondo de página es la que falla primero y es la que se olvida: un
   // enlace suelto en un párrafo fuera de una tarjeta.
   exige(tema, vars, "azul-enlace", "papel", 4.5, "un enlace sobre una tarjeta");
+
+  // La píldora de tema elegida en Preguntas frecuentes: es el único lugar del
+  // panel donde `verde-vivo` es FONDO de texto, así que no lo cubría ningún
+  // otro par.
+  exige(tema, vars, "sobre-verde-fuerte", "verde-profundo", 4.5, "la píldora de tema elegida");
+  // El texto de ayuda sobre la tarjeta apagada de un borrador, que usa
+  // `papel-2` y no `papel`.
+  exige(tema, vars, "tinta-suave", "papel-2", 4.5, "el texto de ayuda sobre una tarjeta apagada");
   exige(tema, vars, "azul-enlace", "fondo", 4.5, "un enlace sobre el fondo de la página");
   exige(tema, vars, "sobre-verde-fuerte", "verde-medio", 4.5, "el ítem activo del menú");
+}
+
+/* ---------------------------------------------------------------------------
+ * La burbuja del vecino no puede ser del color de lo que tiene atrás.
+ *
+ * Esto no es contraste de texto y por eso no entra en el bucle de arriba: es una
+ * relación entre DOS SUPERFICIES, y ninguna cuenta de WCAG la habría marcado.
+ *
+ * Es el bug que reportó el área usando el panel. La burbuja del vecino era
+ * `--papel` y el cajón que la contenía también, así que en el tema oscuro la
+ * burbuja desaparecía —el borde no alcanzaba: burbuja y cajón en rgb(20,35,29),
+ * borde en rgb(44,71,57)— y la charla parecía un monólogo de Migue, porque sus
+ * burbujas son verdes y sólidas. Ninguna prueba lo vio. Se arregló pasando la
+ * burbuja a `--papel-2`.
+ *
+ * Después la charla se mudó de un cajón a una fila desplegada dentro de la
+ * tabla, y ahí el mismo error estaba a un paso: la fila resaltada de una tabla
+ * es `--papel-2`, que es justo el color de la burbuja. Por eso se comprueba
+ * acá, y no en un comentario: un comentario no falla cuando alguien lo rompe.
+ *
+ * Lo que se exige es lo mínimo indiscutible —que no sean el MISMO color—, y no
+ * un umbral inventado: el escalón entre `--papel` y `--papel-2` es sutil a
+ * propósito, y pedirle 3:1 daría por rota la pantalla que hoy se lee bien.
+ * ------------------------------------------------------------------------- */
+
+console.log("\n--- la burbuja del vecino contra lo que tiene atrás ---");
+
+/** El valor de una propiedad en una regla, tal como está escrito en el CSS. */
+function declaracion(selector, propiedad) {
+  const i = css.indexOf(selector);
+  if (i === -1) return null;
+  const abre = css.indexOf("{", i);
+  const cierra = css.indexOf("}", abre);
+  const cuerpo = css.slice(abre, cierra);
+  const m = cuerpo.match(new RegExp("(?:^|[;{\\s])" + propiedad + "\\s*:\\s*([^;]+)"));
+  return m ? m[1].trim() : null;
+}
+
+/** `var(--x)` -> `x`. */
+const nombreDeVar = (v) => {
+  const m = (v ?? "").match(/var\(\s*--([a-z0-9-]+)\s*\)/);
+  return m ? m[1] : null;
+};
+
+const burbuja = nombreDeVar(declaracion(".burbuja.entrante .cuerpo", "background"));
+
+// Todas las superficies sobre las que hoy se dibuja una `.charla`.
+const superficies = [
+  [".charla-desplegada", "el desplegado dentro de la fila"],
+  ["tbody tr.fila-desplegada,", "la fila de la tabla que lo contiene"],
+];
+
+if (burbuja === null) {
+  mal("no pude leer de qué color es la burbuja del vecino");
+} else {
+  for (const [selector, que] of superficies) {
+    const fondo = nombreDeVar(declaracion(selector, "background"));
+    if (fondo === null) {
+      mal(`no pude leer el fondo de ${que} (${selector})`);
+      continue;
+    }
+    if (fondo === burbuja) {
+      mal(`${que}: es --${fondo}, el MISMO color que la burbuja del vecino — la burbuja desaparece`);
+      continue;
+    }
+    // Y que además de ser otra variable, resuelva a otro color en los dos
+    // temas: dos nombres distintos pueden apuntar al mismo hex.
+    let igualEnAlgunTema = false;
+    for (const [tema, vars] of [["claro", claro], ["oscuro", oscuro]]) {
+      if (vars[burbuja] === vars[fondo]) {
+        mal(`${tema}: ${que} y la burbuja del vecino son los dos ${vars[fondo]}`);
+        igualEnAlgunTema = true;
+      }
+    }
+    if (!igualEnAlgunTema) {
+      bien(`${que}: --${fondo} contra --${burbuja}, distintos en los dos temas`);
+    }
+  }
 }
 
 console.log(fallas === 0 ? "\nTodo legible." : `\n${fallas} par(es) por debajo del mínimo.`);

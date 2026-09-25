@@ -102,6 +102,7 @@ export function Portada({
   tickets,
   votosPorConversacion,
   preguntasPendientes,
+  asesoresPendientes,
   ventanaHoras,
   cotizacion,
   alcanzoElLimite,
@@ -114,6 +115,7 @@ export function Portada({
   tickets: readonly Ticket[];
   votosPorConversacion: readonly VotosDeConversacion[];
   preguntasPendientes: number;
+  asesoresPendientes: number;
   ventanaHoras: number;
   cotizacion: Cotizacion;
   alcanzoElLimite: boolean;
@@ -153,6 +155,22 @@ export function Portada({
   const nombre = persona.nombre?.trim().split(" ")[0];
 
   const pendientes: Pendiente[] = [];
+  // Primero de la lista y urgente: es lo más perecedero que muestra el panel.
+  // Un caso vencido ya se venció; un vecino esperando un llamado se está
+  // yendo AHORA.
+  if (asesoresPendientes > 0) {
+    pendientes.push({
+      cuanto: asesoresPendientes,
+      que: plural(
+        asesoresPendientes,
+        "vecino pidió hablar con una persona",
+        "vecinos pidieron hablar con una persona",
+      ),
+      porQue: "Migue les tomó el pedido y el teléfono. Están esperando el llamado.",
+      adonde: "/alertas",
+      urgente: true,
+    });
+  }
   if (casos.vencidos > 0) {
     pendientes.push({
       cuanto: casos.vencidos,

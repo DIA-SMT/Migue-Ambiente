@@ -49,8 +49,20 @@ function validate(bot, index) {
   // panel usa base "." porque vive en platform/panel/ y no es un bot.
   const base = bot.base ?? "bots";
   const cwd = path.join(ROOT, base, bot.dir);
+  // Un entry que no existe NO tira acá, y la diferencia importa: este archivo
+  // lo lee PM2 entero antes de hacer nada, así que un solo bot roto impedía
+  // recargar todos los demás. Pasó el 2026-09-25 con un bot de otro equipo que
+  // vive en esta misma VPS: el deploy quedaba con el código subido y compilado
+  // pero sin aplicar.
+  //
+  // Se devuelve null y quien llama lo saltea avisando. Que un bot NUESTRO
+  // quede sin entry lo sigue frenando antes, en `botctl doctor`, que es el
+  // chequeo hecho para eso.
   if (!fs.existsSync(path.join(cwd, bot.entry))) {
-    throw new Error(`${where}: no existe el entry ${path.join(cwd, bot.entry)}`);
+    console.error(
+      `  ! ${where}: no existe ${path.join(cwd, bot.entry)} — se omite, PM2 no lo va a tocar`,
+    );
+    return null;
   }
   return cwd;
 }
@@ -59,8 +71,9 @@ const seen = new Set();
 
 const apps = readRegistry()
   .filter((bot) => bot.enabled !== false)
-  .map((bot, index) => {
-    const cwd = validate(bot, index);
+  .map((bot, index) => ({ bot, cwd: validate(bot, index) }))
+  .filter(({ cwd }) => cwd !== null)
+  .map(({ bot, cwd }) => {
 
     if (seen.has(bot.name)) {
       throw new Error(`bots.json: el nombre "${bot.name}" esta duplicado`);

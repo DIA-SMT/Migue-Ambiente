@@ -129,6 +129,26 @@ export function validarVolumen(
     return { tipo: "precisar", limite, motivo: "sin_cantidad" };
   }
 
+  // LA SEGUNDA CONDICIÓN DEL LÍMITE. La spec dice «> 5 bolsas O > 15 kg c/u», y
+  // la segunda mitad no se validaba: «5 bolsas de 30 kilos» son 150 kg y
+  // entraban como si estuvieran dentro del servicio gratuito. Se mira antes de
+  // convertir, porque acá la cuenta de bolsas no es lo que decide.
+  if (
+    cantidad.pesoPorUnidadKg !== null &&
+    limite.pesoMaxBolsaKg !== null &&
+    cantidad.pesoPorUnidadKg > limite.pesoMaxBolsaKg
+  ) {
+    return {
+      tipo: "excede",
+      limite,
+      valorEvaluado: cantidad.valor ?? 1,
+      unidadEvaluada: "bolsas",
+      convertido: false,
+      accion: limite.accionAlExceder,
+      texto: limite.textoExceso ?? textoExcesoPorDefecto(limite),
+    };
+  }
+
   const unidadOrigen = cantidad.unidad ?? limite.limiteUnidad;
 
   const base = convertir(cantidad.valor, unidadOrigen, limite.limiteUnidad, limite);
@@ -258,15 +278,38 @@ export function detectarCategoria(
 ): Categoria | null {
   const conteos = limites
     .filter((l) => l.activo)
-    .map((l) => ({
-      categoria: l.categoria,
-      coincidencias: l.palabras.filter((p) => contienePalabra(texto, p)).length,
-    }))
+    .map((l) => {
+      const encontradas = l.palabras.filter((p) => contienePalabra(texto, p));
+      return {
+        categoria: l.categoria,
+        coincidencias: encontradas.length,
+        // La coincidencia más específica, para desempatar.
+        masLarga: encontradas.reduce((a, b) => (b.length > a.length ? b : a), ""),
+      };
+    })
     .filter((c) => c.coincidencias > 0)
     .sort((a, b) => b.coincidencias - a.coincidencias);
 
   if (conteos.length === 0) return null;
-  // Empate: no adivinar, preguntar.
-  if (conteos.length > 1 && conteos[0]!.coincidencias === conteos[1]!.coincidencias) return null;
+
+  if (conteos.length > 1 && conteos[0]!.coincidencias === conteos[1]!.coincidencias) {
+    // UN EMPATE ENTRE UNA FRASE Y UNA PALABRA SUELTA NO ES UN EMPATE REAL.
+    // «ramas enfardadas» le da dos coincidencias a poda —«rama» y «ramas»— y dos
+    // a voluminosos —«ramas enfardadas» y «enfardadas»—, pero la spec las pone
+    // en voluminosos y la frase larga es evidencia mucho más fuerte que la
+    // palabra corta que está adentro de ella.
+    // Por LARGO, no alfabéticamente: comparar las frases con `>` a secas ordena
+    // por letra y «fardo de ramas» pierde contra «ramas» por empezar con f.
+    const [especifico, otro] =
+      conteos[0]!.masLarga.length >= conteos[1]!.masLarga.length
+        ? [conteos[0]!, conteos[1]!]
+        : [conteos[1]!, conteos[0]!];
+    const ganaPorFrase =
+      especifico.masLarga.length > otro.masLarga.length && especifico.masLarga.includes(" ");
+    // Si las dos son palabras sueltas, sigue valiendo la regla vieja: no
+    // adivinar, preguntar. Elegir un límite al azar es peor que una pregunta.
+    return ganaPorFrase ? especifico.categoria : null;
+  }
+
   return conteos[0]!.categoria;
 }

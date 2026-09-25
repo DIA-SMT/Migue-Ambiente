@@ -10,9 +10,18 @@
 
 const URL_BASE = "https://openrouter.ai/api/v1";
 
+/**
+ * Una parte de un mensaje multimodal, en el formato de OpenAI que OpenRouter
+ * acepta para todos los proveedores. La imagen va como data-URL base64.
+ */
+export type ParteDeMensaje =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image_url"; readonly image_url: { readonly url: string } };
+
 export interface MensajeChat {
   readonly role: "system" | "user" | "assistant";
-  readonly content: string;
+  /** String para texto plano; array de partes cuando el mensaje lleva imagen. */
+  readonly content: string | readonly ParteDeMensaje[];
 }
 
 export interface OpcionesChat {

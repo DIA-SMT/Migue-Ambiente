@@ -37,19 +37,10 @@ interface ArchivoTelegram {
   file_size?: number;
 }
 
-export interface MediaDescargada {
-  readonly datos: Uint8Array;
-  readonly mime: string;
-  readonly nombre: string;
-}
-
-/** Un archivo que el canal ya no tiene. No tiene sentido reintentarlo. */
-export class MediaVencidaError extends Error {
-  constructor(referencia: string, motivo: string) {
-    super(`Telegram ya no tiene el archivo ${referencia.slice(0, 24)}: ${motivo}`);
-    this.name = "MediaVencidaError";
-  }
-}
+// El contrato vive en ../media.ts desde que hay más de un canal. Se re-exporta
+// para que el worker y las pruebas conserven sus imports.
+import { MediaVencidaError, type MediaDescargada } from "../media.ts";
+export { MediaVencidaError, type MediaDescargada } from "../media.ts";
 
 /**
  * El mime por la extensión que devuelve Telegram en `file_path`.
@@ -87,7 +78,7 @@ async function pedir<T>(url: string, referencia: string): Promise<T> {
     // el archivo no está más. 429 y 5xx son transitorios y sí conviene
     // reintentarlos, así que se distinguen.
     if (respuesta.status === 400 || respuesta.status === 404) {
-      throw new MediaVencidaError(referencia, motivo);
+      throw new MediaVencidaError("Telegram", referencia, motivo);
     }
     throw new Error(`Telegram respondió ${respuesta.status}: ${motivo}`);
   }
@@ -111,11 +102,12 @@ export async function descargarDeTelegram(
   );
 
   if (!archivo.file_path) {
-    throw new MediaVencidaError(referencia, "getFile no devolvió una ruta");
+    throw new MediaVencidaError("Telegram", referencia, "getFile no devolvió una ruta");
   }
   if ((archivo.file_size ?? 0) > MAXIMO_BYTES) {
     // No es reintentable: el archivo no va a adelgazar.
     throw new MediaVencidaError(
+      "Telegram",
       referencia,
       `pesa ${Math.round((archivo.file_size ?? 0) / 1048576)} MB y el tope de la API son 20 MB`,
     );
@@ -127,13 +119,13 @@ export async function descargarDeTelegram(
   );
   if (!respuesta.ok) {
     if (respuesta.status === 404) {
-      throw new MediaVencidaError(referencia, "la ruta temporal ya venció");
+      throw new MediaVencidaError("Telegram", referencia, "la ruta temporal ya venció");
     }
     throw new Error(`no pude bajar el archivo: HTTP ${respuesta.status}`);
   }
 
   const datos = new Uint8Array(await respuesta.arrayBuffer());
-  if (datos.length === 0) throw new MediaVencidaError(referencia, "el archivo vino vacío");
+  if (datos.length === 0) throw new MediaVencidaError("Telegram", referencia, "el archivo vino vacío");
 
   const { mime, extension } = mimeDeRuta(archivo.file_path);
   log.debug(

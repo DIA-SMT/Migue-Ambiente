@@ -4590,3 +4590,894 @@ insert into public.configuracion (clave, valor, descripcion, categoria) values
    'Cómo redacta Migue. Una instrucción por línea. Vaciarlo lo deja con el estilo por defecto del código, no lo rompe. No cambia QUÉ contesta: eso lo deciden las respuestas, las FAQs y los documentos.',
    'negocio')
 on conflict (clave) do nothing;
+
+-- >>>>>>>>>>>>>>>>>>>> 033_avisar_que_falta.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ---------------------------------------------------------------------------
+-- 033 · El reclamo avisa qué quedó sin cargar
+--
+-- EL PROBLEMA. `reclamo_diagnostico` promete tres cosas —dirección, foto y
+-- desde cuándo— y el flujo sólo frena por la dirección. Eso está bien: la spec
+-- dice que la foto es «opcional pero deseable», y exigirla dejaría afuera al
+-- vecino que ya guardó la bolsa.
+--
+-- Lo que estaba mal es que el vecino mandaba la dirección y recibía «Reclamo
+-- generado» a secas, idéntico a si hubiera mandado las tres cosas. Se iba
+-- creyendo que su reclamo tenía la foto.
+--
+-- Ahora el reclamo se registra igual y, en un mensaje aparte, se le dice qué no
+-- quedó cargado.
+--
+-- POR QUÉ EL TEXTO NO INVITA A MANDARLO. Creado el ticket, el flujo se cierra y
+-- no queda ningún paso esperando. Un «mandámelo ahora» haría que el vecino le
+-- mande la foto a un flujo que ya no existe. Prometer un turno que no existe es
+-- la misma falla, del otro lado.
+--
+-- Idempotente. El texto se siembra con `do nothing` para no pisar nunca una
+-- redacción que el área haya editado; la descripción y el flag `opcional` sí se
+-- actualizan, porque son documentación nuestra.
+-- ---------------------------------------------------------------------------
+
+-- OJO CON LA FORMA: cada tupla abre en su propia línea con ('clave',. Es lo que
+-- parsea `catalogo.claves.test.ts` para saber qué claves existen en producción,
+-- y una tupla pegada al `values` la vuelve invisible para esa prueba.
+
+insert into public.textos_bot (clave, texto, descripcion, opcional) values
+  ('pedido_pendientes',
+   'Quedó registrado sin {faltante}.',
+   'Va después de la confirmación del reclamo, como mensaje aparte, cuando quedó algo sin cargar. NO invita a mandarlo: una vez creado el ticket el flujo se cierra y no hay ningún paso que pueda recibirlo. Vaciarlo hace que el reclamo cierre sin avisar nada, que es como venía antes.',
+   true),
+
+  ('dato_foto_reclamo',
+   'una foto de la basura sin recolectar',
+   'Cómo se nombra la foto cuando el reclamo se registró sin ella. Es un sustantivo y no una pregunta, porque se usa dentro de otra oración.',
+   false),
+
+  ('dato_dias',
+   'desde cuándo no pasa el camión',
+   'Cómo se nombra el tiempo sin servicio cuando el reclamo se registró sin ese dato. Es un sustantivo y no una pregunta, porque se usa dentro de otra oración.',
+   false)
+on conflict (clave) do update
+  set descripcion = excluded.descripcion,
+      opcional = excluded.opcional;
+
+-- ---------------------------------------------------------------------------
+-- Limpieza de un intento anterior
+-- ---------------------------------------------------------------------------
+-- Una versión previa de esta migración sembró 24 claves para un mecanismo mucho
+-- más grande —con un turno de gracia para sumar datos después— que se dio de
+-- baja. Las que ese mecanismo usaba y éste no quedaron en la base sin que
+-- ningún archivo las lea: el panel las ofrece para editar, confirma «guardado»
+-- y el vecino nunca ve el cambio.
+--
+-- Es el mismo control roto que tuvo `separa_fuera_de_avenidas` durante meses, y
+-- hay un test que lo vigila. Se borran las que sobran.
+--
+-- Se borran SÓLO si nadie las editó: `actualizado_por is null` distingue una
+-- fila sembrada por una migración de una que alguien miró y cambió. Si el área
+-- llegó a tocar alguna, queda, y aparece en el test para que decidamos a mano.
+
+delete from public.textos_bot
+ where clave in (
+   'pedido_falta', 'pedido_tambien', 'pendientes_sumado', 'pendientes_cerrado',
+   'flujo_sin_avance',
+   'dato_direccion', 'dato_foto_retiro', 'dato_foto_zona', 'dato_foto_reciclables',
+   'dato_tipo', 'dato_cantidad', 'dato_institucion', 'dato_responsable',
+   'dato_alumnos', 'dato_nombre', 'dato_telefono', 'dato_materiales', 'dato_franja',
+   'educa_confirmacion', 'transforma_confirmacion', 'separa_confirmacion'
+ )
+   and actualizado_por is null;
+
+-- ---------------------------------------------------------------------------
+-- Corrección del texto que sembró el intento anterior
+-- ---------------------------------------------------------------------------
+-- El `on conflict do update` de arriba NO toca `texto`, a propósito: nunca se
+-- pisa una redacción que el área haya escrito. Pero eso deja un hueco cuando la
+-- fila la sembró una migración nuestra con un texto que después resultó malo,
+-- que es justo lo que pasó acá: el intento anterior dejó «…Si lo tenés a mano,
+-- mandámelo ahora y lo sumo al pedido», que promete un turno que en esta
+-- versión no existe. El vecino mandaría la foto a un flujo ya cerrado.
+--
+-- Se corrige con un update GUARDADO por el texto exacto que sembramos: si el
+-- área lo reescribió, no coincide y se respeta lo suyo.
+
+update public.textos_bot
+   set texto = 'Quedó registrado sin {faltante}.'
+ where clave = 'pedido_pendientes'
+   and texto = 'Quedó pendiente: {faltante}. Si lo tenés a mano, mandámelo ahora y lo sumo al pedido.';
+
+-- ---------------------------------------------------------------------------
+-- La confirmación del reclamo nombra la dirección
+-- ---------------------------------------------------------------------------
+-- El eco es el único control de calidad que tiene el vecino: leer «Reclamo
+-- generado para lavaye 500» es la única forma de darse cuenta de que el bot
+-- entendió mal antes de que salga una cuadrilla. El flujo ya pasaba
+-- `{direccion}` a interpolar y el marcador ya estaba declarado para esta clave;
+-- lo único que faltaba era usarlo en el texto.
+--
+-- Va como update GUARDADO por el texto actual: si el área ya lo reescribió, se
+-- respeta. La base guarda el texto; el código guarda qué se hace con él.
+
+update public.textos_bot
+   set texto = 'Reclamo generado para {direccion}. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.'
+ where clave = 'reclamo_confirmacion'
+   and texto = 'Reclamo generado. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.';
+
+-- >>>>>>>>>>>>>>>>>>>> 034_ramas_enfardadas.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ---------------------------------------------------------------------------
+-- 034 · Las ramas enfardadas van con los voluminosos, no con la poda
+--
+-- LO QUE DICE LA ESPECIFICACIÓN MVP. El paso A3 lista tres opciones y la
+-- tercera es «Otros (Muebles, chatarra, ramas enfardadas)», con LIMITE_OTROS =
+-- 1 m³. Las ramas sueltas, en cambio, son poda: hasta 10 bolsas.
+--
+-- LO QUE PASABA. «ramas enfardadas» no estaba en el vocabulario de voluminosos,
+-- así que el detector sólo veía «rama» y «ramas» —que son de poda— y el pedido
+-- se validaba contra 10 bolsas en vez de contra 1 m³. Un fardo de ramas no se
+-- mide en bolsas.
+--
+-- Se agregan al vocabulario en vez de al código, como el resto: el vecino de
+-- Tucumán va a decirlo de formas que no están acá y el área las suma desde el
+-- panel, sin deploy.
+--
+-- El desempate lo resuelve `detectarCategoria`: cuando dos categorías empatan
+-- en cantidad de coincidencias y una de ellas coincidió por una FRASE y la otra
+-- por una palabra suelta, gana la frase. «ramas enfardadas» es evidencia más
+-- fuerte que «ramas».
+--
+-- Idempotente: sólo agrega lo que falta, sin tocar lo que el área haya cargado.
+-- ---------------------------------------------------------------------------
+
+update public.limites_volumen
+   set palabras = (
+     select array_agg(distinct p order by p)
+       from unnest(
+         palabras || array[
+           'rama enfardada', 'ramas enfardadas', 'enfardada', 'enfardadas',
+           'enfardado', 'enfardados', 'fardo', 'fardos',
+           -- Con «ramas» adentro hacen falta las frases: si no, «un fardo de
+           -- ramas» le da dos coincidencias a poda —«rama» y «ramas»— contra una
+           -- sola de voluminosos, y el pedido se mide contra 10 bolsas. Un metro
+           -- cúbico de fardo excede ese límite, así que al vecino se le negaría
+           -- un servicio al que tiene derecho.
+           'fardo de ramas', 'fardos de ramas'
+         ]
+       ) as p
+   )
+ where categoria = 'voluminosos';
+
+-- El peso máximo por bolsa deja de ser sólo un factor de conversión: desde esta
+-- versión, `validarVolumen` rechaza el pedido cuando el vecino declara bolsas
+-- más pesadas que el límite. La spec lo pide desde el principio —«> 5 bolsas O
+-- > 15 kg c/u»— y sólo se validaba la primera mitad, así que «5 bolsas de 30
+-- kilos» —150 kg— entraba como si estuviera dentro del servicio gratuito.
+--
+-- No hace falta cambiar ningún dato: los 15 kg ya estaban cargados en la fila
+-- de escombros. Queda anotado en la descripción para que se entienda qué hace
+-- ese número, que hasta ahora no se veía en ninguna parte.
+
+comment on column public.limites_volumen.peso_max_bolsa_kg is
+  'Kilos maximos por bolsa. Sirve para dos cosas: convertir cuando el vecino declara en kilos, y rechazar el pedido si declara bolsas mas pesadas que esto (la spec pide «> 5 bolsas O > 15 kg c/u»). Vacio = no se controla el peso por bolsa.';
+
+-- >>>>>>>>>>>>>>>>>>>> 035_id_del_mensaje_en_el_canal.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ---------------------------------------------------------------------------
+-- 035 · El id que trae el canal, para no atender dos veces el mismo mensaje
+--
+-- POR QUÉ APARECE RECIÉN AHORA. Con Telegram no hacía falta. El bot usa long
+-- polling: pregunta si hay algo nuevo, Telegram se lo da una sola vez y listo.
+--
+-- WhatsApp Cloud API funciona al revés: Meta nos hace un POST y espera un 200
+-- en unos pocos segundos. Si no llega —porque el proceso estaba reiniciando,
+-- porque hubo un hipo de red, porque tardamos— REINTENTA el mismo mensaje. El
+-- reintento trae el mismo `wamid`.
+--
+-- QUÉ PASA SI NO SE DEDUPLICA. El mensaje se procesa dos veces: el vecino
+-- recibe la respuesta repetida y, si estaba en el flujo de retiro, se le crea
+-- un segundo ticket. Dos camiones al mismo domicilio. Es el tipo de falla que
+-- no se ve en las pruebas —los reintentos aparecen bajo carga o después de un
+-- deploy— y que en producción es cara.
+--
+-- POR QUÉ LA CLAVE ES (conversacion_id, canal_mensaje_id) Y NO EL ID SOLO. El
+-- `wamid` es único en todo WhatsApp, pero `mensajes` no guarda el canal —está
+-- en `conversaciones`— y otros canales no prometen ids únicos entre sí. Un
+-- reintento siempre resuelve a la misma conversación, porque la conversación se
+-- busca por (canal, canal_usuario_id) antes de escribir el mensaje. Así que
+-- este par alcanza para el caso real y no puede chocar entre canales.
+--
+-- El índice es PARCIAL: los salientes y todo lo que ya está en la tabla tienen
+-- la columna en null, y en Postgres los null no chocan entre sí. Sin el `where`
+-- el índice cargaría con filas que no aportan nada.
+--
+-- QUÉ NO HACE ESTA MIGRACIÓN. Todavía nada escribe esta columna: el adaptador
+-- de WhatsApp no existe. Se agrega ahora porque es la pieza de la que depende
+-- que el webhook se pueda encender sin riesgo, y porque un `alter table` sobre
+-- una tabla chica es gratis hoy y no lo es más adelante.
+--
+-- Idempotente.
+-- ---------------------------------------------------------------------------
+
+alter table public.mensajes
+  add column if not exists canal_mensaje_id text;
+
+comment on column public.mensajes.canal_mensaje_id is
+  'Id del mensaje EN EL CANAL de origen (el «wamid» en WhatsApp). Sirve para descartar los reintentos del webhook: Meta reenvia el mismo mensaje si no recibe el 200 a tiempo, y procesarlo dos veces duplica el ticket. Null en los salientes y en todo lo anterior a WhatsApp.';
+
+create unique index if not exists mensajes_canal_mensaje_idx
+  on public.mensajes (conversacion_id, canal_mensaje_id)
+  where canal_mensaje_id is not null;
+
+-- >>>>>>>>>>>>>>>>>>>> 036_lo_que_sabia_el_bot_de_ambiente.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 036 · Datos que sabía el bot de Ambiente y nosotros no
+-- ===========================================================================
+-- El área de Ambiente había hecho su propio bot, en un solo archivo de Node
+-- (Baileys + Ollama, sin base de datos). No sirve como sistema —los datos de
+-- vecinos terminaban en JSON planos y en un repositorio de GitHub—, pero
+-- ADENTRO tiene conocimiento operativo real que nosotros nunca tuvimos: lo
+-- escribió gente que atiende el servicio todos los días.
+--
+-- Esta migración rescata SÓLO datos. Ni una capacidad nueva, ni un cambio de
+-- comportamiento: cinco huecos que estaban esperando que alguien los llenara.
+--
+--   1. `feriados` estaba en '[]' desde la 009. El plazo que Migue promete
+--      atravesaba Carnaval y Semana Santa como si fueran días hábiles.
+--   2. Zona Norte cargaba los días equivocados.
+--   3. La regla del SAT derivaba sin decir a dónde.
+--   4. `reclamo_info_turnos` esperaba una URL desde la 020.
+--   5. No teníamos los otros canales del municipio.
+--
+-- TODAS las actualizaciones van condicionadas al valor sembrado, como en la
+-- 011: si el área ya lo editó desde el panel, esta migración no le pisa nada.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1 · Feriados 2026
+--
+-- `sla.ts` los usa para correr el vencimiento y `configSla()` los lee de acá.
+-- La clave existe desde la 009 pero se sembró vacía, así que hasta hoy un
+-- pedido tomado el jueves de Semana Santa vencía el lunes como si el municipio
+-- hubiera trabajado el viernes.
+--
+-- LA LISTA VIENE DEL BOT DE AMBIENTE, CON DOS CORRECCIONES:
+--
+--   · Se QUITAN 2026-04-06 a 2026-04-10. La lista original los traía como
+--     feriados y no lo son: Pascua 2026 cae el domingo 5 de abril, así que
+--     Semana Santa termina el viernes 3. Son cinco días hábiles comunes, y
+--     dárselos por feriados le agrega una semana al plazo de cada vecino.
+--     PENDIENTE: preguntarle a Ambiente si no quisieron anotar un receso
+--     municipal en esa semana. Si existe, se vuelven a cargar desde el panel.
+--
+--   · Se AGREGA 2026-09-24, Batalla de Tucumán. Es feriado provincial y la
+--     lista original no lo tenía, así que el bot de ellos prometía retiros para
+--     un día en que la ciudad no trabaja.
+--
+-- PENDIENTES DE CONFIRMAR contra el decreto del Poder Ejecutivo, que sale año a
+-- año y todavía no verificamos:
+--   · 2026-03-23 — figura como puente turístico. Los puentes no están en la
+--     ley: los fija un decreto.
+--   · 2026-11-20 — Soberanía Nacional cae viernes. Es feriado trasladable, así
+--     que podría correrse al lunes 23.
+--
+-- Mientras tanto la lista es mejor que estar vacía, y se corrige desde
+-- Reglas → Plazos sin deploy.
+-- ---------------------------------------------------------------------------
+update public.configuracion
+   set valor = '[
+         "2026-01-01",
+         "2026-02-16",
+         "2026-02-17",
+         "2026-03-23",
+         "2026-03-24",
+         "2026-04-02",
+         "2026-04-03",
+         "2026-05-01",
+         "2026-05-25",
+         "2026-06-15",
+         "2026-06-20",
+         "2026-07-09",
+         "2026-08-17",
+         "2026-09-24",
+         "2026-10-12",
+         "2026-11-20",
+         "2026-12-08",
+         "2026-12-25"
+       ]'::jsonb,
+       descripcion = 'Feriados en formato YYYY-MM-DD que corren el vencimiento del plazo. Cargados para 2026: nacionales más la Batalla de Tucumán (24/9), que es provincial. PENDIENTE de verificar contra el decreto: 2026-03-23 (puente turístico) y 2026-11-20 (trasladable, podría correrse al lunes 23). HAY QUE RECARGARLOS CADA AÑO.'
+ where clave = 'feriados'
+   and valor = '[]'::jsonb;
+
+-- ---------------------------------------------------------------------------
+-- 2 · Zona Norte carga lunes, MIÉRCOLES y viernes
+--
+-- La 008 sembró Norte con «lunes, martes, viernes», tomándolo del Anexo de
+-- Datos de la spec. El bot de Ambiente —que es el que viene funcionando contra
+-- el operativo real— usa lunes, miércoles y viernes.
+--
+-- Lo que inclina la balanza no es cuál de los dos documentos gana, sino que con
+-- «martes» el martes queda en las DOS zonas y el miércoles en ninguna. Con
+-- miércoles el esquema alterna sin huecos y coincide exactamente con Zona Sur,
+-- donde los dos documentos ya decían lo mismo (martes, jueves, sábado).
+--
+-- Se toma el dato del operativo. Queda anotado igual para que Ambiente lo
+-- confirme: si la spec tenía razón, se revierte desde Reglas → Puntos y Zonas.
+-- ---------------------------------------------------------------------------
+update public.zonas_recoleccion
+   set dias = array['lunes','miercoles','viernes'],
+       observaciones = 'Los residuos se sacan a las 14:30 hs del día que corresponde, y sólo después de la confirmación del retiro. Días corregidos según el operativo real (la spec decía martes; con martes el miércoles quedaba sin zona).'
+ where nombre = 'Zona Norte'
+   and dias = array['lunes','martes','viernes'];
+
+-- El texto de confirmación del retiro repite los días escritos a mano, así que
+-- si no se corrige acá el vecino recibe un dato y el catálogo dice otro.
+-- `replace` y no un texto nuevo: así no importa si la 011 ya lo reescribió con
+-- marcadores, y cualquier otra edición del área se conserva.
+update public.textos_bot
+   set texto = replace(texto,
+                       'Zona Norte: recolección Lun, Mar, Vie.',
+                       'Zona Norte: recolección Lun, Mié, Vie.')
+ where clave = 'retiro_confirmacion'
+   and texto like '%Zona Norte: recolección Lun, Mar, Vie.%';
+
+-- ---------------------------------------------------------------------------
+-- 3 · La derivación al SAT dice a dónde llamar
+--
+-- La regla existe desde la 008 y cierra la conversación con «corresponde al
+-- SAT». Es correcto y es inútil: el vecino queda con el problema y sin el
+-- teléfono. El bot de Ambiente sí daba los datos, y son los oficiales.
+--
+-- El 0800 es lo que importa: atiende 24 hs, y las pérdidas de agua no esperan
+-- al horario de oficina.
+-- ---------------------------------------------------------------------------
+update public.reglas_exclusion
+   set respuesta = E'Te informamos que ese tipo de reclamo no corresponde a la competencia municipal. Corresponde al SAT (Aguas del Tucumán).\n\n📞 0800-444-1726 — línea gratuita, las 24 hs\n🌐 https://www.sat.com.ar'
+ where nombre = 'Agua y cloacas (SAT)'
+   and respuesta = 'Te informamos que ese tipo de reclamo no corresponde a la competencia municipal. Corresponde al SAT (Aguas del Tucumán).';
+
+-- ---------------------------------------------------------------------------
+-- 4 · El mapa de recorridos, que esperábamos desde la 020
+--
+-- `reclamo_info_turnos` se creó vacía a propósito porque Ambiente no nos había
+-- pasado la URL, y `reclamoRecoleccion.ts` la lee con `tieneTexto()`: vacía, el
+-- bot saltea el mensaje. El bot de ellos la tenía.
+--
+-- Va como segundo mensaje del diagnóstico: el vecino que reclama porque no pasó
+-- el camión muchas veces está mirando el día equivocado, y con el mapa se
+-- responde solo sin esperar las 72 hs.
+-- ---------------------------------------------------------------------------
+update public.textos_bot
+   set texto = E'Mientras tanto podés confirmar qué día y en qué turno le toca a tu domicilio:\nhttps://smtendatos.gob.ar/mapa-interactivo-de-recoleccion-de-residuos-por-turno/',
+       descripcion = 'Enlace al mapa interactivo de recolección por turno. Se envía como segundo mensaje del diagnóstico del reclamo. Sigue siendo opcional: vaciarlo desde el panel apaga el mensaje.'
+ where clave = 'reclamo_info_turnos'
+   and coalesce(texto, '') = '';
+
+-- ---------------------------------------------------------------------------
+-- 5 · Los otros canales del municipio
+--
+-- Dato nuevo: no lo teníamos en ninguna tabla. El bot de Ambiente cerraba todo
+-- lo que no era suyo ofreciendo la App Ciudad Digital y el teléfono de Atención
+-- Ciudadana.
+--
+-- Va como RESPUESTA FIJA y no como texto del bot por dos razones. Una: un
+-- número de teléfono y una URL son exactamente el caso de «redacción que el
+-- modelo no puede parafrasear», que es para lo que existe esta tabla. Dos: NO
+-- toca la política de derivación que el área definió en la 026 —lo que no es de
+-- Ambiente sigue yendo a Migue—; esto contesta al vecino que pregunta
+-- puntualmente por esos canales.
+--
+-- `where not exists` en lugar de `on conflict`: `respuestas_fijas.nombre` no
+-- tiene índice único, y no se lo agrego porque los operadores crean fijas desde
+-- el resolver de «sin responder» y nada les impide repetir un nombre.
+--
+-- Prioridad 80: menor gana, y esto es informativo. Cualquier fija que el área
+-- cargue con el default 50 se evalúa antes.
+-- ---------------------------------------------------------------------------
+insert into public.respuestas_fijas (nombre, disparadores, modo, respuesta, prioridad, notas)
+select
+  'Otros canales del municipio',
+  array['ciudad digital','atencion ciudadana','app del municipio','app de la muni'],
+  'contiene',
+  E'Para trámites y reclamos de otras áreas del municipio tenés dos canales:\n\n📱 App Ciudad Digital\nhttps://ciudaddigital.smt.gob.ar/#/registro\n\n☎️ Atención Ciudadana\n381 223-0573',
+  80,
+  'Datos rescatados del bot propio de la Secretaría de Ambiente. No reemplaza la derivación a Migue: contesta al vecino que pregunta por estos canales en particular.'
+where not exists (
+  select 1 from public.respuestas_fijas where nombre = 'Otros canales del municipio'
+);
+
+-- >>>>>>>>>>>>>>>>>>>> 037_veredicto_de_foto_y_pedido_de_asesor.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 037 · Veredicto de foto y pedido de asesor
+-- ===========================================================================
+-- Dos capacidades nuevas del bot que el panel tiene que poder ver:
+--
+--   1. El bot ahora MIRA la foto del retiro y del reclamo con un modelo de
+--      visión (`modelo_vision`) y deja el veredicto en el ticket. El panel lo
+--      muestra junto a la foto y marca en la bandeja los casos donde la foto
+--      no acompaña lo declarado. Si la foto claramente no corresponde, el bot
+--      repregunta UNA vez; nunca bloquea el trámite, y cuando no puede evaluar
+--      lo dice (`no_evaluada`) en lugar de mentir «valida».
+--
+--   2. El vecino puede pedir hablar con una persona. Hasta hoy ese pedido caía
+--      al azar: «no tengo esa información», el menú, o —peor— derivado a Migue,
+--      el bot general. Ahora genera una fila en `alertas_asesor` y el panel la
+--      muestra hasta que alguien la atiende. No se le pide teléfono: la
+--      respuesta le llega por el mismo chat, y cuando el bot migre a WhatsApp
+--      el número va a venir solo con el mensaje.
+--
+-- Sin Realtime, a propósito: el proyecto ya decidió en worker/bucle.ts que un
+-- websocket permanente es un modo de falla nuevo; el panel consulta cada
+-- tanto, que para responder un pedido alcanza y sobra.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1 · El veredicto de la foto, en el ticket
+--
+-- En inglés como toda columna de `tickets` (regla de la 001: cada tabla es
+-- internamente coherente con su idioma). Los VALORES en castellano: son datos
+-- que el panel muestra, igual que `status`.
+-- ---------------------------------------------------------------------------
+alter table public.tickets
+  add column if not exists photo_verdict  text,
+  add column if not exists photo_category text,
+  add column if not exists photo_detail   text;
+
+-- Drop-first para poder ajustar la lista sin una migración de renombre.
+-- NULL pasa cualquier CHECK, así que las filas viejas no necesitan `not valid`.
+alter table public.tickets drop constraint if exists tickets_photo_verdict_valido;
+alter table public.tickets
+  add constraint tickets_photo_verdict_valido
+    check (photo_verdict in ('valida','dudosa','no_corresponde','no_evaluada'));
+
+alter table public.tickets drop constraint if exists tickets_photo_category_valida;
+alter table public.tickets
+  add constraint tickets_photo_category_valida
+    check (photo_category in ('basural','volcadero','rnh','barrido','limpieza_cestos','otros'));
+
+comment on column public.tickets.photo_verdict is
+  'Lo escribe el BOT con service_role al mirar la foto con modelo_vision. '
+  'valida = se ve lo que el vecino declaró. dudosa = no se puede confirmar. '
+  'no_corresponde = la foto muestra otra cosa (el bot repreguntó una vez). '
+  'no_evaluada = el bot intentó y no pudo (falló el proveedor o la visión está '
+  'apagada). NULL = ticket sin foto o anterior a la 037. El panel NO lo edita: '
+  'es la opinión del modelo, y corregirla a mano sería falsificar la evidencia.';
+
+comment on column public.tickets.photo_category is
+  'Qué vio el modelo en la foto (taxonomía del área: basural, volcadero, rnh, '
+  'barrido, limpieza_cestos, otros). Lo escribe el bot con service_role.';
+
+comment on column public.tickets.photo_detail is
+  'Explicación corta del modelo, en castellano. Es lo que se interpola en '
+  '{detalle} cuando el bot repregunta por la foto.';
+
+-- ---------------------------------------------------------------------------
+-- 2 · Pedidos de asesor
+--
+-- El teléfono queda como columna para el futuro WhatsApp (ahí el número viene
+-- con el mensaje). En Telegram va null: decidimos no pedírselo al vecino.
+-- La tabla contiene únicamente lo necesario para responder el pedido, y la
+-- lee sólo el padrón, por RLS.
+-- ---------------------------------------------------------------------------
+create table if not exists public.alertas_asesor (
+  id              uuid primary key default gen_random_uuid(),
+  conversacion_id uuid references public.conversaciones(id) on delete set null,
+  canal           text not null check (canal in ('telegram','whatsapp','web')),
+  nombre_usuario  text,
+  telefono        text,
+  motivo          text,
+  estado          text not null default 'pendiente'
+                    check (estado in ('pendiente','atendida','descartada')),
+  -- uuid SIN foreign key, como revisada_por (004) y creada_por (002): el
+  -- nombre se resuelve con personal_nombres() y la fila no debe depender de
+  -- que la cuenta siga existiendo en auth.users.
+  atendida_por    uuid,
+  atendida_en     timestamptz,
+  notas           text,
+  creado_en       timestamptz not null default now(),
+  actualizado_en  timestamptz not null default now()
+);
+
+comment on table public.alertas_asesor is
+  'Vecinos que pidieron hablar con una persona. Inserta el BOT con '
+  'service_role; el panel las lee y las cierra vía atender_alerta().';
+
+comment on column public.alertas_asesor.telefono is
+  'Teléfono de contacto. En Telegram es null (el canal no lo da y no se pide); '
+  'en WhatsApp va a venir con el mensaje. Sólo lo lee el padrón (RLS).';
+comment on column public.alertas_asesor.motivo is
+  'El mensaje del vecino que disparó el pedido, para dar contexto al responder.';
+
+-- Sirve al badge (count de pendientes) y a la lista de trabajo.
+create index if not exists alertas_asesor_pendientes_idx
+  on public.alertas_asesor (creado_en desc) where estado = 'pendiente';
+
+drop trigger if exists alertas_asesor_tocar on public.alertas_asesor;
+create trigger alertas_asesor_tocar before update on public.alertas_asesor
+  for each row execute function public.tocar_actualizado_en();
+
+alter table public.alertas_asesor enable row level security;
+
+-- Sólo LECTURA directa. La escritura va por atender_alerta(): una política de
+-- UPDATE dejaría editar telefono y motivo —reescribir lo que dijo el vecino—
+-- y no puede garantizar el invariante atendida_por/atendida_en.
+drop policy if exists panel_lee on public.alertas_asesor;
+create policy panel_lee on public.alertas_asesor
+  for select to authenticated
+  using (public.es_personal_panel());
+-- SIN insert (inserta el bot con service_role, que saltea RLS) y SIN delete:
+-- descartar es un estado, no un borrado.
+
+-- ---------------------------------------------------------------------------
+-- 3 · Cerrar una alerta, con quién y cuándo sellados adentro
+--     (patrón de la 021: drop por firma + definer + guardia + revoke)
+-- ---------------------------------------------------------------------------
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as firma
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'atender_alerta'
+  loop
+    execute format('drop function if exists %s cascade', r.firma);
+  end loop;
+end $$;
+
+create function public.atender_alerta(
+  p_alerta_id uuid,
+  p_estado    text,
+  p_notas     text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+begin
+  if not public.es_personal_panel() then
+    raise exception 'no autorizado' using errcode = '42501';
+  end if;
+  if p_estado not in ('pendiente','atendida','descartada') then
+    raise exception 'estado invalido: %', p_estado;
+  end if;
+
+  update public.alertas_asesor
+     set estado       = p_estado,
+         -- Reabrir limpia el sello; cerrar lo pone. Nunca lo elige el cliente.
+         atendida_por = case when p_estado = 'pendiente' then null else auth.uid() end,
+         atendida_en  = case when p_estado = 'pendiente' then null else now() end,
+         notas        = coalesce(nullif(trim(coalesce(p_notas, '')), ''), notas)
+   where id = p_alerta_id;
+
+  if not found then raise exception 'no existe esa alerta'; end if;
+end $$;
+
+revoke all on function public.atender_alerta(uuid, text, text) from public, anon;
+grant execute on function public.atender_alerta(uuid, text, text) to authenticated;
+
+comment on function public.atender_alerta(uuid, text, text) is
+  'Cierra o reabre una alerta de asesor. Sella atendida_por/atendida_en con '
+  'auth.uid() y now(): dejárselo al cliente garantiza alertas atendidas sin '
+  'fecha ni responsable.';
+
+-- ---------------------------------------------------------------------------
+-- 4 · Configuración y textos nuevos
+-- ---------------------------------------------------------------------------
+insert into public.configuracion (clave, valor, descripcion, categoria) values
+  ('modelo_vision', '"anthropic/claude-haiku-4.5"'::jsonb,
+   'Modelo de OpenRouter con visión que mira la foto del retiro y del reclamo '
+   'y deja el veredicto en el ticket. Vaciarlo APAGA la evaluación sin deploy: '
+   'los tickets quedan con photo_verdict en no_evaluada y el flujo sigue como '
+   'antes. Corre sólo cuando llega una foto dentro del paso que la espera.',
+   'ia')
+on conflict (clave) do nothing;
+
+-- Los textos: la confirmación del pedido de asesor y la repregunta de foto.
+-- El pedido de asesor NO pide teléfono. Decisión del área: en Telegram no hay
+-- a quién llamar desde afuera igual (el canal no da número), la respuesta le
+-- llega al vecino por el mismo chat, y cuando el bot migre a WhatsApp el
+-- número va a venir solo con el mensaje.
+--
+-- El formato de estas tuplas es parseado por catalogo.claves.test.ts: cada una
+-- abre su propia línea con ('clave', — no lo cambies (ver 033).
+insert into public.textos_bot (clave, texto, descripcion, opcional) values
+  ('asesor_confirmacion',
+   'Listo, ya le avisé al equipo de Ambiente: una persona va a ver tu pedido y te responden por acá en el horario de atención. Si mientras tanto necesitás otra cosa, escribime.',
+   'Confirmación cuando el vecino pide hablar con una persona. La alerta queda en el panel; la respuesta del equipo llega por el mismo chat.',
+   false),
+
+  ('retiro_foto_no_corresponde',
+   E'Mirá, en la foto no llego a ver residuos: {detalle}.\n\n¿Podés mandar otra donde se vea lo que hay que retirar? Si es la única que tenés, mandámela de nuevo y sigo igual.',
+   'Retiro: repregunta única cuando el modelo de visión dice que la foto no corresponde. {detalle} se reemplaza por la explicación del modelo. VACIARLO apaga la repregunta: el bot acepta la foto y sólo marca el ticket.',
+   true)
+on conflict (clave) do nothing;
+
+-- Limpieza por si se aplicó la versión anterior de ESTA misma migración, que
+-- sembraba un flujo de pedir teléfono con tres textos más y una confirmación
+-- con {telefono}. Los delete y el update van condicionados al texto EXACTO
+-- sembrado: si el área ya escribió algo propio en esas claves, no se toca.
+delete from public.textos_bot
+ where clave in ('asesor_pedir_telefono', 'asesor_reintento_telefono', 'asesor_sin_telefono')
+   and texto in (
+     E'Dale, le aviso al equipo de Ambiente para que se contacten con vos.\n\n¿Me dejás un teléfono para que te llamen? Escribilo con característica, por ejemplo 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.',
+     'No llegué a encontrar un teléfono en tu mensaje. ¿Me lo escribís con característica? Por ejemplo: 381 5123456. Si preferís no darlo, decime «no» y paso el pedido igual.',
+     'Listo, ya avisé al equipo igual. Como no tengo un teléfono tuyo, la respuesta te va a llegar por acá. Si mientras tanto necesitás otra cosa de Ambiente, escribime.'
+   );
+
+update public.textos_bot
+   set texto = 'Listo, ya le avisé al equipo de Ambiente: una persona va a ver tu pedido y te responden por acá en el horario de atención. Si mientras tanto necesitás otra cosa, escribime.',
+       descripcion = 'Confirmación cuando el vecino pide hablar con una persona. La alerta queda en el panel; la respuesta del equipo llega por el mismo chat.'
+ where clave = 'asesor_confirmacion'
+   and texto = 'Listo, ya avisé al equipo. Te van a contactar al {telefono} en el horario de atención. Si mientras tanto necesitás otra cosa de Ambiente, escribime.';
+
+-- ---------------------------------------------------------------------------
+-- 5 · Mejor pluma, sólo si nadie la eligió ya
+--     (condición sobre el valor sembrado, como la 009, la 011 y la 036)
+-- ---------------------------------------------------------------------------
+update public.configuracion
+   set valor = '"anthropic/claude-sonnet-5"'::jsonb,
+       descripcion = 'Modelo de OpenRouter para redactar la respuesta final. '
+         'claude-sonnet-5 redacta mejor el rioplatense; con el corpus actual '
+         'sigue costando centavos por respuesta. Alternativa más barata: '
+         'anthropic/claude-haiku-4.5. Verificado contra el catálogo real de '
+         'OpenRouter.'
+ where clave = 'modelo_respuesta'
+   and valor = '"anthropic/claude-haiku-4.5"'::jsonb;
+
+update public.configuracion
+   set valor = to_jsonb(
+     '- Español rioplatense, voseo. Cordial y directo, como quien atiende bien un mostrador.' || chr(10) ||
+     '- Breve: dos o tres frases salvo que la pregunta pida un listado.' || chr(10) ||
+     '- Dá el dato primero. Si hace falta aclarar algo, después.' || chr(10) ||
+     '- Nada de muletillas de asistente («¡Claro!», «¡Por supuesto!», «¡Excelente pregunta!»): arrancá por la respuesta.' || chr(10) ||
+     '- Si la respuesta es un no, decilo sin vueltas y ofrecé la alternativa que haya en el contexto.' || chr(10) ||
+     '- No cites números de fragmento ni nombres de archivo: al vecino no le sirven.' || chr(10) ||
+     '- Si el contexto tiene direcciones u horarios, transcribilos exactos.')
+ where clave = 'estilo_respuesta'
+   -- El texto EXACTO que sembró la 032, byte a byte. Si el área ya lo editó
+   -- desde el panel, esta migración no le pisa la redacción.
+   and valor = to_jsonb('- Español rioplatense, voseo. Tratamiento cordial y directo.' || chr(10) ||
+    '- Breve: dos o tres frases salvo que la pregunta pida un listado.' || chr(10) ||
+    '- Dá el dato primero. Si hace falta aclarar algo, después.' || chr(10) ||
+    '- No cites números de fragmento ni nombres de archivo: al vecino no le sirven.' || chr(10) ||
+    '- Si el contexto tiene direcciones u horarios, transcribilos exactos.');
+
+-- >>>>>>>>>>>>>>>>>>>> 038_la_presentacion_y_otra_consulta.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 038 · La presentación, y «Otra consulta» que no preguntaba nada
+-- ===========================================================================
+-- Las dos salen de leer una conversación real de arranque, que era ésta:
+--
+--   Migue  Hola, soy Migue Ambiente 🌱 de la Municipalidad de San Miguel de
+--          Tucumán.
+--          Puedo ayudarte con retiro de residuos especiales, reclamos de
+--          recolección, programas ambientales y Puntos Verdes.
+--          Contame qué necesitás.
+--   Migue  Decime con qué necesitás que te ayude.
+--          [Retirar escombros, poda o muebles]
+--          [El camión no pasó]
+--          [Reciclables y SEPARÁ]
+--          [Taller o charla para una institución (EDUCÁ)]
+--          [Mural o intervención en un espacio (TRANSFORMÁ)]
+--          [Otra consulta]
+--   Vecino (toca «Otra consulta»)
+--   Migue  No tengo esa información con la certeza suficiente para
+--          respondértela. Ya la registré para que el equipo de Ambiente la
+--          revise.
+--
+-- 1 · LA PRESENTACIÓN DICE TRES VECES LO MISMO. La bienvenida enumera en prosa
+--     las cuatro cosas que Migue hace, y abajo las mismas cosas vuelven como
+--     seis opciones; y encima se le pregunta dos veces qué necesita («Contame
+--     qué necesitás» y «Decime con qué necesitás que te ayude»). Enumerar en
+--     prosa tenía sentido cuando el menú era un texto numerado; desde la 020 el
+--     menú se manda con opciones de verdad, así que la prosa quedó de más.
+--
+--     Se resuelve repartiendo: la bienvenida PRESENTA (una línea) y el menú
+--     PREGUNTA (una vez), avisando además que puede escribir directamente —lo
+--     que decía el texto de la 008 y se perdió al quitarle la lista numerada—.
+--     Las etiquetas se acortaron en `opciones.ts`, que es donde viven porque
+--     tienen que corresponderse con los ids de intención.
+--
+-- 2 · «OTRA CONSULTA» CONTESTABA UNA DISCULPA. El toque del botón deja el id
+--     interno como texto del mensaje, así que el bot buscaba en el corpus la
+--     frase «consulta_libre», no encontraba nada y se disculpaba — sin que el
+--     vecino hubiera preguntado nada todavía. Además pagaba una llamada al
+--     modelo y dejaba una fila en `sin_respuesta` con la pregunta
+--     «consulta_libre»: el área veía como hueco de conocimiento algo que ningún
+--     vecino preguntó nunca.
+--
+--     El arreglo del camino está en `orquestador.ts` (corta antes de la cadena
+--     de conocimiento e invita a escribir). Acá va el texto de esa invitación,
+--     que es lo que lee el vecino y por lo tanto tiene que poder editarse sin
+--     un deploy.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1 · El texto nuevo: la invitación a escribir la consulta
+--
+-- OBLIGATORIO (opcional = false) y por una razón concreta: el bot corta el
+-- camino de la cadena de conocimiento y este mensaje es lo ÚNICO que manda en
+-- ese turno. Vaciarlo dejaría al vecino sin respuesta después de tocar un botón.
+-- Los ejemplos que enumera son los que la bienvenida dejó de enumerar: acá
+-- sirven —le dicen qué clase de cosa puede preguntar— y allá sobraban.
+--
+-- El formato de estas tuplas lo parsea catalogo.claves.test.ts: cada una abre
+-- su propia línea con ('clave', — no lo cambies (ver 033).
+-- ---------------------------------------------------------------------------
+insert into public.textos_bot (clave, texto, descripcion, opcional) values
+  ('consulta_invitacion',
+   'Dale, escribime tu consulta y te busco la información. Puede ser sobre horarios de recolección, Puntos Verdes, reciclado o cualquier otro tema de Ambiente.',
+   'Cuando el vecino elige «Otra consulta» en el menú todavía no preguntó nada: esto lo invita a escribir y el bot espera. La respuesta se la da recién con el mensaje siguiente.',
+   false)
+on conflict (clave) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 2 · La bienvenida PRESENTA y el menú PREGUNTA
+--
+-- Los dos updates van condicionados al texto EXACTO que sembró la migración que
+-- los puso —la 008 y la 020—, byte a byte. Es la regla de la 009, la 011, la
+-- 036 y la 037: si el área ya reescribió el mensaje desde el panel, esta
+-- migración no le pisa la redacción.
+-- ---------------------------------------------------------------------------
+update public.textos_bot
+   set texto = E'Hola, soy Migue Ambiente \U0001F331, de la Municipalidad de San Miguel de Tucumán.',
+       descripcion = 'Primer mensaje, y sólo la presentación: el menú va detrás y es el que pregunta. Enumerar acá lo que Migue hace repetía las opciones que el vecino ve abajo.'
+ where clave = 'bienvenida'
+   and texto = E'Hola, soy Migue Ambiente \U0001F331 de la Municipalidad de San Miguel de Tucumán.\n\nPuedo ayudarte con retiro de residuos especiales, reclamos de recolección, programas ambientales y Puntos Verdes.\n\nContame qué necesitás.';
+
+-- `menu_principal` es la excepción a la comparación byte a byte, y la razón es
+-- la que hizo falta esta migración: en producción la fila decía
+--
+--   «Decime con qué necesitás que te ayudeeeee»
+--
+-- Cinco «e» y sin el punto final — una tecla repetida al editarla desde el
+-- panel, guardada tal cual. La comparación exacta contra el texto de la 020 no
+-- la reconocía, así que la guarda «no le pises la redacción al área» protegía
+-- justamente el typo que se venía a corregir, y en silencio: el update no
+-- coincidía y la migración terminaba bien.
+--
+-- Por eso acá se compara con una expresión regular anclada que admite la «e»
+-- repetida y el punto opcional. Sigue siendo estrecha —tiene que ser ESA frase
+-- de punta a punta— así que un texto que el área haya reescrito de verdad no
+-- entra. Verificado contra el valor real de producción antes de escribirla.
+update public.textos_bot
+   set texto = '¿Con qué necesitás que te ayude? Elegí una de estas opciones, o escribime directamente lo que necesitás.',
+       descripcion = 'Acompaña al menú de opciones. Es la ÚNICA pregunta de la presentación, y avisa que también puede escribir sin elegir nada. Las opciones no salen de acá: viven en el código porque cada una es una intención del router.'
+ where clave = 'menu_principal'
+   and texto ~ '^Decime con qué necesitás que te ayude+\.?$';
+
+-- >>>>>>>>>>>>>>>>>>>> 039_a_quien_avisarle_cuando_piden_asesor.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 039 · A quién avisarle cuando un vecino pide hablar con una persona
+-- ===========================================================================
+-- Hoy, cuando alguien pide un asesor, el bot registra el pedido en
+-- `alertas_asesor` y le contesta que ya avisó. Pero no avisa a nadie: el único
+-- aviso que existe es el contador de la barra del panel, y ése sólo sirve si
+-- alguien ya lo tiene abierto. El vecino se va con una promesa y del otro lado
+-- puede no haber nadie mirando.
+--
+-- Esta migración siembra a QUIÉN hay que avisarle, y nada más. El envío todavía
+-- no existe, y no por falta de código: para escribirle a alguien que no le
+-- escribió primero al bot, la Cloud API de WhatsApp exige el alta con Meta y
+-- una plantilla aprobada por ellos, y el canal arranca apagado mientras falten
+-- las cuatro credenciales. Sembrar la clave ahora deja que el área cargue los
+-- números cuando los tenga decididos —que es un trámite de ellos, no nuestro— y
+-- que el día del alta el aviso empiece a salir sin volver a tocar la base.
+--
+-- Por eso el panel la muestra MARCADA como no conectada, con la columna que ya
+-- existe para eso. Un campo que se guarda y no hace nada, sin decirlo, es peor
+-- que no tenerlo: alguien carga su número, se queda tranquilo, y el pedido
+-- sigue esperando a que alguien abra el panel.
+--
+-- NACE VACÍA a propósito. No se siembra ningún número: cuáles son, y si sus
+-- dueños aceptan recibir avisos ahí, es una decisión del área — y la política de
+-- mensajería de Meta además exige ese consentimiento documentado.
+--
+-- El formato que se guarda son los DÍGITOS en formato internacional
+-- (5493812067777), que es lo que pide la API para mandar. El área los escribe
+-- como los tiene en la agenda y el panel los normaliza al guardar, con el mismo
+-- parseo que ya usa `enlace_migue`: ahí están resueltas las tres trampas del
+-- formato argentino —el 9 que no se marca, el 15 que no va, el 0 de larga
+-- distancia—.
+-- ===========================================================================
+
+insert into public.configuracion (clave, valor, descripcion, categoria) values
+  ('asesor_avisar_a', '[]'::jsonb,
+   'Telefonos del area a los que avisarle cuando un vecino pide hablar con una '
+   'persona, en formato internacional (5493812067777). Los carga el panel en '
+   'Reglas, uno por linea, y los normaliza al guardar. Vacio significa no '
+   'avisarle a nadie: el pedido queda igual en «Pedidos de asesor», que es '
+   'donde vive de verdad. TODAVIA NO SALE NINGUN AVISO: falta el alta de '
+   'WhatsApp con Meta y una plantilla aprobada por ellos.',
+   'negocio')
+on conflict (clave) do nothing;
+
+-- >>>>>>>>>>>>>>>>>>>> 040_la_encuesta_de_cierre_no_veia_los_tramites.sql <<<<<<<<<<<<<<<<<<<<
+
+-- ===========================================================================
+-- 040 · La encuesta de cierre no le llegaba a quien hizo un trámite
+-- ===========================================================================
+-- `conversaciones_para_encuestar` (031) exige que en la charla haya habido «una
+-- respuesta de verdad» antes de preguntar si sirvió. La idea es buena: a quien
+-- dijo «hola» y se fue no hay nada que preguntarle.
+--
+-- Pero «de verdad» se definió como una respuesta de la cadena de conocimiento:
+--
+--     origen_respuesta in ('faq','documentos','respuesta_fija','exclusion')
+--
+-- y ahí falta `flujo`, que es TODO lo que el bot dice durante un trámite:
+-- pedir la foto, pedir la dirección, confirmar el pedido con su fecha. O sea
+-- que el vecino que completó un retiro —la interacción que más nos interesa
+-- medir— nunca recibía la encuesta. Sólo la recibía quien hizo una consulta.
+--
+-- Medido en producción el 2026-09-25, sobre los salientes de toda la base:
+--
+--     flujo 31 · null 14 · fallback 3 · exclusion 2 · respuesta_fija 2
+--
+-- Las cuatro conversaciones de prueba de ese día, todas de trámite, daban cero
+-- en la función aunque cumplían las otras cuatro condiciones: abiertas, sin
+-- encuesta enviada, en silencio hacía quince minutos y sin voto previo. En un
+-- mes la encuesta había salido dos veces, las dos en charlas de consulta.
+--
+-- LO QUE NO SE AGREGA, Y ES A PROPÓSITO
+--
+-- `fallback` —el «no tengo esa información con la certeza suficiente»— sigue
+-- afuera. Preguntarle «¿pudiste resolver lo que necesitabas?» a alguien a quien
+-- se le acaba de admitir que no se sabía es sal en la herida, y el voto no
+-- agregaría nada: esa falla ya quedó registrada en `sin_respuesta`. Es el mismo
+-- criterio que usa el orquestador para no ofrecer los pulgares tras un
+-- `sin_respuesta`.
+--
+-- `null` tampoco: son los salientes sin traza, como el menú.
+-- ===========================================================================
+
+create or replace function public.conversaciones_para_encuestar(
+  p_minutos int,
+  p_limite  int default 20
+)
+returns table (
+  id               uuid,
+  canal            text,
+  canal_usuario_id text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select c.id, c.canal, c.canal_usuario_id
+    from public.conversaciones c
+   where c.estado = 'abierta'
+     and c.encuesta_enviada_en is null
+     -- Silencio suficiente.
+     and c.ultima_actividad_en < now() - make_interval(mins => p_minutos)
+     -- Y no tanto silencio como para que preguntar sea raro. Sin este techo, al
+     -- activar la función el bot le escribiría de golpe a todos los vecinos que
+     -- pasaron alguna vez, meses después.
+     and c.ultima_actividad_en > now() - interval '24 hours'
+     -- Hubo algo que valorar: una respuesta de la cadena de conocimiento, una
+     -- derivación, o un TRÁMITE. Lo último faltaba y es lo que más se usa.
+     and exists (
+       select 1 from public.mensajes m
+        where m.conversacion_id = c.id
+          and m.direccion = 'saliente'
+          and m.origen_respuesta in ('faq','documentos','respuesta_fija','exclusion','flujo')
+     )
+     -- Y todavía no votó nada en esta charla.
+     and not exists (
+       select 1 from public.valoraciones v where v.conversacion_id = c.id
+     )
+   order by c.ultima_actividad_en
+   limit p_limite;
+$$;
+
+comment on function public.conversaciones_para_encuestar(int, int) is
+  'Conversaciones en silencio que merecen la encuesta de cierre. Las cinco condiciones estan comentadas en el cuerpo. Un tramite (origen flujo) cuenta como respuesta valorable; un fallback no.';
+
+-- `create or replace` conserva los permisos, pero se repite para que la
+-- migracion sea legible sola: esta funcion no la ejecuta nadie desde el
+-- navegador, sólo el bot con la service_role.
+revoke all on function public.conversaciones_para_encuestar(int, int) from public, anon, authenticated;

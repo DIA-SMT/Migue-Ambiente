@@ -162,7 +162,7 @@ function Ficha({ voto }: { voto: VotoConContexto }) {
           {quien}
           {canal ? ` · ${CANALES[canal] ?? canal}` : ""}
         </span>
-        <Link className="boton chico" href={`/conversaciones?abrir=${voto.conversacion_id}`}>
+        <Link className="boton chico" href={`/interacciones?abrir=${voto.conversacion_id}`}>
           Ver la charla entera
         </Link>
       </div>

@@ -234,3 +234,17 @@ export function IconoClima({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Pedidos de asesor: un auricular de teléfono.
+ *
+ * Es literal a propósito: la pantalla existe para que alguien LLAME a un
+ * vecino, y el dibujo tiene que decir eso sin rótulo.
+ */
+export function IconoAsesor({ className }: { className?: string }) {
+  return (
+    <svg {...comun} className={className}>
+      <path d="M4.2 3.4l2.3-.9 1.7 3.4-1.5 1.5a9.5 9.5 0 0 0 3.9 3.9l1.5-1.5 3.4 1.7-.9 2.3c-.3.8-1.1 1.3-1.9 1.1A13 13 0 0 1 3.1 5.3c-.2-.8.3-1.6 1.1-1.9z" />
+    </svg>
+  );
+}

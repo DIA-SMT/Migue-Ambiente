@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { esUtilizable, interpretarCantidad } from "./cantidad.ts";
+import { validarVolumen } from "./volumen.ts";
+import { LIMITES_PRUEBA } from "../flujos/_fixtures.ts";
 
 /**
  * Este módulo acumuló tres bugs durante su construcción, así que tiene tests
@@ -177,5 +179,73 @@ describe("esUtilizable", () => {
     assert.equal(esUtilizable(interpretarCantidad("5 bolsas")), true);
     assert.equal(esUtilizable(interpretarCantidad("mucho")), false);
     assert.equal(esUtilizable(interpretarCantidad("tengo bolsas")), false);
+  });
+});
+
+describe("unidades fuera de la escala del servicio", () => {
+  it("REGRESIÓN · «3 toneladas» no se lee como 3 bolsas", () => {
+    // EL BUG, con un ticket real en la base: «tengo 3 toneladas de piedras» no
+    // tenía unidad conocida, el 3 quedaba como número suelto, y `validarVolumen`
+    // le aplicaba la unidad del límite. El ticket decía «3 bolsas», DENTRO del
+    // servicio gratuito. Una cuadrilla salía a levantar tres bolsas.
+    const c = interpretarCantidad("tengo 3 toneladas de piedras");
+    assert.equal(c.unidad, "m3", "se expresa en la unidad que el sistema sabe comparar");
+    assert.equal(c.valor, 1.5);
+  });
+
+  it("el factor es un PISO: subestima, nunca al revés", () => {
+    // Una tonelada de escombro compactado ronda los 0,67 m³. Se toma 0,5, que es
+    // el valor más bajo que puede tomar en la práctica: si con el piso ya
+    // excede, con el real excede más.
+    assert.equal(interpretarCantidad("1 tonelada").valor, 0.5);
+    assert.equal(interpretarCantidad("media tonelada").valor, 0.25);
+    assert.equal(interpretarCantidad("2 toneladas").valor, 1);
+  });
+
+  it("un volquete sin número es un volquete, no cero", () => {
+    assert.equal(interpretarCantidad("un volquete de escombros").valor, 2.5);
+    assert.equal(interpretarCantidad("necesito un contenedor").valor, 2.5);
+    assert.equal(interpretarCantidad("2 volquetes").valor, 5);
+  });
+
+  it("gana sobre una unidad chica nombrada en el mismo mensaje", () => {
+    // Sin esto, «3 toneladas y 2 bolsas» dejaría ganar a las bolsas y el pedido
+    // volvería a leerse como si entrara en el servicio gratuito.
+    assert.equal(interpretarCantidad("hay 3 toneladas y 2 bolsas").unidad, "m3");
+    assert.equal(interpretarCantidad("hay 3 toneladas y 2 bolsas").valor, 1.5);
+  });
+
+  it("y el pedido termina EXCEDIENDO el límite, nunca dentro", () => {
+    // Lo que importa es que NINGUNO caiga en «dentro»: eso era el bug.
+    const limite = LIMITES_PRUEBA.find((l) => l.categoria === "escombros")!;
+    for (const texto of ["tengo 3 toneladas de piedras", "un volquete", "2 toneladas"]) {
+      assert.equal(validarVolumen(interpretarCantidad(texto), limite).tipo, "excede", texto);
+    }
+  });
+
+  it("cerca del límite sigue preguntando, que es lo que protege al piso", () => {
+    // «media tonelada» con el piso da 6,25 bolsas contra un límite de 5: cae
+    // dentro del ±25% donde la conversión no alcanza para decidir. El módulo
+    // pregunta en vez de arriesgar, y es justo lo que hace que usar un factor
+    // aproximado sea aceptable.
+    const limite = LIMITES_PRUEBA.find((l) => l.categoria === "escombros")!;
+    const r = validarVolumen(interpretarCantidad("media tonelada"), limite);
+    assert.equal(r.tipo, "precisar");
+    assert.equal(r.tipo === "precisar" ? r.motivo : null, "demasiado_cerca_del_limite");
+  });
+
+  it("no toca los casos que ya andaban", () => {
+    assert.equal(interpretarCantidad("8 bolsas").valor, 8);
+    assert.equal(interpretarCantidad("8 bolsas").unidad, "bolsas");
+    assert.equal(interpretarCantidad("2 m3").unidad, "m3");
+    assert.equal(interpretarCantidad("tengo un problema con las bolsas").valor, null);
+  });
+
+  it("«medio» y «media» solos siguen siendo vaguedad, no el número 0,5", () => {
+    assert.equal(interpretarCantidad("medio").vaga, "medio");
+    assert.equal(interpretarCantidad("medio").valor, null);
+    assert.equal(interpretarCantidad("es medio nomas").vaga, "medio");
+    // Pero con una unidad al lado son media unidad.
+    assert.equal(interpretarCantidad("media bolsa").valor, 0.5);
   });
 });

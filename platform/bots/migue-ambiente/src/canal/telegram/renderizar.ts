@@ -28,50 +28,10 @@ export interface EnvioTelegram {
   readonly teclado: InlineKeyboard | undefined;
 }
 
-/**
- * Parte un texto largo en varios mensajes.
- *
- * Corta por párrafos y después por líneas, para no romper una oración al medio.
- * Es improbable que pase —las respuestas son breves a propósito— pero un
- * documento institucional citado extenso podría pasarse, y perder el envío por
- * eso sería una falla evitable.
- */
-export function partirTexto(texto: string, maximo = MAX_CARACTERES): string[] {
-  if (texto.length <= maximo) return [texto];
-
-  const partes: string[] = [];
-  let actual = "";
-
-  for (const parrafo of texto.split("\n\n")) {
-    const candidato = actual === "" ? parrafo : `${actual}\n\n${parrafo}`;
-
-    if (candidato.length <= maximo) {
-      actual = candidato;
-      continue;
-    }
-
-    if (actual !== "") {
-      partes.push(actual);
-      actual = "";
-    }
-
-    // Un párrafo solo que ya excede el límite: se corta por líneas.
-    if (parrafo.length <= maximo) {
-      actual = parrafo;
-      continue;
-    }
-    let resto = parrafo;
-    while (resto.length > maximo) {
-      const corte = resto.lastIndexOf("\n", maximo) > 0 ? resto.lastIndexOf("\n", maximo) : maximo;
-      partes.push(resto.slice(0, corte));
-      resto = resto.slice(corte).replace(/^\n/, "");
-    }
-    actual = resto;
-  }
-
-  if (actual !== "") partes.push(actual);
-  return partes;
-}
+// `partirTexto` vive en ../comun.ts desde que hay más de un canal; se
+// re-exporta para que las pruebas de este archivo conserven sus imports.
+export { partirTexto } from "../comun.ts";
+import { partirTexto } from "../comun.ts";
 
 /**
  * Arma el teclado en línea a partir de las opciones.

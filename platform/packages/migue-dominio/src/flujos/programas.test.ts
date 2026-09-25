@@ -82,6 +82,14 @@ describe("TRANSFORMÁ · murales y carteles", () => {
     assert.equal(d.programa, "transforma");
     assert.equal(d.direccion, "Lavalle 500");
     assert.equal(efectoDe(s.efectos, "guardar_media")?.referencia, "foto-t1");
+    // La solicitud lleva la referencia: sin esto el worker subía el archivo y
+    // el update de photo_url no encontraba la fila (foto huérfana en el bucket).
+    assert.equal(d.fotoReferencia, "foto-t1");
+  });
+
+  it("sin foto la solicitud sale con fotoReferencia null", () => {
+    const s = simular(flujoProgramaTransforma, [{ texto: "Lavalle 500" }]);
+    assert.equal(efectoDe(s.efectos, "crear_solicitud_programa")!.datos.fotoReferencia, null);
   });
 
   it("sin foto registra igual, pero la pide para después", () => {
@@ -159,6 +167,7 @@ describe("SEPARÁ · la información va primero", () => {
     assert.match(d.informacionAdicional ?? "", /Franja: de 9 a 12 hs/);
     assert.match(d.informacionAdicional ?? "", /carton y plastico/, "los materiales se conservan");
     assert.equal(efectoDe(s.efectos, "guardar_media")?.referencia, "foto-s1");
+    assert.equal(d.fotoReferencia, "foto-s1", "la solicitud lleva la referencia de la foto");
   });
 
   it("reconoce franjas descritas con palabras", () => {
@@ -179,5 +188,63 @@ describe("SEPARÁ · la información va primero", () => {
     ]);
     assert.equal(s.estado?.paso, "datos_fuera");
     assert.equal(efectoDe(s.efectos, "crear_solicitud_programa"), undefined);
+  });
+});
+
+describe("EDUCÁ · el responsable, que se pedía y no se leía", () => {
+  it("REGRESIÓN · ya no sale en null", () => {
+    // `educa_requisitos` pide el responsable desde la migración 008 y no existía
+    // nada que lo leyera: el 100% de las solicitudes quedaban con el literal
+    // «No especificado» del default, indistinguible de «el vecino no lo dijo».
+    const s = simular(flujoProgramaEduca, [
+      {
+        texto:
+          "Escuela Normal Juan B Alberdi, Muñecas 200, responsable Ramiro Sosa, 30 alumnos, tel 3814440055",
+      },
+    ]);
+    assert.equal(efectoDe(s.efectos, "crear_solicitud_programa")!.datos.responsable, "Ramiro Sosa");
+  });
+
+  it("acepta las formas en que se nombra a alguien en una escuela", () => {
+    const casos: [string, string][] = [
+      ["Escuela Belgrano, Muñecas 200, la directora es Marcela Paz", "Marcela Paz"],
+      ["Escuela Belgrano, Muñecas 200, a cargo la seño Marta", "seño Marta"],
+      ["Escuela Belgrano, Muñecas 200, referente: Ana Gómez", "Ana Gómez"],
+    ];
+    for (const [texto, esperado] of casos) {
+      const s = simular(flujoProgramaEduca, [{ texto }]);
+      assert.equal(
+        efectoDe(s.efectos, "crear_solicitud_programa")!.datos.responsable,
+        esperado,
+        texto,
+      );
+    }
+  });
+
+  it("ante la duda deja el campo vacío en vez de inventar una persona", () => {
+    // Esa columna es con la que el área llama por teléfono. Un fragmento de
+    // oración ahí es peor que la columna vacía.
+    const casos = [
+      "Escuela Belgrano, Muñecas 200, el responsable de la limpieza pidió el taller",
+      "Escuela Belgrano, Muñecas 200, el responsable todavia no lo definimos",
+      "Escuela Belgrano, Muñecas 200, 30 alumnos",
+    ];
+    for (const texto of casos) {
+      const s = simular(flujoProgramaEduca, [{ texto }]);
+      assert.equal(
+        efectoDe(s.efectos, "crear_solicitud_programa")!.datos.responsable,
+        null,
+        texto,
+      );
+    }
+  });
+
+  it("el nombre termina donde empieza el dato siguiente", () => {
+    // Sin comas, que es como escribe la gente. «responsable Ana y 30 chicos» no
+    // puede dar «Ana y».
+    const s = simular(flujoProgramaEduca, [
+      { texto: "Escuela Belgrano, Muñecas 200, responsable Ana y 30 chicos" },
+    ]);
+    assert.equal(efectoDe(s.efectos, "crear_solicitud_programa")!.datos.responsable, "Ana");
   });
 });

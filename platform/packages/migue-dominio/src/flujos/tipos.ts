@@ -11,7 +11,12 @@
  * flujo con efectos secundarios adentro sólo se puede probar levantando todo.
  */
 import type { Catalogo } from "../datos/catalogo.ts";
-import type { MensajeEntrante, MensajeSaliente } from "../mensajeria.ts";
+import type {
+  CategoriaFoto,
+  EstadoVeredicto,
+  MensajeEntrante,
+  MensajeSaliente,
+} from "../mensajeria.ts";
 
 /**
  * Los flujos que existen, como VALOR y no solo como tipo.
@@ -75,6 +80,13 @@ export interface DatosTicket {
   readonly diasSinServicio: number | null;
   readonly vencimiento: Date;
   readonly derivadoA: string | null;
+  /**
+   * Lo que el modelo de visión dijo de la foto. Opcionales: un ticket sin foto
+   * no tiene veredicto, y los constructores viejos no se rompen.
+   */
+  readonly fotoVeredicto?: EstadoVeredicto | null;
+  readonly fotoCategoria?: CategoriaFoto | null;
+  readonly fotoDetalle?: string | null;
 }
 
 export interface DatosSolicitudPrograma {
@@ -85,6 +97,26 @@ export interface DatosSolicitudPrograma {
   readonly direccion: string;
   readonly telefonoContacto: string | null;
   readonly informacionAdicional: string | null;
+  /**
+   * Referencia de la foto en el canal, o null si no mandó.
+   *
+   * Faltaba, y la ausencia tenía un costo silencioso: los flujos emitían
+   * `guardar_media` igual, el worker subía el archivo al bucket, y al no haber
+   * `photo_ref` en la fila el update de `photo_url` no encontraba a quién
+   * pegarle. La foto quedaba huérfana en Storage y el panel decía «sin foto».
+   */
+  readonly fotoReferencia: string | null;
+}
+
+export interface DatosAlertaAsesor {
+  /**
+   * Teléfono de contacto. En Telegram es siempre null —el canal no lo da y
+   * DECIDIMOS no pedírselo al vecino: se lo contesta por el chat—. El campo
+   * queda porque en WhatsApp el número viene con el mensaje.
+   */
+  readonly telefono: string | null;
+  /** Con qué palabras pidió el asesor, para dar contexto al responder. */
+  readonly motivo: string | null;
 }
 
 export type Efecto =
@@ -95,6 +127,11 @@ export type Efecto =
    * sigue, para que un vecino no quede esperando la bajada de 5 MB.
    */
   | { readonly tipo: "guardar_media"; readonly referencia: string; readonly proposito: string }
+  /**
+   * Registra que un vecino pidió hablar con una persona. Canal, nombre y
+   * conversación no van acá: salen de la Procedencia, igual que en el ticket.
+   */
+  | { readonly tipo: "crear_alerta_asesor"; readonly datos: DatosAlertaAsesor }
   | { readonly tipo: "cerrar_conversacion"; readonly motivo: string };
 
 // ---------------------------------------------------------------------------

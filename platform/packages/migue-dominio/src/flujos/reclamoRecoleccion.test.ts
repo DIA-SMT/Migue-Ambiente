@@ -8,22 +8,30 @@ import { esDiaHabil } from "../reglas/sla.ts";
 describe("apertura", () => {
   it("pide los tres datos del diagnóstico en un solo mensaje", () => {
     const s = simular(flujo, []);
-    assert.equal(s.dichos.length, 1, "no fragmenta el pedido en tres preguntas");
-    assert.match(s.dichos[0]!, /direcci[oó]n/i);
+    // Se mira el PRIMER mensaje y no la cantidad total: desde la migración 036
+    // detrás viene el enlace al mapa de recorridos, que es información y no una
+    // cuarta pregunta. Contar mensajes hacía que este test midiera eso.
+    const diagnostico = s.dichos[0]!;
+    assert.match(diagnostico, /direcci[oó]n/i, "no fragmenta el pedido en tres preguntas");
+    assert.match(diagnostico, /foto/i, "no fragmenta el pedido en tres preguntas");
+    assert.match(diagnostico, /desde cu[aá]ndo/i, "no fragmenta el pedido en tres preguntas");
   });
 
   it("suma el enlace a los recorridos sólo si está cargado", () => {
-    // Ambiente todavía no nos pasó la URL del mapa. Sin este condicional el
-    // vecino recibiría el marcador «[falta texto: ...]».
-    const sinEnlace = simular(flujo, []);
-    assert.equal(sinEnlace.dichos.length, 1);
-    assert.equal(dijo(sinEnlace.dichos, "falta texto"), false);
-
-    const textos = new Map(catalogoPrueba().textos);
-    textos.set("reclamo_info_turnos", "Verificá tu turno en el mapa: ejemplo.gob.ar/mapa");
-    const conEnlace = simular(flujo, [], contextoPrueba(catalogoPrueba({ textos })));
+    // Desde la migración 036 la URL del mapa está cargada, así que el caso por
+    // defecto es CON enlace y son dos mensajes.
+    const conEnlace = simular(flujo, []);
     assert.equal(conEnlace.dichos.length, 2);
     assert.ok(dijo(conEnlace.dichos, "mapa"));
+
+    // Y sigue siendo opcional: vaciarlo desde el panel tiene que apagar el
+    // mensaje, no mandarle «[falta texto: ...]» al vecino. Se arma a mano
+    // porque el fixture ya no es este caso.
+    const textos = new Map(catalogoPrueba().textos);
+    textos.set("reclamo_info_turnos", "");
+    const sinEnlace = simular(flujo, [], contextoPrueba(catalogoPrueba({ textos })));
+    assert.equal(sinEnlace.dichos.length, 1);
+    assert.equal(dijo(sinEnlace.dichos, "falta texto"), false);
   });
 });
 
@@ -43,6 +51,41 @@ describe("la dirección es lo único bloqueante", () => {
   it("repregunta nombrando la calle si falta la altura", () => {
     const s = simular(flujo, [{ texto: "Lavalle" }]);
     assert.ok(dijo(s.dichos, "altura de Lavalle"));
+  });
+});
+
+describe("el veredicto de la visión", () => {
+  it("una foto que no corresponde NO repregunta acá: la foto es opcional; sólo marca", () => {
+    const s = simular(flujo, [
+      {
+        texto: "Lavalle 500",
+        imagen: "selfie-r",
+        veredicto: { veredicto: "no_corresponde", categoria: null, detalle: "es un documento" },
+      },
+    ]);
+    assert.equal(s.estado, null, "el reclamo cerró en el mismo turno");
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "no_corresponde");
+    assert.equal(t.fotoDetalle, "es un documento");
+  });
+
+  it("la foto en un turno y la dirección en otro conservan el veredicto", () => {
+    const s = simular(flujo, [
+      {
+        imagen: "foto-r1",
+        veredicto: { veredicto: "valida", categoria: "basural", detalle: "bolsas acumuladas" },
+      },
+      { texto: "Lavalle 500" },
+    ]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, "valida");
+    assert.equal(t.fotoCategoria, "basural");
+  });
+
+  it("sin foto no hay veredicto que guardar", () => {
+    const s = simular(flujo, [{ texto: "Lavalle 500" }]);
+    const t = efectoDe(s.efectos, "crear_ticket")!.datos;
+    assert.equal(t.fotoVeredicto, null);
   });
 });
 
@@ -142,10 +185,74 @@ describe("el ticket que queda", () => {
 
   it("la confirmación interpola el plazo real y nombra a la empresa", () => {
     const s = simular(flujo, [{ texto: "Lavalle 500" }]);
-    const ultimo = s.dichos.at(-1)!;
+    // La confirmación es el PENÚLTIMO: el último es el aviso de lo que quedó
+    // sin cargar, que va aparte para que la confirmación se pueda reenviar sola.
+    const ultimo = s.dichos.at(-2)!;
     assert.ok(dijo([ultimo], "3 días hábiles"));
     assert.ok(dijo([ultimo], "Transporte 9 de Julio"));
     assert.ok(dijo([ultimo], "GPS"), "la spec promete verificar el GPS del interno");
     assert.doesNotMatch(ultimo, /\{\w+\}/, "sin marcadores sueltos");
+  });
+});
+
+describe("avisa qué quedó sin cargar", () => {
+  it("con la dirección sola registra el reclamo y dice qué faltó", () => {
+    // EL CASO QUE REPORTÓ EL USUARIO. Antes el vecino mandaba la dirección y
+    // recibía «Reclamo generado» a secas, idéntico a si hubiera mandado las tres
+    // cosas: se iba creyendo que su reclamo tenía la foto.
+    const s = simular(flujo, [{ texto: "Lavalle al 500" }]);
+
+    assert.equal(efectoDe(s.efectos, "crear_ticket")?.datos.direccion, "Lavalle 500");
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(dijo([ultimo], "Quedó registrado sin"));
+    assert.ok(dijo([ultimo], "una foto de la basura sin recolectar"));
+    assert.ok(dijo([ultimo], "desde cuándo no pasa el camión"));
+  });
+
+  it("el aviso NO invita a mandar el dato: no hay flujo que lo reciba", () => {
+    // Una vez creado el ticket el flujo se cierra. Si el mensaje dijera
+    // «mandámelo ahora», el vecino le mandaría la foto a un paso que ya no
+    // existe. Prometer un turno inexistente es la misma falla, del otro lado.
+    const s = simular(flujo, [{ texto: "Lavalle 500" }]);
+    assert.equal(s.estado, null, "el flujo cerró");
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(!/ahora|mandame|manda me|escribime/i.test(ultimo), `invita: "${ultimo}"`);
+    assert.equal((ultimo.match(/\?/g) ?? []).length, 0, "es un aviso, no una pregunta");
+  });
+
+  it("si no faltó nada, no dice nada de más", () => {
+    const s = simular(flujo, [{ texto: "Lavalle 500, hace 3 dias", imagen: "f1" }]);
+    assert.equal(s.dichos.filter((d) => d.includes("Quedó registrado sin")).length, 0);
+  });
+
+  it("nombra sólo lo que falta, no lo que llegó", () => {
+    const s = simular(flujo, [{ texto: "Lavalle 500", imagen: "f1" }]);
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(dijo([ultimo], "desde cuándo no pasa el camión"));
+    assert.ok(!dijo([ultimo], "foto"), "la foto llegó, no puede figurar como faltante");
+  });
+
+  it("el cierre nombra la dirección como la entendió", () => {
+    // El eco es el único control de calidad del vecino: si el bot leyó mal, es
+    // la única forma de darse cuenta antes de que salga una cuadrilla.
+    const s = simular(flujo, [{ texto: "lavaye 500" }]);
+    assert.ok(dijo(s.dichos, "lavaye 500"));
+  });
+});
+
+describe("lo que el vecino ya dijo no se pierde", () => {
+  it("REGRESIÓN · los días dichos en un turno previo llegan al ticket", () => {
+    // `diasSinServicio` estaba declarado en los datos del flujo y se usaba al
+    // armar el ticket, pero sólo se leía en la rama del cierre: decirlos en un
+    // turno y la dirección en el siguiente los perdía en silencio.
+    const s = simular(flujo, [{ texto: "hace 3 dias que no pasan" }, { texto: "Lavalle 500" }]);
+    assert.equal(efectoDe(s.efectos, "crear_ticket")?.datos.diasSinServicio, 3);
+  });
+
+  it("y con los días ya guardados, el aviso no los vuelve a nombrar", () => {
+    const s = simular(flujo, [{ texto: "hace 3 dias que no pasan" }, { texto: "Lavalle 500" }]);
+    const ultimo = s.dichos.at(-1)!;
+    assert.ok(!dijo([ultimo], "desde cuándo"), "los días ya los tiene");
+    assert.ok(dijo([ultimo], "foto"), "pero la foto sigue faltando");
   });
 });

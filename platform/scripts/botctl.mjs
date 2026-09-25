@@ -232,9 +232,32 @@ function cmdRm(argv) {
 }
 
 // -------------------------------- doctor -----------------------------------
-async function cmdDoctor() {
+/**
+ * Verifica el entorno y el registro.
+ *
+ * `--propios a,b,c` son las CARPETAS que envía quien llama. Un bot cuyo `dir`
+ * no esté en esa lista es de otro equipo: sus problemas se muestran igual —de
+ * eso se trata un doctor— pero no cuentan como falla, porque no son nuestros
+ * ni los podemos arreglar.
+ *
+ * Sin la bandera, todo cuenta. Corrido a mano en el servidor tiene que seguir
+ * diciendo la verdad completa sobre la máquina.
+ *
+ * Existe porque el 2026-09-25 un bot de otro equipo con el entry faltante
+ * frenó el deploy de este repo justo antes de recargar, dejando el código
+ * nuevo subido y compilado pero sin aplicar. El chequeo tiene que seguir
+ * frenándonos por LO NUESTRO; por lo ajeno, avisar.
+ */
+async function cmdDoctor(argv = []) {
   let fallas = 0;
   const problema = (m) => { bad(m); fallas += 1; };
+  let ajenosConProblema = 0;
+
+  const i = argv.indexOf("--propios");
+  const propios =
+    i >= 0 && argv[i + 1]
+      ? new Set(argv[i + 1].split(",").map((x) => x.trim()).filter(Boolean))
+      : null;
 
   head("Entorno");
   const major = Number(process.versions.node.split(".")[0]);
@@ -258,28 +281,39 @@ async function cmdDoctor() {
 
   for (const bot of bots) {
     const etiqueta = bot.name || "(sin nombre)";
+    const ajeno = propios !== null && !propios.has(bot.dir);
+    const marcar = ajeno
+      ? (m) => {
+          warn(`${m}  ${C.dim}(de otro equipo: no frena este deploy)${C.off}`);
+          ajenosConProblema += 1;
+        }
+      : problema;
 
-    if (nombres.has(bot.name)) problema(`${etiqueta}: nombre duplicado`);
+    if (nombres.has(bot.name)) marcar(`${etiqueta}: nombre duplicado`);
     nombres.add(bot.name);
 
     const dir = dirDeProceso(bot);
     if (!fs.existsSync(path.join(dir, bot.entry ?? ""))) {
-      problema(`${etiqueta}: no existe el entry ${bot.dir}/${bot.entry}`);
+      marcar(`${etiqueta}: no existe el entry ${bot.dir}/${bot.entry}`);
       continue;
     }
 
     if (bot.enabled !== false && !fs.existsSync(path.join(dir, ".env"))) {
-      problema(`${etiqueta}: habilitado pero sin .env`);
+      marcar(`${etiqueta}: habilitado pero sin .env`);
     }
 
     if (bot.port) {
       if (puertos.has(bot.port)) {
-        problema(`${etiqueta}: puerto ${bot.port} ya usado por ${puertos.get(bot.port)}`);
+        marcar(`${etiqueta}: puerto ${bot.port} ya usado por ${puertos.get(bot.port)}`);
       }
       puertos.set(bot.port, etiqueta);
     }
 
-    ok(`${etiqueta}${bot.enabled === false ? ` ${C.dim}(deshabilitado)${C.off}` : ""}`);
+    const notas = [
+      bot.enabled === false ? "deshabilitado" : null,
+      ajeno ? "de otro equipo" : null,
+    ].filter(Boolean);
+    ok(`${etiqueta}${notas.length ? ` ${C.dim}(${notas.join(", ")})${C.off}` : ""}`);
   }
 
   head("Servicios locales");
@@ -291,7 +325,13 @@ async function cmdDoctor() {
 
   console.log();
   if (fallas === 0) {
-    console.log(`${C.green}Todo en orden.${C.off}\n`);
+    // No dice «todo en orden» a secas si hay algo roto en la máquina, aunque
+    // no sea nuestro: el deploy sigue, pero alguien tiene que enterarse.
+    const cola =
+      ajenosConProblema > 0
+        ? ` ${C.dim}(${ajenosConProblema} aviso(s) de bots de otro equipo)${C.off}`
+        : "";
+    console.log(`${C.green}Lo nuestro, en orden.${C.off}${cola}\n`);
   } else {
     console.log(`${C.red}${fallas} problema(s) a resolver.${C.off}\n`);
     process.exit(1);
@@ -312,6 +352,32 @@ function puertoAbierto(puerto, host = "127.0.0.1", timeout = 1000) {
   });
 }
 
+// -------------------------------- nombres ----------------------------------
+/**
+ * Los nombres de PM2 que pertenecen a quien llama.
+ *
+ * Lo usa `deploy.sh` para recargar SOLO lo suyo. Antes recargaba el ecosystem
+ * entero, que se arma del `bots.json` compartido: el día que un bot de otro
+ * equipo esté sano, cada deploy nuestro se lo reiniciaba. Un reinicio ajeno en
+ * medio de nuestro deploy es de las cosas que nadie ata con nada.
+ *
+ * Sale una linea por nombre, para que el shell lo recorra sin parsear nada.
+ */
+function cmdNombres(argv) {
+  const i = argv.indexOf("--propios");
+  const propios =
+    i >= 0 && argv[i + 1]
+      ? new Set(argv[i + 1].split(",").map((x) => x.trim()).filter(Boolean))
+      : null;
+
+  const { bots } = readRegistry();
+  for (const bot of bots) {
+    if (bot.enabled === false) continue;
+    if (propios !== null && !propios.has(bot.dir)) continue;
+    console.log(bot.name);
+  }
+}
+
 // --------------------------------- main ------------------------------------
 const [comando, ...argv] = process.argv.slice(2);
 
@@ -319,14 +385,20 @@ switch (comando) {
   case "list": cmdList(); break;
   case "new": cmdNew(argv); break;
   case "rm": cmdRm(argv); break;
-  case "doctor": await cmdDoctor(); break;
+  case "doctor": await cmdDoctor(argv); break;
+  case "nombres": cmdNombres(argv); break;
   default:
     console.log(`botctl — gestion del registro multibot
 
   list                                  estado de todos los bots
   new <nombre> [--port N] [--webhook]   crear un bot desde la plantilla
   rm <nombre> [--purge]                 dar de baja un bot
-  doctor                                verificar entorno y registro
+  nombres [--propios <dirs>]            los nombres de PM2 habilitados, uno
+                                        por linea; con --propios, solo los de
+                                        esas carpetas
+  doctor [--propios <dirs>]             verificar entorno y registro
+                                        --propios: carpetas de quien llama;
+                                        los bots ajenos avisan pero no fallan
 `);
     process.exit(comando ? 1 : 0);
 }

@@ -176,8 +176,14 @@
   --sombra-figura: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
 
   --radio: 12px;
-  --texto: "Asap", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  /* Poppins para las dos, pedido del área. Antes eran Asap y Archivo, elegidas
+     a ojo cuando no había definición de marca.
+
+     Poppins es GEOMÉTRICA y más ancha que Asap al mismo tamaño, así que el
+     cuerpo baja de 15 a 14.5px: sin eso las tablas densas —Interacciones sobre
+     todo, que se midió para entrar justa— se desbordan del contenedor. */
+  --texto: "Poppins", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display: "Poppins", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --ancho-barra: 244px;
 
@@ -290,7 +296,9 @@
 body {
   margin: 0;
   font-family: var(--texto);
-  font-size: 15px;
+  /* 14.5 y no 15: Poppins pinta más ancho y más alto que Asap al mismo tamaño.
+     Medido en la tabla de Interacciones, que ya estaba justa de ancho. */
+  font-size: 14.5px;
   line-height: 1.55;
   color: var(--tinta);
   background: var(--fondo);
@@ -718,6 +726,15 @@ tr.de-baja td {
 .chip.alerta {
   background: var(--alerta-piso);
   color: var(--alerta);
+}
+
+/* El contador de la barra lateral: se empuja al borde derecho del ítem. Sobre
+   la barra verde el piso translúcido del chip no contrasta, así que acá el
+   fondo es el color de alerta pleno con texto blanco. */
+.barra-nav .insignia-asesor {
+  margin-left: auto;
+  background: var(--alerta);
+  color: #fff;
 }
 
 .detalle-problema {
@@ -1246,13 +1263,25 @@ dl.ficha dd {
   border-radius: 14px 14px 14px 4px;
 }
 
-/* El vecino: papel, a la derecha, con borde. El borde importa: sin él, sobre el
-   fondo claro del cajón la burbuja no se distingue del vacío. */
+/* El vecino: a la derecha, con borde.
+ *
+ * El fondo es `--papel-2` y no `--papel`, y la diferencia se paga cara: el cajón
+ * TAMBIÉN es `--papel`, así que con ese fondo la burbuja del vecino era del
+ * mismo color exacto que lo que tiene atrás. En el tema claro el borde la
+ * salvaba; en el OSCURO no, porque ahí el borde es apenas más claro que el fondo
+ * —medido: burbuja y cajón en rgb(20,35,29), borde en rgb(44,71,57)—.
+ *
+ * El efecto era que una conversación leída de corrido parecía un monólogo de
+ * Migue: sus burbujas son verdes y sólidas, y las del vecino quedaban como texto
+ * flotando. Lo reportó el área usándolo, no lo vio ninguna prueba.
+ *
+ * `--papel-2` es la superficie que está un escalón del papel, en los dos temas,
+ * así que separa sin inventar un color nuevo. El borde se queda igual. */
 .burbuja.entrante {
   align-self: flex-end;
 }
 .burbuja.entrante .cuerpo {
-  background: var(--papel);
+  background: var(--papel-2);
   color: var(--tinta);
   border: 1px solid var(--linea);
   border-radius: 14px 14px 4px 14px;
@@ -1311,6 +1340,72 @@ dl.ficha dd {
   font-style: normal;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   LA CHARLA DESPLEGADA DENTRO DE LA FILA
+
+   Antes la conversación se abría en un cajón encima de la lista. Ahora se
+   despliega en una fila propia, debajo de la consulta en la que se hizo clic.
+
+   EL FONDO NO PUEDE SER `--papel-2`, Y ES LA REGLA IMPORTANTE DE ESTE BLOQUE.
+   La burbuja del vecino ES `--papel-2`: si el desplegado usara ese color para
+   distinguirse, la burbuja volvería a ser exactamente del color de lo que tiene
+   atrás. Eso ya pasó una vez —en el cajón, que es `--papel` igual que la
+   burbuja era entonces— y el área lo reportó usándolo: la charla parecía un
+   monólogo de Migue, porque sus burbujas son verdes y sólidas y las del vecino
+   quedaban como texto flotando.
+
+   Por eso el desplegado se distingue con un filo verde a la izquierda y no con
+   relleno. Y por eso las dos filas —la de la consulta abierta y la de la
+   charla— anulan el `:hover` de la tabla, que también es `--papel-2`: sin eso,
+   pasar el mouse por encima hacía desaparecer las burbujas del vecino mientras
+   se leía.
+   -------------------------------------------------------------------------- */
+
+/* La fila de la consulta que está abierta. Acá no hay burbujas, así que el
+   relleno es seguro y es lo que mejor dice «esta es la que estás mirando». */
+tbody tr.fila-abierta,
+tbody tr.fila-abierta:hover {
+  background: var(--papel-2);
+}
+
+tbody tr.fila-desplegada,
+tbody tr.fila-desplegada:hover {
+  background: var(--papel);
+}
+
+tbody tr.fila-desplegada > td {
+  padding: 0;
+}
+
+.charla-desplegada {
+  padding: 16px 18px 20px;
+  border-left: 3px solid var(--verde-vivo);
+  background: var(--papel);
+}
+
+.charla-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+/* El triángulo que dice si la fila está abierta. Ancho fijo para que el texto
+   de la consulta no se corra un pixel al abrir y cerrar. */
+.cursor-desplegar {
+  display: inline-block;
+  width: 0.8em;
+  color: var(--tinta-suave);
+}
+
+/* La consulta desde la que se abrió la charla, marcada adentro de la charla.
+   En un ida y vuelta de veinte mensajes, encontrar cuál era la fila en la que
+   se hizo clic obliga a releerlo entero. */
+.burbuja.resaltada .cuerpo {
+  outline: 2px solid var(--verde-vivo);
+  outline-offset: 2px;
 }
 
 /* --------------------------------------------------------------------------
@@ -2414,4 +2509,292 @@ dl.ficha dd {
   color: inherit;
   font-weight: 600;
   text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------------
+   Preguntas frecuentes, en tarjetas agrupadas por tema
+
+   Reemplazan a una tabla de una fila por FAQ con la respuesta recortada a 200
+   caracteres. Una FAQ se juzga leyéndola entera, y en una celda no se lee.
+
+   Todo sale de los tokens que ya existen: ni un color nuevo. La hoja tiene dos
+   temas y `herramientas/verificar-contraste.mjs` los revisa, así que un
+   #hex escrito acá se saltearía las dos cosas.
+   --------------------------------------------------------------------------- */
+
+.faqs {
+  margin-top: 4px;
+}
+
+/* --- la barra de arriba: buscar, borradores, cuenta --- */
+
+.faqs-filtros {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.faqs-filtros .buscador {
+  flex: 1 1 280px;
+  max-width: 460px;
+  width: auto;
+  font-family: var(--texto);
+  font-size: 0.95rem;
+  padding: 9px 12px;
+  border: 1px solid var(--linea);
+  border-radius: 9px;
+  background: var(--papel);
+  color: var(--tinta);
+}
+
+.faqs-borradores {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--tinta-media);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.faqs-borradores input {
+  width: auto;
+}
+
+.faqs-cuenta {
+  margin-left: auto;
+  color: var(--tinta-suave);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- las píldoras de tema --- */
+
+.faqs-temas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.pildora {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid var(--linea);
+  border-radius: 999px;
+  background: var(--papel);
+  color: var(--tinta-media);
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pildora:hover {
+  border-color: var(--verde-vivo);
+  color: var(--tinta);
+}
+
+/* DOS COSAS, y las dos salieron de mirar la pantalla, no el código.
+
+   El fondo es `verde-profundo` y no `verde-vivo`: el vivo con texto blanco da
+   3,38:1, por debajo del mínimo AA. Lo agarró `verificar-contraste.mjs`, no el
+   ojo — se ve perfecto. El profundo es el verde de la barra, donde el texto
+   blanco ya está verificado.
+
+   Y va con `button` adelante para ganarle a `button:hover:not(:disabled)` de la
+   hoja general, que tiene un elemento más de especificidad. Sin eso, al pasar
+   el mouse le pisaba el fondo y quedaba texto blanco sobre gris claro: la
+   píldora elegida se volvía ilegible justo después de hacerle click, que es
+   exactamente cuando el mouse está encima. */
+button.pildora.activa,
+button.pildora.activa:hover {
+  background: var(--verde-profundo);
+  border-color: var(--verde-profundo);
+  color: var(--sobre-verde-fuerte);
+}
+
+.pildora-cuenta {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: var(--riel);
+  color: var(--tinta-fuerte);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.pildora.activa .pildora-cuenta {
+  background: var(--realce-barra);
+  color: var(--sobre-verde-fuerte);
+}
+
+/* --- los grupos --- */
+
+.faqs-grupo {
+  margin-bottom: 26px;
+}
+
+.faqs-grupo-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 11px;
+  padding-left: 11px;
+  border-left: 3px solid var(--verde-vivo);
+}
+
+.faqs-grupo-nombre {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta-fuerte);
+}
+
+.faqs-grupo-cuenta {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--tinta-suave);
+}
+
+/* Se apoya en `auto-fill` y no en un número de columnas: con siete FAQs hay
+   pocas por fila y con cuarenta se llena, sin puntos de quiebre a mano. */
+.faqs-grilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 14px;
+}
+
+/* --- la tarjeta --- */
+
+.faq-tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 15px 16px;
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-left: 3px solid var(--verde-vivo);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+/* Un borrador se distingue por el borde apagado, no por opacidad: bajarle la
+   opacidad al texto lo saca del contraste mínimo, y es texto que hay que poder
+   leer para decidir si se publica. */
+.faq-tarjeta.de-baja {
+  border-left-color: var(--serie-pend);
+  background: var(--papel-2);
+}
+
+.faq-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.faq-usos {
+  font-size: 0.82rem;
+  color: var(--tinta-suave);
+  font-variant-numeric: tabular-nums;
+}
+
+.faq-pregunta {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--tinta-fuerte);
+}
+
+.faq-respuesta {
+  margin: 0;
+  font-size: 0.91rem;
+  line-height: 1.55;
+  color: var(--tinta-media);
+  white-space: pre-wrap;
+}
+
+/* El marcador se ve como lo que es: un hueco que se llena al enviar. Sin esto
+   la tarjeta muestra «{limites}» crudo y parece un error de la pantalla. */
+.marcador {
+  display: inline;
+  padding: 1px 7px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: var(--riel);
+  border: 1px dashed var(--linea);
+  color: var(--tinta-fuerte);
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.faq-etiquetas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.etiqueta {
+  font-size: 0.78rem;
+  color: var(--tinta-suave);
+  background: var(--hundida);
+  border: 1px solid var(--linea-suave);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.faq-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Interacciones · la barra de filtros
+
+   Reusa `.buscador` de Preguntas frecuentes. Los `select` y los `date` toman el
+   estilo general de formulario, que fuerza `width: 100%`: acá tienen que medir
+   lo que miden, así que se les devuelve el ancho automático.
+   --------------------------------------------------------------------------- */
+
+.interacciones-filtros {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.interacciones-filtros .buscador {
+  flex: 1 1 240px;
+  max-width: 380px;
+}
+
+.interacciones-filtros select,
+.interacciones-fecha input {
+  width: auto;
+}
+
+.interacciones-fecha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tinta-suave);
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.interacciones-cuenta {
+  margin-left: auto;
+  color: var(--tinta-suave);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
 }

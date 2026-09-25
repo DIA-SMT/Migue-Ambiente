@@ -4,16 +4,18 @@ import { Salir } from "./Salir";
 import { Tema } from "./Tema";
 import {
   Hojas,
+  IconoAsesor,
   IconoCasos,
   IconoClima,
-  IconoConversaciones,
   IconoDocumentos,
+  IconoMensajes,
   IconoMetricas,
   IconoPersonal,
   IconoReglas,
   IconoRespuestas,
   IconoTablero,
 } from "./Botanica";
+import { InsigniaAsesor } from "./InsigniaAsesor";
 
 /**
  * El armazón del panel: barra lateral fija más el área de contenido.
@@ -58,7 +60,18 @@ const GRUPOS = [
       // Primera del grupo: es el único dato del panel donde habla el vecino.
       // Todo lo demás son deducciones nuestras mirando lo que hizo el bot.
       { href: "/clima", texto: "Clima", Icono: IconoClima, listo: true },
-      { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
+      // Era dos items: «Interacciones», una fila por CONSULTA, y
+      // «Conversaciones», una fila por CHARLA. La division tenia sentido en el
+      // papel y ninguno en el uso: para entender un caso habia que ir a las dos,
+      // porque la consulta estaba en una y el voto del vecino en la otra. Ahora
+      // es una lista de consultas y la charla se despliega adentro de la fila.
+      // `/conversaciones` sigue viva como redireccion, por los enlaces viejos.
+      { href: "/interacciones", texto: "Interacciones", Icono: IconoMensajes, listo: true },
+      // Entre Interacciones y Casos: los tres son «vecinos esperando algo».
+      // Es el único ítem con insignia: un vecino esperando que lo LLAMEN es lo
+      // más perecedero que muestra el panel, y tiene que verse desde cualquier
+      // pantalla sin entrar a mirar.
+      { href: "/alertas", texto: "Pedidos de asesor", Icono: IconoAsesor, listo: true },
       { href: "/casos", texto: "Pedidos y reclamos", Icono: IconoCasos, listo: true },
       { href: "/metricas", texto: "Métricas", Icono: IconoMetricas, listo: true },
     ],
@@ -120,6 +133,10 @@ export function Armazon({
                   >
                     <Icono className="icono" />
                     {texto}
+                    {/* La insignia vive en el ítem y no en el layout: es un
+                        client component chico que consulta solo; el resto de la
+                        barra sigue siendo server component. */}
+                    {href === "/alertas" && <InsigniaAsesor />}
                   </Link>
                 ) : (
                   <div key={href} className="pendiente" title="Todavía no construida">

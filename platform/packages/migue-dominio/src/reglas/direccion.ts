@@ -119,6 +119,15 @@ const NO_ES_CALLE = new Set([
   // ganaba sobre la dirección real, que venía en un segmento posterior.
   "tel", "telefono", "tel.", "cel", "celular", "cel.", "whatsapp", "wsp",
   "contacto", "mail", "email", "dni", "nombre", "soy", "llamar", "alumnos",
+  // Conjunciones y adverbios con los que arranca una queja. Sin esto,
+  // «hace 3 dias que no pasan» se leía como la calle «hace 3 dias» y el bot
+  // contestaba «Me falta la altura de hace 3 dias. ¿A qué número queda?».
+  "hace", "desde", "que", "porque", "cuando", "vecino", "vecina",
+  // Saludos y muletillas. Mismo síntoma con «hola»: no hay forma de distinguir
+  // «Lavalle» de «hola» sin un padrón de calles, que no tenemos; esta lista
+  // cubre lo que la gente escribe de verdad.
+  "hola", "buenas", "buenos", "buen", "che", "chau", "gracias", "ok", "dale",
+  "listo", "bueno", "perdon", "disculpa", "consulta",
 ]);
 
 /**

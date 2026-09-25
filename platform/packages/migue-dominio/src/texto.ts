@@ -121,3 +121,16 @@ export function interpolar(
     return valor === undefined ? completo : String(valor);
   });
 }
+
+/**
+ * Une una lista en castellano: «la foto y desde cuándo no pasa el camión».
+ *
+ * Vivía privada en `datos/catalogo.ts` y ahora también la necesita el aviso de
+ * lo que quedó sin cargar. Es la única función que sabe decir «A, B y C»: dos
+ * copias se desincronizan y el vecino recibe dos castellanos distintos en la
+ * misma conversación.
+ */
+export function enumerar(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} y ${items.at(-1)}`;
+}

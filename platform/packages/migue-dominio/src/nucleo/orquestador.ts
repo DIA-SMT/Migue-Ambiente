@@ -45,23 +45,25 @@ import {
 } from "../flujos/opciones.ts";
 import { decidir, type Clasificacion } from "../ia/router.ts";
 import { leerConfig, leerTexto, tieneTexto, type Catalogo } from "../datos/catalogo.ts";
-import { interpolar } from "../texto.ts";
+import { interpolar, recortar } from "../texto.ts";
 import {
   decir,
   preguntar,
   textoEfectivo,
+  type Canal,
   type MensajeEntrante,
+  type VeredictoFoto,
   type MensajeSaliente,
   type OpcionRespuesta,
 } from "../mensajeria.ts";
 import { almacenEnMemoria, claveDeEstado, type AlmacenEstado } from "./almacen.ts";
 import type { DefinicionFlujo, Efecto, EstadoFlujo, NombreFlujo } from "../flujos/tipos.ts";
 import type { Respuesta } from "../conocimiento/responder.ts";
-import type { OrigenRespuesta, TrazaMensaje } from "../datos/conversaciones.ts";
+import type { EntranteRegistrado, OrigenRespuesta, TrazaMensaje } from "../datos/conversaciones.ts";
 import type { MotivoSinRespuesta, Procedencia } from "../datos/registros.ts";
 import type { ResultadoEfecto } from "../datos/efectos.ts";
 
-/** Los cinco flujos, indexados por nombre. */
+/** Los flujos, indexados por nombre. El Record obliga a registrar todos. */
 const FLUJOS: Readonly<Record<NombreFlujo, DefinicionFlujo>> = {
   retiro_no_habitual: flujoRetiroNoHabitual,
   reclamo_recoleccion: flujoReclamoRecoleccion,
@@ -77,7 +79,7 @@ const FLUJOS: Readonly<Record<NombreFlujo, DefinicionFlujo>> = {
 /** Escritura durable. Se inyecta para poder falsearla en las pruebas. */
 export interface Persistencia {
   abrirConversacion(entrante: MensajeEntrante): Promise<{ id: string; esNueva: boolean }>;
-  registrarEntrante(conversacionId: string, entrante: MensajeEntrante): Promise<string>;
+  registrarEntrante(conversacionId: string, entrante: MensajeEntrante): Promise<EntranteRegistrado>;
   registrarSaliente(
     conversacionId: string,
     saliente: MensajeSaliente,
@@ -135,10 +137,35 @@ export interface Puertos {
   readonly obtenerCatalogo: () => Promise<Catalogo>;
   readonly clasificar: (texto: string, catalogo: Catalogo) => Promise<Clasificacion>;
   readonly responder: (consulta: string, catalogo: Catalogo) => Promise<Respuesta>;
+  /**
+   * Verifica la foto con el modelo de visión. Lo implementa el bot: descarga
+   * los bytes del canal y llama a `evaluarFoto`. null significa «no se pudo»
+   * y el flujo lo trata como no_evaluada. No debería lanzar, pero el
+   * orquestador igual lo envuelve en catch: una foto jamás tumba el turno.
+   */
+  readonly analizarFoto: (
+    referencia: string,
+    contexto: {
+      readonly flujo: "retiro_no_habitual" | "reclamo_recoleccion";
+      /** La referencia es opaca y por canal: el bot elige de dónde descargar. */
+      readonly canal: Canal;
+    },
+  ) => Promise<VeredictoFoto | null>;
   readonly persistencia: Persistencia;
   /** Inyectado y no `new Date()`: es lo que hace testeables los plazos. */
   readonly ahora: () => Date;
 }
+
+/**
+ * En qué paso de qué flujo vale la pena mirar la foto.
+ *
+ * El gate es (flujo, paso) y no sólo el flujo: una foto tardía en un paso que
+ * la ignora pagaría descarga y modelo para que nadie lea el veredicto.
+ */
+const PASOS_CON_VISION: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["retiro_no_habitual", new Set(["foto"])],
+  ["reclamo_recoleccion", new Set(["diagnostico"])],
+]);
 
 export interface Resultado {
   readonly salientes: readonly MensajeSaliente[];
@@ -146,6 +173,12 @@ export interface Resultado {
   readonly origenRespuesta: OrigenRespuesta;
   readonly flujoActivo: NombreFlujo | null;
   readonly efectos: readonly ResultadoEfecto[];
+  /**
+   * true si el entrante era un reintento ya visto (mismo canalMensajeId): no
+   * hubo turno. Los salientes vienen vacíos; el campo existe para que el
+   * adaptador pueda loguear la verdad en vez de un «atendido» que no pasó.
+   */
+  readonly duplicado?: boolean;
   /**
    * El teclado del mensaje que se acaba de tocar ya no sirve: el canal tiene
    * que quitarlo.
@@ -173,7 +206,23 @@ export async function procesarMensaje(
 ): Promise<Resultado> {
   const catalogo = await puertos.obtenerCatalogo();
   const conversacion = await puertos.persistencia.abrirConversacion(entrante);
-  const mensajeId = await puertos.persistencia.registrarEntrante(conversacion.id, entrante);
+  const registrado = await puertos.persistencia.registrarEntrante(conversacion.id, entrante);
+
+  // Un reintento del canal (mismo wamid) corta ACÁ: antes de las exclusiones,
+  // del voto, del flujo y del modelo. Cero efectos y cero salientes — la
+  // primera entrega ya contestó. Es la otra mitad del dedupe de la 035.
+  if (registrado.duplicado) {
+    return {
+      salientes: [],
+      conversacionId: conversacion.id,
+      origenRespuesta: "fallback",
+      flujoActivo: null,
+      efectos: [],
+      quitarBotones: false,
+      duplicado: true,
+    };
+  }
+  const mensajeId = registrado.id;
 
   const texto = textoEfectivo(entrante);
   const clave = claveDeEstado(entrante.canal, entrante.canalUsuarioId);
@@ -340,9 +389,31 @@ export async function procesarMensaje(
       await puertos.almacen.borrar(clave);
       await puertos.persistencia.actualizarFlujo(conversacion.id, null, null);
     } else {
-      const avance = quiereSalir(entrante)
+      // Si el turno trae una foto y el paso la espera, se evalúa con visión
+      // ANTES de avanzar, y el veredicto viaja pegado a la media: el reductor
+      // sigue puro —lo lee como dato— y el fallo degrada a «sin veredicto»,
+      // que el flujo registra como no_evaluada. Nunca bloquea ni lanza.
+      const saliendo = quiereSalir(entrante);
+      let paraElFlujo = entrante;
+      if (
+        !saliendo &&
+        entrante.media?.tipo === "imagen" &&
+        PASOS_CON_VISION.get(estadoPrevio.flujo)?.has(estadoPrevio.paso) === true
+      ) {
+        const veredicto = await puertos
+          .analizarFoto(entrante.media.referencia, {
+            flujo: estadoPrevio.flujo as "retiro_no_habitual" | "reclamo_recoleccion",
+            canal: entrante.canal,
+          })
+          .catch(() => null);
+        if (veredicto !== null) {
+          paraElFlujo = { ...entrante, media: { ...entrante.media, veredicto } };
+        }
+      }
+
+      const avance = saliendo
         ? cancelar()
-        : avanzarFlujo(definicion, estadoPrevio, entrante, {
+        : avanzarFlujo(definicion, estadoPrevio, paraElFlujo, {
             catalogo,
             ahora: puertos.ahora(),
           });
@@ -481,10 +552,74 @@ export async function procesarMensaje(
     latenciaMs: clasificacion.latenciaMs,
   };
 
+  // -------------------------------------------------------------------------
+  // 5b · «Otra consulta» no es una consulta: es alguien que va a hacer una
+  // -------------------------------------------------------------------------
+  // ESTO ES EL ARREGLO DE UN BUG QUE SE VIO PROBANDO EL BOT, y vale escribir por
+  // qué: tocar «Otra consulta» en el menú devolvía «no tengo esa información con
+  // la certeza suficiente», sin que el vecino hubiera preguntado nada.
+  //
+  // El camino era éste. `texto` es `textoEfectivo()`, o sea `seleccion ?? texto`,
+  // así que el toque del botón deja `texto = "consulta_libre"`. Eso viajaba a
+  // `puertos.responder()`, que buscaba en el corpus la frase «consulta_libre»,
+  // no encontraba nada —claro— y contestaba la disculpa. Con dos daños más:
+  //
+  //   · Se pagaba una llamada al modelo para buscar un id interno.
+  //   · Y quedaba una fila en `sin_respuesta` con la pregunta «consulta_libre»,
+  //     que es la tabla del circuito de mejora del panel: el área veía como
+  //     hueco de conocimiento algo que nunca preguntó ningún vecino.
+  //
+  // Lo que corresponde es invitarlo a escribir y esperar. No hace falta guardar
+  // estado: el mensaje siguiente entra por el camino normal —clasificador y
+  // cadena de conocimiento— que es exactamente lo que tiene que pasar con una
+  // pregunta escrita con las palabras del vecino.
+  //
+  // Se pregunta por `delMenu` y no por la intención, y ahí está la distinción
+  // importante: `delMenu` es no nulo SÓLO cuando el mensaje ES la elección —el
+  // botón, el «6», la etiqueta exacta— porque `resolverOpcion` no busca palabras
+  // sueltas dentro de una frase. Quien ESCRIBE una pregunta cae en
+  // `consultar_conocimiento` como siempre y se le responde.
+  //
+  // El origen es `flujo` y no `fallback` por el mismo motivo que el menú del
+  // saludo: `yaVioElMenu` mira el origen del último saliente, y dejar `fallback`
+  // acá haría que la próxima pregunta mal clasificada se derivara a Migue. El
+  // vecino usó el menú como se esperaba; no hubo ningún fallo nuestro.
+  if (delMenu === "consulta_libre") {
+    return await responderCon(
+      [decir(leerTexto(catalogo, "consulta_invitacion"), "texto")],
+      { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos: [] },
+      { ...trazaRouter, origenRespuesta: "flujo" },
+      puertos,
+    );
+  }
+
   switch (decision.tipo) {
     case "saludar":
+      // La bienvenida y DETRÁS el menú, y cada mensaje hace UNA cosa: el
+      // primero presenta a Migue, el segundo pregunta y ofrece las opciones.
+      //
+      // Antes la bienvenida también enumeraba en prosa lo que Migue puede
+      // hacer, y eso venía de cuando el menú era un texto numerado. Desde la
+      // 020 el menú se manda con opciones de verdad —botones en Telegram, lista
+      // en WhatsApp—, así que la prosa repetía las mismas cuatro cosas que el
+      // vecino ve abajo como seis opciones, y los dos mensajes le preguntaban
+      // qué necesitaba. La 038 reparte: uno presenta, el otro pregunta.
+      //
+      // El origen sigue siendo `flujo` y el menú va SEGUNDO, así que
+      // `registrarSaliente` le pone origen null. Es deliberado y es la parte
+      // delicada: `yaVioElMenu` mira el origen del último saliente, y si acá
+      // quedara `fallback` el próximo mensaje que el clasificador leyera mal se
+      // derivaría a Migue directo. La política de la 026 es que el menú se
+      // ofrece una vez ANTE UN FALLO NUESTRO, y saludar no es un fallo.
+      //
+      // Consecuencia aceptada: si después del saludo el vecino escribe algo que
+      // no encaja, ve el menú una segunda vez. Es preferible a mandarlo a otro
+      // número por un error de clasificación.
       return await responderCon(
-        [decir(leerTexto(catalogo, "bienvenida"), "texto")],
+        [
+          decir(leerTexto(catalogo, "bienvenida"), "texto"),
+          preguntar(leerTexto(catalogo, "menu_principal"), OPCIONES_MENU),
+        ],
         { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos: [] },
         { ...trazaRouter, origenRespuesta: "flujo" },
         puertos,
@@ -555,6 +690,36 @@ export async function procesarMensaje(
         [preguntar(leerTexto(catalogo, "menu_principal"), OPCIONES_MENU)],
         { conversacionId: conversacion.id, origenRespuesta: "fallback", flujoActivo: null, efectos: [] },
         { ...trazaRouter, origenRespuesta: "fallback" },
+        puertos,
+      );
+    }
+
+    case "alertar_asesor": {
+      // Pidió una persona: se registra la alerta —que es lo que enciende el
+      // panel— y se le confirma en el mismo turno. No hay nada que preguntarle:
+      // en Telegram decidimos no pedir teléfono (no hay a quién llamarlo desde
+      // afuera igual; la respuesta le llega por este chat), y en WhatsApp el
+      // número viene con el mensaje — `entrante.telefono` lo trae el adaptador.
+      //
+      // El guard de `seleccion` es el de comentarVoto y derivarAMigue: el id
+      // de un botón no es un motivo que valga la pena archivar.
+      const efectos = await puertos.persistencia.aplicarEfectos(
+        [
+          {
+            tipo: "crear_alerta_asesor",
+            datos: {
+              telefono: entrante.telefono ?? null,
+              motivo: entrante.seleccion == null && texto !== "" ? recortar(texto, 500) : null,
+            },
+          },
+        ],
+        procedencia,
+      );
+
+      return await responderCon(
+        [decir(leerTexto(catalogo, "asesor_confirmacion"), "nada")],
+        { conversacionId: conversacion.id, origenRespuesta: "flujo", flujoActivo: null, efectos },
+        { ...trazaRouter, origenRespuesta: "flujo" },
         puertos,
       );
     }

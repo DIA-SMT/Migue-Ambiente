@@ -147,12 +147,81 @@ export function tamanoLegible(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Fecha corta en formato local, sin la hora cuando no aporta. */
+/**
+ * Fecha corta en formato local, sin la hora cuando no aporta.
+ *
+ * La hora se normaliza antes de devolverla, y eso NO es cosmética. En `es-AR`,
+ * `toLocaleTimeString` separa el «a.» del «m.» con un espacio DURO, y cuál usa
+ * lo decide el ICU de quien formatea. Medido con la misma fecha y la misma zona
+ * horaria: Node devuelve U+00A0 y Chrome un espacio común. El texto se ve
+ * idéntico y el byte no lo es, así que un `title` renderizado en el servidor no
+ * coincidía con el que armaba el navegador, y React lo reportaba en la pantalla
+ * de Alertas: «some attributes of the server rendered HTML didn't match ...
+ * This won't be patched up» — o sea que además se quedaba con el del servidor.
+ *
+ * Sólo pasa con `conHora`: la fecha sola coincide byte a byte en los dos lados.
+ * `fechaCorta` tampoco lo necesita porque usa `hour12: false` y nunca escribe
+ * «a. m.».
+ */
 export function fechaLegible(iso: string, conHora = false): string {
   const f = new Date(iso);
   const fecha = f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   if (!conHora) return fecha;
-  return `${fecha} ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+  const hora = f
+    .toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+    // Los dos espacios duros que usan las distintas versiones de ICU acá. Se
+    // cubren los dos para que actualizar Node o el navegador no lo reabra.
+    .replace(/[\u00A0\u202F]/g, " ");
+  return `${fecha} ${hora}`;
+}
+
+/**
+ * Fecha y hora sin el año, para listas largas.
+ *
+ * En una bitácora de consultas el año es ruido: son todas de esta semana y
+ * repetirlo en cada fila come el ancho que necesita la pregunta del vecino —
+ * medido, 177px contra 90px—. El año completo sigue estando en la transcripción,
+ * y el filtro por rango de fechas cubre el caso de mirar hacia atrás.
+ */
+export function fechaCorta(iso: string): string {
+  const f = new Date(iso);
+  const fecha = f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+  // 24 horas: es como se lee una bitácora, y el «a. m.» cuesta treinta píxeles
+  // por fila que necesita la pregunta del vecino.
+  const hora = f.toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${fecha} ${hora}`;
+}
+
+/**
+ * Texto comparable: sin tildes y en minúsculas.
+ *
+ * Acá se busca sobre todo por DIRECCIÓN, y nadie escribe «Córdoba» con tilde
+ * en un buscador. El de Interacciones no normaliza porque ahí se busca sobre
+ * lo que escribió el vecino, que ya viene como lo escribió.
+ */
+export function comparable(texto: string): string {
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/** Todo lo que de un caso tiene sentido buscar, en una sola cadena. */
+export function textoDelCaso(t: Ticket): string {
+  return comparable(
+    [
+      t.address,
+      t.ticket_type,
+      t.user_name,
+      t.waste_type,
+      t.quantity,
+      t.status,
+      t.notes,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 }
 
 /* ------------------------------------------------------------- respuestas --- */
@@ -285,6 +354,11 @@ export interface Ticket {
   derived_to: string | null;
   photo_ref: string | null;
   photo_url: string | null;
+  // Lo que el modelo de visión dijo de la foto (037). Lo escribe el bot;
+  // el panel lo MUESTRA y no lo edita: es la opinión del modelo.
+  photo_verdict: "valida" | "dudosa" | "no_corresponde" | "no_evaluada" | null;
+  photo_category: string | null;
+  photo_detail: string | null;
   notes: string | null;
   sla_deadline: string | null;
   resolved_at: string | null;
@@ -292,6 +366,59 @@ export interface Ticket {
   updated_at: string;
   conversation_id: string | null;
 }
+
+/* ---------------------------------------------------- pedidos de asesor --- */
+
+/** Espejo de `alertas_asesor` (037): un vecino esperando que lo llamen. */
+export interface AlertaAsesor {
+  id: string;
+  conversacion_id: string | null;
+  canal: string;
+  nombre_usuario: string | null;
+  /** El número que el vecino dictó. En Telegram es el ÚNICO dato de contacto. */
+  telefono: string | null;
+  motivo: string | null;
+  estado: "pendiente" | "atendida" | "descartada";
+  atendida_por: string | null;
+  atendida_en: string | null;
+  notas: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+/**
+ * El veredicto de la foto, dicho como se lee.
+ *
+ * null cuando no hay nada que mostrar: ticket sin foto, o anterior a la 037.
+ * `valida` también devuelve chip —tono ok— porque confirma que alguien (el
+ * modelo) miró la foto; la ausencia de chip queda para «nadie la miró».
+ */
+export function veredictoDeFoto(
+  t: Pick<Ticket, "photo_verdict">,
+): { etiqueta: string; tono: "ok" | "curso" | "pend" | "alerta" } | null {
+  switch (t.photo_verdict) {
+    case "valida":
+      return { etiqueta: "foto verificada", tono: "ok" };
+    case "dudosa":
+      return { etiqueta: "foto dudosa", tono: "curso" };
+    case "no_corresponde":
+      return { etiqueta: "la foto no corresponde", tono: "alerta" };
+    case "no_evaluada":
+      return { etiqueta: "foto sin evaluar", tono: "pend" };
+    default:
+      return null;
+  }
+}
+
+/** La categoría que vio el modelo, en palabras del área. */
+export const CATEGORIA_FOTO_LEGIBLE: Readonly<Record<string, string>> = {
+  basural: "basural",
+  volcadero: "volcadero",
+  rnh: "retiro no habitual",
+  barrido: "barrido",
+  limpieza_cestos: "cesto desbordado",
+  otros: "otros residuos",
+};
 
 export interface SolicitudPrograma {
   id: string;

@@ -382,6 +382,34 @@ export const GRUPOS_DE_REGLAS: readonly GrupoDeReglas[] = [
     ],
   },
   {
+    rotulo: "Cuando un vecino pide hablar con una persona",
+    explicacion:
+      "Migue toma el pedido, lo deja en «Pedidos de asesor» y le confirma al vecino. Acá se " +
+      "carga a quién del área hay que avisarle cuando eso pasa, para que enterarse no dependa " +
+      "de que alguien tenga esta pantalla abierta.",
+    claves: [
+      {
+        clave: "asesor_avisar_a",
+        rotulo: "A quién avisarle",
+        queHace:
+          "Los teléfonos de las personas del área que tienen que enterarse, uno por línea. " +
+          "Escribilos como los tenés en la agenda —por ejemplo 3812067777— y el panel los " +
+          "guarda en formato internacional. Cada número cargado recibe un mensaje por cada " +
+          "pedido, así que conviene que sean pocos.",
+        tipo: "lista",
+        siSeRompe:
+          "Vacío es válido y significa «no avisarle a nadie». El pedido queda igual en " +
+          "«Pedidos de asesor», que es donde vive de verdad: el aviso avisa, no reemplaza a " +
+          "esa lista.",
+        huerfana:
+          "Todavía no sale ningún aviso, y no falta código: para escribirle a alguien que no " +
+          "le escribió primero al bot, WhatsApp exige el alta con Meta y una plantilla " +
+          "aprobada por ellos. Lo que cargues acá queda guardado, y el día del alta empieza a " +
+          "salir solo, sin volver a tocar esta pantalla.",
+      },
+    ],
+  },
+  {
     rotulo: "No conectadas",
     explicacion:
       "Estas claves están en la base y el código NO las lee. Cambiarlas no hace nada. Se " +
@@ -516,6 +544,25 @@ export function validarValor(def: DefinicionClave, crudo: string): Validacion {
           };
         }
       }
+      if (def.clave === "asesor_avisar_a") {
+        // Se normaliza al GUARDAR y no al enviar: así el número mal escrito se
+        // ve acá, con alguien mirando la pantalla, y no en un aviso que nunca
+        // salió y que nadie va a reclamar porque nadie sabe que existía.
+        const malos = items.filter((x) => numeroParaAviso(x) === null);
+        if (malos.length > 0) {
+          return {
+            ok: false,
+            mensaje:
+              `Esto no es un teléfono: ${malos.join(", ")}. Escribilo como lo tenés en la ` +
+              `agenda —3812067777—, uno por línea y sólo el número: un interno o un nombre al ` +
+              `lado se le pegan y dejan de ser el mismo teléfono. Un enlace de wa.me también ` +
+              `sirve; una dirección web no, porque a una página no se le puede mandar un aviso.`,
+          };
+        }
+        // Sin repetidos: dos veces el mismo número son dos mensajes a la misma
+        // persona por cada pedido, y la forma de escribirlo puede diferir.
+        return { ok: true, valor: [...new Set(items.map((x) => numeroParaAviso(x)!))] };
+      }
       return { ok: true, valor: items };
     }
   }
@@ -585,7 +632,13 @@ export function enlaceDeWhatsapp(crudo: string): string | null {
   }
 
   // Un número nacional, con o sin el 15. `3812067777` o `38115206777`.
-  const sinQuince = d.replace(/^(\d{2,4})15/, "$1");
+  // El 15 sólo puede estar en un número que lo LLEVA: los 10 dígitos
+  // significativos más esos dos. Sin condicionar por largo, este `replace` no
+  // buscaba el 15 de larga distancia sino el literal «15» en las posiciones 3
+  // y 4, y con eso volteaba el bloque 381-5XX-XXXX entero —números de Tucumán,
+  // el código de área de acá—: «3815551234» se rechazaba como «esto no es un
+  // teléfono», mientras que el MISMO número escrito con el 15 entraba bien.
+  const sinQuince = d.length === 12 ? d.replace(/^(\d{2,4})15/, "$1") : d;
   if (sinQuince.length >= 9 && sinQuince.length <= 11) {
     return `https://wa.me/549${sinQuince}`;
   }
@@ -603,6 +656,74 @@ export function numeroDelEnlace(enlace: string): string | null {
   if (nacional.length < 9) return null;
   const area = nacional.slice(0, nacional.length - 7);
   return `+54 9 ${area} ${nacional.slice(-7, -4)}-${nacional.slice(-4)}`;
+}
+
+/**
+ * ¿Es un celular argentino en formato internacional?
+ *
+ * Son 549 y diez dígitos más, siempre: las ocho formas que acepta la prueba de
+ * `enlaceDeWhatsapp` dan exactamente eso, y es lo que documenta la migración.
+ *
+ * El largo es la única defensa contra lo que se cuela por el costado, y hace
+ * falta porque el normalizador se queda SÓLO con los dígitos de la línea: un
+ * interno («int 24»), un segundo número separado con una barra, o un teléfono
+ * de otro país se volvían destinos de 14, 15 o 23 dígitos que se guardaban sin
+ * una queja. El día del alta ese aviso saldría a un número que no existe, y
+ * nadie lo reclamaría porque nadie sabe que existía.
+ */
+function esCelularArgentino(digitos: string): boolean {
+  return /^549[0-9]{10}$/.test(digitos);
+}
+
+/**
+ * El número al que se le puede MANDAR un aviso, como lo pide la API: los
+ * dígitos en formato internacional, sin el «+».
+ *
+ * Valida la forma ENTERA y no sólo la salida de `enlaceDeWhatsapp`. Aquella
+ * función es deliberadamente tolerante porque sirve a `enlace_migue`, donde un
+ * enlace torcido lo ve el vecino y no lo abre. Acá la consecuencia es otra: un
+ * destino mal guardado no se nota nunca, porque el aviso que no sale no se lo
+ * reclama nadie.
+ *
+ * Las tres diferencias con `enlace_migue`, que se parecen en la pantalla:
+ *
+ *   · una dirección web no sirve —a una página no se le manda un aviso—,
+ *     salvo que sea un enlace de wa.me, que es una forma razonable de pegar
+ *     un contacto;
+ *   · lo que tenga letras se rechaza en vez de tirarlas. Antes «381 206 7777
+ *     Ana» se guardaba bien y «381 206 7777, Ana» se rechazaba: el resultado
+ *     dependía de dónde hubiera caído la coma;
+ *   · el largo tiene que ser el de un celular argentino.
+ */
+export function numeroParaAviso(crudo: string): string | null {
+  const texto = crudo.trim();
+  if (texto === "") return null;
+
+  // Un enlace pegado: el número es lo que sigue a «wa.me/» hasta el primer
+  // caracter que no sea un dígito. Se resuelve acá y no con
+  // `enlaceDeWhatsapp`, que devuelve las URL tal cual — con eso, el mismo
+  // enlace se aceptaba o no según si traía una cola «?text=».
+  const trasWaMe = texto.split("wa.me/")[1];
+  if (trasWaMe !== undefined) {
+    const soloDigitos = /^[0-9]+/.exec(trasWaMe);
+    if (soloDigitos === null) return null;
+    return esCelularArgentino(soloDigitos[0]) ? soloDigitos[0] : null;
+  }
+
+  // Cualquier otra dirección web, no.
+  if (texto.includes("://")) return null;
+
+  // Letras: es una línea de agenda, no un teléfono.
+  if (/[a-z]/i.test(texto)) return null;
+
+  const enlace = enlaceDeWhatsapp(texto);
+  if (enlace === null) return null;
+
+  const PREFIJO = "https://wa.me/";
+  if (!enlace.startsWith(PREFIJO)) return null;
+
+  const digitos = enlace.slice(PREFIJO.length);
+  return esCelularArgentino(digitos) ? digitos : null;
 }
 
 /*

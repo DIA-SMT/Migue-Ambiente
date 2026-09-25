@@ -66,7 +66,7 @@ describe("valoresDeRespuestaFija", () => {
     const texto = interpolar("{zonas}", valoresDeRespuestaFija(catalogoPrueba()));
     assert.ok(texto.includes("Zona Norte"), texto);
     // Enumerado en castellano, no separado por comas hasta el final.
-    assert.ok(texto.includes(" y "), "esperaba «lunes, martes y viernes»: " + texto);
+    assert.ok(texto.includes(" y "), "esperaba «lunes, miércoles y viernes»: " + texto);
   });
 
   it("sin límites ni zonas cargados lo dice, en vez de dejar un hueco", () => {

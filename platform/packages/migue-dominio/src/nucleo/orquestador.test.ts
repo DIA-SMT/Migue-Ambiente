@@ -43,6 +43,35 @@ describe("saludos y despedidas", () => {
     assert.equal(puertos.almacen.tamano(), 0, "no debería guardar estado");
   });
 
+  it("y detrás del saludo va el menú, con las opciones intactas", async () => {
+    const { puertos } = await conversar([{ texto: "hola" }], { intencion: "saludo" });
+
+    assert.equal(puertos.registro.salientes.length, 2, "bienvenida y menú");
+    assert.match(puertos.registro.salientes[0]!.texto, /Migue Ambiente/);
+    // Los ids tienen que llegar tal cual. `conReferente` le pega el id del
+    // mensaje a las opciones de los salientes que no son el primero, y si se lo
+    // hiciera al menú, `resolverOpcion` dejaría de reconocer lo que el vecino
+    // toca. Hoy no lo hace porque sólo reescribe cuando TODAS las opciones son
+    // de voto; esta prueba es lo que avisa si eso cambia.
+    assert.deepEqual(
+      puertos.registro.salientes[1]!.opciones.map((o) => o.id),
+      OPCIONES_MENU.map((o) => o.id),
+    );
+  });
+
+  it("el menú del saludo NO gasta el intento previo a derivar", async () => {
+    // `yaVioElMenu` mira el origen del último saliente del turno. Si el menú del
+    // saludo quedara con origen «fallback», el próximo mensaje que el
+    // clasificador leyera mal se derivaría a Migue sin que el bot haya fallado
+    // nunca — justo lo que la migración 026 decidió evitar.
+    const { puertos } = await conversar([{ texto: "hola" }], { intencion: "saludo" });
+    assert.notEqual(
+      puertos.registro.salientes.at(-1)!.traza.origenRespuesta,
+      "fallback",
+      "saludar no es un fallo nuestro",
+    );
+  });
+
   it("una despedida cierra la conversación", async () => {
     const { puertos } = await conversar([{ texto: "gracias" }], { intencion: "despedida" });
     assert.deepEqual(puertos.registro.cierres, ["cerrada"]);
@@ -84,6 +113,113 @@ describe("arranque de flujo", () => {
   });
 });
 
+describe("dedupe por canalMensajeId (la otra mitad de la 035)", () => {
+  it("el mismo wamid dos veces: la segunda no produce nada de nada", async () => {
+    const puertos = puertosPrueba({ intencion: "retiro_no_habitual", confianza: 0.95 });
+
+    const primera = await procesarMensaje(
+      msg({ texto: "retiren escombros", canalMensajeId: "wamid.AAA" }),
+      puertos,
+    );
+    assert.notEqual(primera.duplicado, true);
+    const salientesTrasPrimera = puertos.registro.salientes.length;
+    const efectosTrasPrimera = puertos.registro.efectos.length;
+    const pasoTrasPrimera = await puertos.almacen.leer(CLAVE);
+
+    // Meta reintenta: llega EXACTAMENTE el mismo mensaje otra vez.
+    const segunda = await procesarMensaje(
+      msg({ texto: "retiren escombros", canalMensajeId: "wamid.AAA" }),
+      puertos,
+    );
+
+    assert.equal(segunda.duplicado, true);
+    assert.equal(segunda.salientes.length, 0, "sin respuesta: la primera ya contestó");
+    assert.equal(puertos.registro.salientes.length, salientesTrasPrimera, "no se registró saliente");
+    assert.equal(puertos.registro.efectos.length, efectosTrasPrimera, "cero efectos nuevos");
+    assert.deepEqual(await puertos.almacen.leer(CLAVE), pasoTrasPrimera, "el flujo no se movió");
+    assert.deepEqual(puertos.registro.entrantesDuplicados, ["wamid.AAA"]);
+  });
+
+  it("el duplicado no consume clasificador ni conocimiento", async () => {
+    let clasificaciones = 0;
+    const puertos = puertosPrueba({ intencion: "consulta_libre" });
+    const original = puertos.clasificar;
+    const espiado = {
+      ...puertos,
+      clasificar: async (t: string, c: Parameters<typeof original>[1]) => {
+        clasificaciones++;
+        return original(t, c);
+      },
+    };
+
+    await procesarMensaje(msg({ texto: "donde reciclo?", canalMensajeId: "wamid.BBB" }), espiado);
+    await procesarMensaje(msg({ texto: "donde reciclo?", canalMensajeId: "wamid.BBB" }), espiado);
+    assert.equal(clasificaciones, 1, "el reintento no paga una llamada al modelo");
+  });
+
+  it("sin canalMensajeId nunca hay duplicado: dos textos iguales son dos mensajes", async () => {
+    // Telegram entrega una sola vez; un vecino que repite «hola» merece dos
+    // respuestas, no un silencio por parecerse a sí mismo.
+    const { resultados } = await conversar(
+      [{ texto: "hola" }, { texto: "hola" }],
+      { intencion: "saludo" },
+    );
+    assert.notEqual(resultados[0]!.duplicado, true);
+    assert.notEqual(resultados[1]!.duplicado, true);
+  });
+});
+
+describe("pedido de asesor", () => {
+  it("registra la alerta y confirma EN EL MISMO TURNO, sin pedir nada", async () => {
+    // Decisión con el área: en Telegram no se pide teléfono —la respuesta le
+    // llega por el chat— así que no hay flujo: alerta y confirmación, y listo.
+    const { puertos, ultimo } = await conversar(
+      [{ texto: "quiero hablar con una persona por las ramas" }],
+      { intencion: "pedir_asesor", confianza: 0.95 },
+    );
+    assert.equal(ultimo.flujoActivo, null, "no queda ningún flujo abierto");
+    assert.equal(puertos.almacen.tamano(), 0, "sin estado guardado");
+    const alerta = puertos.registro.efectos.find((e) => e.tipo === "crear_alerta_asesor");
+    if (alerta?.tipo !== "crear_alerta_asesor") throw new Error("no hubo alerta");
+    assert.equal(alerta.datos.telefono, null, "en Telegram el entrante no trae teléfono");
+    assert.equal(alerta.datos.motivo, "quiero hablar con una persona por las ramas");
+    assert.match(dicho(puertos), /avis/i, "le confirma que el equipo está avisado");
+  });
+
+  it("cuando el canal trae el teléfono (WhatsApp), la alerta lo lleva", async () => {
+    const { puertos } = await conversar(
+      [{ canal: "whatsapp", telefono: "5493815123456", texto: "quiero un asesor" }],
+      { intencion: "pedir_asesor", confianza: 0.95 },
+    );
+    const alerta = puertos.registro.efectos.find((e) => e.tipo === "crear_alerta_asesor");
+    if (alerta?.tipo !== "crear_alerta_asesor") throw new Error("no hubo alerta");
+    assert.equal(alerta.datos.telefono, "5493815123456");
+  });
+
+  it("con confianza baja NO alerta: muestra el menú por si se leyó mal", async () => {
+    const { puertos } = await conversar([{ texto: "persona basural?" }], {
+      intencion: "pedir_asesor",
+      confianza: 0.3,
+    });
+    assert.equal(
+      puertos.registro.efectos.some((e) => e.tipo === "crear_alerta_asesor"),
+      false,
+    );
+  });
+
+  it("no dispara la encuesta de trámite", async () => {
+    const { puertos } = await conversar([{ texto: "quiero un asesor" }], {
+      intencion: "pedir_asesor",
+      confianza: 0.95,
+    });
+    assert.equal(
+      dicho(puertos).includes("¿Te resultó fácil"),
+      false,
+      "la encuesta es para trámites, no para pedir una persona",
+    );
+  });
+});
+
 describe("continuidad del flujo", () => {
   const arranque = { intencion: "retiro_no_habitual" as const, confianza: 0.95 };
 
@@ -110,6 +246,65 @@ describe("continuidad del flujo", () => {
     assert.equal(ultimo.flujoActivo, null, "el flujo terminó");
     assert.equal(puertos.almacen.tamano(), 0, "el estado se limpió");
     assert.match(dicho(puertos), /Solicitud registrada/);
+  });
+
+  it("la foto del paso foto pasa por la visión y el veredicto llega al ticket", async () => {
+    const { puertos } = await conversar(
+      [
+        { texto: "necesito que retiren escombros" },
+        { media: { tipo: "imagen", referencia: "foto-abc" } },
+        { texto: "4 bolsas de escombros" },
+        { texto: "Lamadrid 50" },
+      ],
+      {
+        ...arranque,
+        veredictoFoto: { veredicto: "valida", categoria: "rnh", detalle: "escombros embolsados" },
+      },
+    );
+
+    assert.deepEqual(puertos.registro.fotosAnalizadas, [
+      { referencia: "foto-abc", flujo: "retiro_no_habitual", canal: "telegram" },
+    ]);
+    const ticket = puertos.registro.efectos.find((e) => e.tipo === "crear_ticket");
+    if (ticket?.tipo !== "crear_ticket") throw new Error("no hubo ticket");
+    assert.equal(ticket.datos.fotoVeredicto, "valida");
+    assert.equal(ticket.datos.fotoCategoria, "rnh");
+  });
+
+  it("si la visión devuelve null el flujo avanza igual y el ticket queda no_evaluada", async () => {
+    // veredictoFoto no seteado = el puerto falso devuelve null («no se pudo»).
+    const { puertos, ultimo } = await conversar(
+      [
+        { texto: "necesito que retiren escombros" },
+        { media: { tipo: "imagen", referencia: "foto-x" } },
+        { texto: "4 bolsas de escombros" },
+        { texto: "Lamadrid 50" },
+      ],
+      arranque,
+    );
+    assert.equal(ultimo.flujoActivo, null, "el trámite cerró igual");
+    const ticket = puertos.registro.efectos.find((e) => e.tipo === "crear_ticket");
+    if (ticket?.tipo !== "crear_ticket") throw new Error("no hubo ticket");
+    assert.equal(ticket.datos.fotoVeredicto, "no_evaluada");
+  });
+
+  it("una foto suelta sin flujo NO paga visión", async () => {
+    const { puertos } = await conversar([{ media: { tipo: "imagen", referencia: "suelta" } }]);
+    assert.equal(puertos.registro.fotosAnalizadas.length, 0);
+    assert.match(dicho(puertos), /Recibí la foto/, "sigue el camino de media sin contexto");
+  });
+
+  it("una foto en un paso que no la espera NO paga visión", async () => {
+    const { puertos } = await conversar(
+      [
+        { texto: "necesito que retiren escombros" },
+        { media: { tipo: "imagen", referencia: "foto-1" } },
+        // El paso residuo no espera fotos: una segunda imagen no se analiza.
+        { media: { tipo: "imagen", referencia: "foto-2" } },
+      ],
+      arranque,
+    );
+    assert.equal(puertos.registro.fotosAnalizadas.length, 1, "sólo la del paso foto");
   });
 
   it("el clasificador NO se llama mientras hay un flujo activo", async () => {
@@ -412,6 +607,78 @@ describe("elegir del menú escribiendo el número", () => {
 
     await procesarMensaje(msg({ texto: "cuando pasa el camion por mi casa?" }), espiado);
     assert.equal(llamadas, 1, "una pregunta tiene que pasar por el clasificador");
+  });
+
+  it("«Otra consulta» invita a escribir, no contesta una disculpa", async () => {
+    // EL BUG DE LA 038, y era visible en la primera conversación de cualquier
+    // vecino: tocar «Otra consulta» devolvía «no tengo esa información con la
+    // certeza suficiente» sin que hubiera preguntado nada. El toque del botón
+    // deja el id interno como texto del mensaje, así que el bot buscaba en el
+    // corpus la frase «consulta_libre».
+    const { puertos, ultimo } = await conversar([{ seleccion: "consulta_libre" }], sinForzar);
+
+    assert.match(dicho(puertos), /escribime tu consulta/i);
+    assert.doesNotMatch(dicho(puertos), /no tengo esa informaci/i);
+    assert.equal(ultimo.flujoActivo, null, "no abre ningún flujo: espera un mensaje");
+    // Que el adaptador sepa que lo que viene es texto libre, no una opción.
+    assert.equal(ultimo.salientes.at(-1)?.espera, "texto");
+  });
+
+  it("y no gasta la cadena de conocimiento ni ensucia `sin_respuesta`", async () => {
+    // Los dos daños de costado del bug. El de `sin_respuesta` es el peor: es la
+    // tabla del circuito de mejora del panel, y el área veía como hueco de
+    // conocimiento la palabra «consulta_libre», que ningún vecino preguntó.
+    let consultas = 0;
+    const base = puertosPrueba(sinForzar);
+    const espiado = {
+      ...base,
+      responder: async (t: string, c: Parameters<typeof base.responder>[1]) => {
+        consultas++;
+        return base.responder(t, c);
+      },
+    };
+
+    await procesarMensaje(msg({ seleccion: "consulta_libre" }), espiado);
+    assert.equal(consultas, 0, "buscó en el corpus el id de un botón");
+    assert.deepEqual(base.registro.sinRespuesta, []);
+  });
+
+  it("escribir «6» hace lo mismo que tocar el botón", async () => {
+    const { puertos } = await conversar([{ texto: "6" }], sinForzar);
+    assert.match(dicho(puertos), /escribime tu consulta/i);
+  });
+
+  it("y la consulta que escribe DESPUÉS sí se responde", async () => {
+    // El turno de la invitación no guarda estado a propósito: el mensaje
+    // siguiente entra por el camino normal —clasificador y conocimiento—, que
+    // es exactamente lo que corresponde con una pregunta escrita a mano.
+    const { puertos, ultimo } = await conversar(
+      [{ seleccion: "consulta_libre" }, { texto: "donde llevo los reciclables" }],
+      sinForzar,
+    );
+    assert.equal(ultimo.origenRespuesta, "faq");
+    assert.match(dicho(puertos), /Puntos Verdes/);
+  });
+
+  it("elegir «Otra consulta» NO gasta el intento previo a derivar", async () => {
+    // Mismo cuidado que con el menú del saludo: `yaVioElMenu` mira el origen del
+    // último saliente, y si la invitación quedara con origen «fallback», la
+    // pregunta que el vecino escriba a continuación se derivaría a Migue en
+    // cuanto el clasificador la leyera mal. Usar el menú no es un fallo nuestro.
+    const { puertos } = await conversar([{ seleccion: "consulta_libre" }], sinForzar);
+    assert.notEqual(puertos.registro.salientes.at(-1)!.traza.origenRespuesta, "fallback");
+  });
+
+  it("REGRESIÓN · una consulta ESCRITA sigue yendo a la cadena de conocimiento", async () => {
+    // La contracara del atajo, y es lo que no hay que romper: el corte vale sólo
+    // cuando el mensaje ES la elección. Quien escribe su pregunta tiene que
+    // recibir la respuesta en el mismo turno, no una invitación a repetirla.
+    const { puertos, ultimo } = await conversar(
+      [{ texto: "donde llevo los reciclables" }],
+      sinForzar,
+    );
+    assert.equal(ultimo.origenRespuesta, "faq");
+    assert.doesNotMatch(dicho(puertos), /escribime tu consulta/i);
   });
 
   it("dentro de un flujo, el número elige la opción de ESE paso", async () => {

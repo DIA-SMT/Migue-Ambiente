@@ -1,14 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CATEGORIA_FOTO_LEGIBLE,
+  comparable,
   datosFaltantes,
   esEstadoConocido,
   estadoDeLaPregunta,
   estadoVisible,
+  fechaLegible,
   MOTIVOS_SIN_RESPUESTA,
   riesgoDelDisparador,
   situacionSla,
   tamanoLegible,
+  textoDelCaso,
+  veredictoDeFoto,
   type Documento,
   type PreguntaSinResponder,
   type Ticket,
@@ -175,6 +180,9 @@ describe("situacionSla", () => {
       derived_to: null,
       photo_ref: "f1",
       photo_url: null,
+      photo_verdict: null,
+      photo_category: null,
+      photo_detail: null,
       notes: null,
       sla_deadline: "2026-08-28T19:00:00Z",
       resolved_at: null,
@@ -247,6 +255,9 @@ describe("datosFaltantes", () => {
       derived_to: null,
       photo_ref: null,
       photo_url: null,
+      photo_verdict: null,
+      photo_category: null,
+      photo_detail: null,
       notes: null,
       sla_deadline: null,
       resolved_at: null,
@@ -306,7 +317,8 @@ describe("un ticket cerrado por el bot anterior", () => {
       address: "Lamadrid 50", user_name: null, chat_id: null, channel: null,
       waste_type: null, quantity: null, quantity_value: null, quantity_unit: null,
       exceeds_limit: null, partial_pickup: null, days_without_service: null,
-      derived_to: null, photo_ref: null, photo_url: null, notes: null,
+      derived_to: null, photo_ref: null, photo_url: null,
+      photo_verdict: null, photo_category: null, photo_detail: null, notes: null,
       sla_deadline: "2026-02-20T12:00:00Z",
       resolved_at: null,
       created_at: "2026-02-17T12:00:00Z", updated_at: "2026-02-17T12:00:00Z",
@@ -324,7 +336,8 @@ describe("un ticket cerrado por el bot anterior", () => {
       address: null, user_name: null, chat_id: null, channel: null,
       waste_type: null, quantity: null, quantity_value: null, quantity_unit: null,
       exceeds_limit: null, partial_pickup: null, days_without_service: null,
-      derived_to: null, photo_ref: null, photo_url: null, notes: null,
+      derived_to: null, photo_ref: null, photo_url: null,
+      photo_verdict: null, photo_category: null, photo_detail: null, notes: null,
       sla_deadline: "2026-02-20T12:00:00Z", resolved_at: null,
       created_at: "2026-02-17T12:00:00Z", updated_at: "2026-02-17T12:00:00Z",
       conversation_id: null,
@@ -460,5 +473,104 @@ describe("MOTIVOS_SIN_RESPUESTA", () => {
     for (const [clave, m] of Object.entries(MOTIVOS_SIN_RESPUESTA)) {
       assert.ok(TONOS.includes(m.tono), `${clave} usa el tono «${m.tono}», que no existe`);
     }
+  });
+});
+
+describe("veredictoDeFoto", () => {
+  const TONOS = ["ok", "curso", "pend", "alerta"];
+
+  it("cubre los cuatro veredictos del CHECK de la base, y null para sin foto", () => {
+    for (const v of ["valida", "dudosa", "no_corresponde", "no_evaluada"] as const) {
+      const chip = veredictoDeFoto({ photo_verdict: v });
+      assert.ok(chip, `«${v}» tendría que dar chip`);
+      assert.ok(TONOS.includes(chip.tono), `«${v}» usa el tono «${chip.tono}», que no existe`);
+    }
+    assert.equal(veredictoDeFoto({ photo_verdict: null }), null);
+  });
+
+  it("los problemáticos llaman la atención y el resto no", () => {
+    assert.equal(veredictoDeFoto({ photo_verdict: "no_corresponde" })!.tono, "alerta");
+    assert.equal(veredictoDeFoto({ photo_verdict: "dudosa" })!.tono, "curso");
+    assert.equal(veredictoDeFoto({ photo_verdict: "valida" })!.tono, "ok");
+  });
+
+  it("toda categoría del CHECK tiene traducción legible", () => {
+    for (const c of ["basural", "volcadero", "rnh", "barrido", "limpieza_cestos", "otros"]) {
+      assert.ok(CATEGORIA_FOTO_LEGIBLE[c], `falta la traducción de «${c}»`);
+    }
+  });
+});
+
+describe("buscar un caso", () => {
+  function tk(parcial: Partial<Ticket> = {}): Ticket {
+    return {
+      id: "t1", ticket_type: "Pedido No Habitual", status: "En Proceso",
+      address: "Córdoba 1250", user_name: "María Ñañez", chat_id: null,
+      channel: "telegram", waste_type: "escombros", quantity: "3 bolsas",
+      quantity_value: 3, quantity_unit: null, exceeds_limit: false, partial_pickup: false,
+      days_without_service: null, derived_to: null, photo_ref: null, photo_url: null,
+      photo_verdict: null, photo_category: null, photo_detail: null, notes: null,
+      sla_deadline: null, resolved_at: null, created_at: "2026-09-01T12:00:00Z",
+      updated_at: "2026-09-01T12:00:00Z", conversation_id: null,
+      ...parcial,
+    };
+  }
+
+  // Nadie escribe las tildes en un buscador, y acá se busca sobre todo por
+  // dirección: media ciudad tiene tilde en el nombre de la calle.
+  it("encuentra aunque no se escriban las tildes", () => {
+    assert.ok(textoDelCaso(tk()).includes(comparable("cordoba")));
+    assert.ok(textoDelCaso(tk()).includes(comparable("CÓRDOBA")));
+    assert.ok(textoDelCaso(tk()).includes(comparable("ñañez")));
+    assert.ok(textoDelCaso(tk()).includes(comparable("nanez")));
+  });
+
+  it("busca por dirección, tipo de caso, residuo, cantidad y nota interna", () => {
+    const t = tk({ notes: "llamar al encargado" });
+    for (const q of ["1250", "no habitual", "escombros", "3 bolsas", "en proceso", "encargado"]) {
+      assert.ok(textoDelCaso(t).includes(comparable(q)), `tendría que encontrar «${q}»`);
+    }
+  });
+
+  it("no encuentra lo que no está", () => {
+    assert.ok(!textoDelCaso(tk()).includes(comparable("Lamadrid")));
+  });
+
+  // Los campos vacíos no tienen que romper ni generar coincidencias falsas:
+  // un ticket del bot anterior puede venir sin dirección ni tipo de residuo.
+  it("aguanta un caso con campos vacíos", () => {
+    const pelado = tk({ address: null, user_name: null, waste_type: null, quantity: null });
+    assert.equal(typeof textoDelCaso(pelado), "string");
+    assert.ok(textoDelCaso(pelado).includes(comparable("no habitual")));
+  });
+});
+
+describe("fechaLegible", () => {
+  // Los dos espacios duros se escriben con `fromCharCode` y no con un escape:
+  // un U+00A0 copiado a mano termina siendo el caracter invisible en vez del
+  // texto, y entonces la prueba dice otra cosa que la que se leyó al escribirla.
+  const DUROS = [String.fromCharCode(0xa0), String.fromCharCode(0x202f)];
+
+  it("no deja espacios duros en la hora, que no coinciden entre servidor y navegador", () => {
+    // Una hora que cae de mañana y otra de tarde en cualquier zona razonable:
+    // el espacio duro está en el «a. m.» / «p. m.», así que hay que pasar por
+    // los dos. La prueba NO afirma cuál de los dos sale —eso depende de la zona
+    // de la máquina— sino qué bytes NO tienen que salir.
+    for (const iso of ["2026-09-10T14:08:00.000Z", "2026-09-10T02:30:00.000Z"]) {
+      const conHora = fechaLegible(iso, true);
+      for (const duro of DUROS) {
+        const punto = duro.codePointAt(0)!.toString(16).toUpperCase();
+        assert.ok(!conHora.includes(duro), `«${conHora}» todavía trae U+${punto}`);
+      }
+    }
+  });
+
+  it("sin hora devuelve sólo la fecha, y con hora la agrega adelante", () => {
+    const iso = "2026-09-10T14:08:00.000Z";
+    const soloFecha = fechaLegible(iso);
+    assert.equal(soloFecha.split("/").length, 3, "la fecha va como dd/mm/aaaa");
+    assert.ok(!soloFecha.includes(" "), "sin hora no tendría que traer espacios");
+    assert.ok(fechaLegible(iso, true).startsWith(soloFecha), "la fecha va primero");
+    assert.ok(fechaLegible(iso, true).length > soloFecha.length, "y la hora se agrega");
   });
 });

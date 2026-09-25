@@ -161,6 +161,7 @@ describe("escritura contra Supabase real", { skip: !hayCredenciales ? "sin crede
         direccion: "Calle De Prueba 123",
         telefonoContacto: "381 0000000",
         informacionAdicional: "texto libre de prueba",
+        fotoReferencia: "ref-solicitud-prueba",
       },
       { canal: "telegram", canalUsuarioId: USUARIO_PRUEBA, nombreUsuario: null, conversacionId: null },
     );
@@ -253,7 +254,7 @@ describe("escritura contra Supabase real", { skip: !hayCredenciales ? "sin crede
       [
         // Categoría inválida para la constraint: falla a propósito.
         { tipo: "crear_ticket", datos: { ...TICKET_BASE, tipo: "Tipo Inexistente" as never } },
-        { tipo: "crear_solicitud_programa", datos: { programa: "educa", institucion: "Prueba Resiliencia", responsable: null, cantidadAlumnos: null, direccion: "Calle De Prueba 123", telefonoContacto: null, informacionAdicional: null } },
+        { tipo: "crear_solicitud_programa", datos: { programa: "educa", institucion: "Prueba Resiliencia", responsable: null, cantidadAlumnos: null, direccion: "Calle De Prueba 123", telefonoContacto: null, informacionAdicional: null, fotoReferencia: null } },
       ],
       { canal: "telegram", canalUsuarioId: USUARIO_PRUEBA, nombreUsuario: null, conversacionId: null },
     );

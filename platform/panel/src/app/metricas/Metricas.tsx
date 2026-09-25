@@ -114,8 +114,13 @@ export function Metricas({
             <div style={{ marginTop: 6 }}>
               {alcance.personas === 1 && (
                 <>
-                  Son {alcance.conversaciones} conversación
-                  {alcance.conversaciones === 1 ? "" : "es"} y {alcance.turnos} mensaje
+                  {/* La palabra entera y no un sufijo: el plural de
+                      «conversación» pierde el acento —«conversaciones»— y
+                      pegarle «es» daba «conversaciónes» en pantalla. Con
+                      «mensaje» el sufijo sí alcanza. */}
+                  Son {alcance.conversaciones}{" "}
+                  {alcance.conversaciones === 1 ? "conversación" : "conversaciones"} y{" "}
+                  {alcance.turnos} mensaje
                   {alcance.turnos === 1 ? "" : "s"} de la misma persona — la cuenta con la que se
                   probó el bot.{" "}
                 </>
@@ -145,11 +150,13 @@ export function Metricas({
 
         {alcance.abiertasSinVolver > 0 && (
           <p className="ayuda" style={{ maxWidth: "74ch" }}>
-            {alcance.abiertasSinVolver} conversación
-            {alcance.abiertasSinVolver === 1 ? " quedó" : "es quedaron"} abierta
-            {alcance.abiertasSinVolver === 1 ? "" : "s"} sin actividad reciente. No cuentan como
-            gente esperando: una charla sólo se marca cerrada cuando esa misma persona vuelve a
-            escribir, así que «abiertas» acumula y no mide actividad.
+            {alcance.abiertasSinVolver}{" "}
+            {alcance.abiertasSinVolver === 1
+              ? "conversación quedó abierta"
+              : "conversaciones quedaron abiertas"}{" "}
+            sin actividad reciente. No cuentan como gente esperando: una charla sólo se marca
+            cerrada cuando esa misma persona vuelve a escribir, así que «abiertas» acumula y no
+            mide actividad.
           </p>
         )}
       </section>
@@ -453,10 +460,10 @@ export function Metricas({
               {latencia.n < 10 && (
                 <>
                   {" "}
-                  Con {latencia.n} observacion{latencia.n === 1 ? "" : "es"} esto todavía no es una
-                  mediana: son los tiempos que hubo. Los pasos de un trámite no cuentan acá porque
-                  no llaman al modelo — no son respuestas rápidas, son respuestas que no midieron
-                  nada.
+                  Con {latencia.n} {latencia.n === 1 ? "observación" : "observaciones"} esto
+                  todavía no es una mediana: son los tiempos que hubo. Los pasos de un trámite no
+                  cuentan acá porque no llaman al modelo — no son respuestas rápidas, son
+                  respuestas que no midieron nada.
                 </>
               )}
             </>

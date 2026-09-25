@@ -20,6 +20,12 @@
  * corpus por acentos y por largo del nombre.
  */
 
+/**
+ * `descripcionDeError` tambien: el panel muestra el error de una subida al
+ * operador, y un "[object Object]" en pantalla no le dice nada a nadie.
+ */
+export { descripcionDeError } from "./errores.ts";
+
 export { claveDeStorage } from "./ingesta/clave.ts";
 
 export {

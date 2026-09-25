@@ -23,6 +23,7 @@ export type {
   DatosFlujo,
   DatosTicket,
   DatosSolicitudPrograma,
+  DatosAlertaAsesor,
   Efecto,
   ContextoFlujo,
   Transicion,

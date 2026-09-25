@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   datosFaltantes,
+  comparable,
   esEstadoConocido,
   estaCerrado,
   ESTADOS_PROGRAMA,
   ESTADOS_TICKET,
   fechaLegible,
   situacionSla,
+  textoDelCaso,
+  veredictoDeFoto,
   type SolicitudPrograma,
   type Ticket,
 } from "@/lib/tipos";
@@ -29,6 +32,7 @@ export function Casos({
   const [pendiente, empezar] = useTransition();
   const [pestana, setPestana] = useState<"tickets" | "programas">("tickets");
   const [filtro, setFiltro] = useState<Filtro>("abiertos");
+  const [busqueda, setBusqueda] = useState("");
   const [aviso, setAviso] = useState<Resultado | null>(null);
   const [abierto, setAbierto] = useState<Ticket | SolicitudPrograma | null>(null);
 
@@ -50,14 +54,23 @@ export function Casos({
   }, [tickets, ahora]);
 
   const visibles = useMemo(() => {
-    if (filtro === "todos") return ordenados;
-    if (filtro === "vencidos") {
-      return ordenados.filter(
-        (t) => !estaCerrado(t) && situacionSla(t, ahora ?? Date.now()).urgencia === 0,
-      );
-    }
-    return ordenados.filter((t) => !estaCerrado(t));
-  }, [ordenados, filtro, ahora]);
+    const q = comparable(busqueda.trim());
+
+    // La búsqueda se aplica DESPUÉS del filtro de estado y no en su lugar: si
+    // alguien busca una dirección mientras mira «Vencidos», espera que le
+    // muestre los vencidos de esa dirección, no todos los de esa dirección.
+    const porEstado =
+      filtro === "todos"
+        ? ordenados
+        : filtro === "vencidos"
+          ? ordenados.filter(
+              (t) => !estaCerrado(t) && situacionSla(t, ahora ?? Date.now()).urgencia === 0,
+            )
+          : ordenados.filter((t) => !estaCerrado(t));
+
+    if (q === "") return porEstado;
+    return porEstado.filter((t) => textoDelCaso(t).includes(q));
+  }, [ordenados, filtro, ahora, busqueda]);
 
   const abiertos = tickets.filter((t) => !estaCerrado(t)).length;
   const vencidos =
@@ -137,15 +150,33 @@ export function Casos({
                 {texto}
               </button>
             ))}
+
+            {/* El buscador va JUNTO a los filtros de estado y no arriba: los dos
+                recortan la misma lista, y separarlos hacía pensar que uno
+                reemplazaba al otro. */}
+            <input
+              type="search"
+              className="buscador"
+              placeholder="Buscar por dirección, vecino o tipo de caso…"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              aria-label="Buscar en los casos"
+              style={{ marginLeft: "auto", minWidth: 260, maxWidth: 380 }}
+            />
           </div>
 
           {visibles.length === 0 ? (
             <div className="tarjeta vacio">
-              {filtro === "vencidos"
-                ? "Nada vencido. Buena señal."
-                : filtro === "abiertos"
-                  ? "No hay casos abiertos."
-                  : "Todavía no hay pedidos ni reclamos."}
+              {/* Que no diga «no hay casos abiertos» cuando en realidad hay
+                  veinte y ninguno coincide con lo que se buscó: son dos
+                  situaciones distintas y se arreglan de manera distinta. */}
+              {busqueda.trim() !== ""
+                ? `Ningún caso coincide con «${busqueda.trim()}».`
+                : filtro === "vencidos"
+                  ? "Nada vencido. Buena señal."
+                  : filtro === "abiertos"
+                    ? "No hay casos abiertos."
+                    : "Todavía no hay pedidos ni reclamos."}
             </div>
           ) : (
             <div className="envoltorio-tabla tarjeta">
@@ -183,6 +214,18 @@ export function Casos({
                           {t.exceeds_limit && (
                             <span className="chip curso" style={{ marginTop: 4 }}>
                               excede el límite
+                            </span>
+                          )}
+                          {/* Sólo los veredictos problemáticos: en la lista, un
+                              chip por foto verificada sería ruido; el detalle
+                              completo vive en la ficha. */}
+                          {(t.photo_verdict === "no_corresponde" || t.photo_verdict === "dudosa") && (
+                            <span
+                              className={`chip ${veredictoDeFoto(t)!.tono}`}
+                              style={{ marginTop: 4 }}
+                              title={t.photo_detail ?? undefined}
+                            >
+                              {veredictoDeFoto(t)!.etiqueta}
                             </span>
                           )}
                           {faltan.length > 0 && (

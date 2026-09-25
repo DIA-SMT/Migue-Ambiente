@@ -46,13 +46,16 @@ export default function RaizLayout({ children }: { children: React.ReactNode }) 
           }}
         />
 
-        {/* Las dos familias de la identidad del municipio. `display=swap` para
-            que el panel se lea con la fuente del sistema mientras cargan. */}
+        {/* Poppins, en los pesos que el panel usa de verdad: 400 para el
+            cuerpo, 500 y 600 para los rótulos y los chips, 700 para los
+            títulos. Pedir más pesos es pedirle al navegador archivos que nadie
+            va a mostrar. `display=swap` para que el panel se lea con la fuente
+            del sistema mientras cargan. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Asap:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
         />
       </head>
       <body>{children}</body>

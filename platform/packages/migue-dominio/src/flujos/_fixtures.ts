@@ -15,7 +15,7 @@ import type {
 } from "../datos/catalogo.ts";
 import type { ReglaExclusion } from "../reglas/exclusiones.ts";
 import type { LimiteVolumen } from "../reglas/volumen.ts";
-import type { MensajeEntrante, MediaEntrante } from "../mensajeria.ts";
+import type { MensajeEntrante, MediaEntrante, VeredictoFoto } from "../mensajeria.ts";
 import { avanzarFlujo, iniciarFlujo } from "./motor.ts";
 import type { ContextoFlujo, DefinicionFlujo, Efecto, EstadoFlujo } from "./tipos.ts";
 
@@ -51,7 +51,23 @@ export const LIMITES_PRUEBA: LimiteVolumen[] = [
     pesoMaxBolsaKg: null,
     accionAlExceder: "parcial_con_ticket",
     textoExceso: null,
-    palabras: ["mueble", "muebles", "sillon", "colchon", "heladera", "tarima"],
+    // «ramas enfardadas» va acá y no en poda: la spec pone «Otros (Muebles,
+    // chatarra, ramas enfardadas)» con límite de 1 m³. Un fardo no se mide en
+    // bolsas. Ver la migración 034.
+    palabras: [
+      "mueble",
+      "muebles",
+      "sillon",
+      "colchon",
+      "heladera",
+      "tarima",
+      "ramas enfardadas",
+      "rama enfardada",
+      "enfardadas",
+      "fardo",
+      "fardo de ramas",
+      "fardos de ramas",
+    ],
     activo: true,
   },
 ];
@@ -61,8 +77,11 @@ const PUNTOS: PuntoVerde[] = [
   { id: "2", nombre: "PV Viamonte", direccion: "Viamonte e Italia", tipo: "contenedor", horario: "24 hs", materiales: ["reciclables"], observaciones: null, orden: 20 },
 ];
 
+// Los días son los de la migración 036, no los de la spec: Norte carga lunes,
+// MIÉRCOLES y viernes. Con «martes» —lo que decía el Anexo de Datos— el martes
+// quedaba en las dos zonas y el miércoles en ninguna.
 const ZONAS: ZonaRecoleccion[] = [
-  { id: "1", nombre: "Zona Norte", dias: ["lunes", "martes", "viernes"], horaSacar: "14:30 hs", observaciones: null },
+  { id: "1", nombre: "Zona Norte", dias: ["lunes", "miercoles", "viernes"], horaSacar: "14:30 hs", observaciones: null },
   { id: "2", nombre: "Zona Sur", dias: ["martes", "jueves", "sabado"], horaSacar: "14:30 hs", observaciones: null },
 ];
 
@@ -84,17 +103,29 @@ const REGLAS: ReglaExclusion[] = [
 const TEXTOS = new Map<string, string>([
   // Textuales de la migración 008. El fixture espeja producción: si divergen,
   // un test verde no dice nada sobre lo que va a recibir el vecino.
-  [
-    "bienvenida",
-    "Hola, soy Migue Ambiente 🌱 de la Municipalidad de San Miguel de Tucumán.\n\n" +
-      "Puedo ayudarte con retiro de residuos especiales, reclamos de recolección, " +
-      "programas ambientales y Puntos Verdes.\n\nContame qué necesitás.",
-  ],
+  // Sólo la presentación, como la dejó la 038. Antes enumeraba en prosa las
+  // cuatro cosas que Migue hace y el menú de abajo las repetía como seis
+  // opciones, así que el vecino leía lo mismo dos veces y se le preguntaba qué
+  // necesitaba otras dos.
+  ["bienvenida", "Hola, soy Migue Ambiente 🌱, de la Municipalidad de San Miguel de Tucumán."],
   // Una sola línea, sin la lista numerada. La 020 le quitó los números porque el
   // menú ahora se manda con opciones de verdad —botones en Telegram— y tener los
   // números en el texto ADEMÁS de los botones hacía que el vecino escribiera «3»
-  // refiriéndose a un orden distinto al de las opciones reales.
-  ["menu_principal", "Decime con qué necesitás que te ayude."],
+  // refiriéndose a un orden distinto al de las opciones reales. La 038 le sumó
+  // el aviso de que puede escribir sin elegir nada, que es lo que decía la 008 y
+  // se había perdido al quitarle los números.
+  [
+    "menu_principal",
+    "¿Con qué necesitás que te ayude? Elegí una de estas opciones, o escribime directamente lo que necesitás.",
+  ],
+  // La invitación a escribir cuando elige «Otra consulta» (038). El vecino que
+  // toca ese botón todavía no preguntó nada: antes de esto el bot buscaba el id
+  // interno «consulta_libre» en el corpus y le contestaba que no tenía esa
+  // información.
+  [
+    "consulta_invitacion",
+    "Dale, escribime tu consulta y te busco la información. Puede ser sobre horarios de recolección, Puntos Verdes, reciclado o cualquier otro tema de Ambiente.",
+  ],
   // Los tres del voto (022). Los dos últimos son opcionales: vaciarlos desde el
   // panel apaga la respuesta de Migue al voto sin dejar de registrarlo.
   ["seguimiento_tras_responder", "¿Te sirvió esta respuesta?"],
@@ -121,12 +152,21 @@ const TEXTOS = new Map<string, string>([
     "retiro_confirmacion",
     "✅ Solicitud registrada. {empresa} tiene un plazo de hasta {plazo} (vence el {vencimiento}).\n\nNo saques los residuos hasta que te confirmemos.",
   ],
-  ["reclamo_diagnostico", "Para verificar el recorrido necesito tu dirección exacta y desde cuándo no pasa."],
+  // Textual de la migración 008. Importa que sea textual justo acá: este es el
+  // mensaje que PROMETE tres datos. El fixture prometía dos, así que ningún
+  // test podía ver que la foto prometida no se reclamaba nunca.
+  [
+    "reclamo_diagnostico",
+    "Para verificar el recorrido del camión necesito tres cosas:\n\n" +
+      "- Tu dirección exacta\n" +
+      "- Una foto de la basura no recolectada (opcional, pero ayuda)\n" +
+      "- ¿Desde cuándo no pasa el servicio?",
+  ],
   // Textual de la migración 011. El fixture tiene que espejar producción: si
   // divergen, un test verde no dice nada sobre lo que va a recibir el vecino.
   [
     "reclamo_confirmacion",
-    "Reclamo generado. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.",
+    "Reclamo generado para {direccion}. Verificaremos el GPS del interno. Si hubo una falla, {empresa} tiene {plazo} para normalizar el servicio.",
   ],
   ["educa_requisitos", "Necesito nombre de la institución, dirección, responsable y cantidad de alumnos."],
   ["transforma_requisitos", "Necesito la dirección exacta y fotos de la zona."],
@@ -146,11 +186,15 @@ const TEXTOS = new Map<string, string>([
     "separa_fuera_de_avenidas",
     "Tu domicilio está fuera de las 4 avenidas. Para coordinar el retiro necesito: tu nombre, teléfono, dirección exacta, una foto de los reciclables limpios, qué materiales son y en qué franja horaria estás.",
   ],
-  // VACÍA, igual que en producción: Ambiente todavía no pasó la URL del mapa de
-  // recorridos. El fixture espeja la base, no lo que sería lindo tener — si acá
-  // tuviera texto, las pruebas del flujo de reclamo estarían midiendo un
-  // comportamiento que ningún vecino recibe.
-  ["reclamo_info_turnos", ""],
+  // Estuvo vacía hasta la migración 036, cuando apareció la URL del mapa en el
+  // bot propio del área. El fixture espeja la base: ahora que en producción hay
+  // texto, dejarlo vacío acá haría que la suite midiera un mensaje que el
+  // vecino sí recibe. La rama vacía se prueba armando el catálogo a mano, en
+  // `reclamoRecoleccion.test.ts`.
+  [
+    "reclamo_info_turnos",
+    "Mientras tanto podés confirmar qué día y en qué turno le toca a tu domicilio:\nhttps://smtendatos.gob.ar/mapa-interactivo-de-recoleccion-de-residuos-por-turno/\n\nSi era sólo eso, escribime «cancelar» y no genero ningún reclamo.",
+  ],
   // La encuesta al terminar un trámite. Pregunta por el PROCESO, no por el
   // contenido: un pulgar abajo acá se arregla cambiando los pasos del flujo,
   // no escribiendo una respuesta mejor.
@@ -161,6 +205,12 @@ const TEXTOS = new Map<string, string>([
     "Gracias por decirme. ¿Qué te resultó complicado? Con eso podemos simplificarlo." +
       "\n\nSi querés no me contestes, ya lo registré.",
   ],
+  // El aviso de lo que el reclamo no pudo cargar (migración 033). TEXTUALES de
+  // la migración: si el fixture dijera algo distinto, la suite mediría un
+  // mensaje que ningún vecino recibe.
+  ["pedido_pendientes", "Quedó registrado sin {faltante}."],
+  ["dato_foto_reclamo", "una foto de la basura sin recolectar"],
+  ["dato_dias", "desde cuándo no pasa el camión"],
   ["despedida", "¡De nada! Cualquier otra cosa, escribime."],
   // La derivación a Migue, el asistente general del municipio. Con el marcador
   // {migue}, que sale de `configuracion.enlace_migue`.
@@ -168,6 +218,18 @@ const TEXTOS = new Map<string, string>([
     "derivar_a_migue",
     "Eso no lo atiende la Secretaría de Ambiente, pero no te quedes sin respuesta: escribile a Migue, el asistente general de la Municipalidad." +
       "\n\n{migue}",
+  ],
+  // La confirmación del pedido de asesor (migración 037). TEXTUAL de la
+  // migración. La respuesta del equipo llega por el mismo chat: en Telegram no
+  // se pide teléfono.
+  [
+    "asesor_confirmacion",
+    "Listo, ya le avisé al equipo de Ambiente: una persona va a ver tu pedido y te responden por acá en el horario de atención. Si mientras tanto necesitás otra cosa, escribime.",
+  ],
+  // La repregunta de la foto (migración 037). Con {detalle} del modelo de visión.
+  [
+    "retiro_foto_no_corresponde",
+    "Mirá, en la foto no llego a ver residuos: {detalle}.\n\n¿Podés mandar otra donde se vea lo que hay que retirar? Si es la única que tenés, mandámela de nuevo y sigo igual.",
   ],
 ]);
 
@@ -236,6 +298,8 @@ export interface Turno {
   readonly texto?: string;
   readonly seleccion?: string;
   readonly imagen?: string;
+  /** Lo que la visión falsa dijo de la imagen de este turno. */
+  readonly veredicto?: VeredictoFoto;
 }
 
 export interface Simulacion {
@@ -248,7 +312,7 @@ export interface Simulacion {
 
 function entrante(turno: Turno): MensajeEntrante {
   const media: MediaEntrante | null = turno.imagen
-    ? { tipo: "imagen", referencia: turno.imagen, mime: "image/jpeg" }
+    ? { tipo: "imagen", referencia: turno.imagen, mime: "image/jpeg", veredicto: turno.veredicto ?? null }
     : null;
   return {
     canal: "telegram",

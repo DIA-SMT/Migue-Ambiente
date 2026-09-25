@@ -6,6 +6,8 @@
  */
 import { createLogger } from "@bots/core";
 import { descargarDeTelegram, MediaVencidaError } from "../canal/telegram/descargar.ts";
+import { descargarDeWhatsApp } from "../canal/whatsapp/descargar.ts";
+import type { MediaDescargada } from "../canal/media.ts";
 import { obtenerCliente } from "@migue/dominio";
 import {
   formatoDe,
@@ -159,25 +161,32 @@ export function crearPuertos(): PuertosIngesta {
     },
 
     async descargarDeCanal(canal: string, referencia: string) {
-      if (canal !== "telegram") {
+      // Cada canal con su descarga y su token. La política es la misma en los
+      // dos: falta de token = error del WORKER (lanza y el trabajo se reintenta
+      // cuando se corrija la config); archivo vencido = null (no se reintenta).
+      let bajar: (() => Promise<MediaDescargada>) | null = null;
+
+      if (canal === "telegram") {
+        const token = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
+        if (!token) throw new Error("falta TELEGRAM_BOT_TOKEN para bajar archivos del canal");
+        bajar = () => descargarDeTelegram(referencia, token);
+      } else if (canal === "whatsapp") {
+        const token = process.env["WHATSAPP_TOKEN"]?.trim();
+        if (!token) throw new Error("falta WHATSAPP_TOKEN para bajar archivos de WhatsApp");
+        const versionApi = process.env["WHATSAPP_API_VERSION"]?.trim() || undefined;
+        bajar = () => descargarDeWhatsApp(referencia, { token, versionApi });
+      }
+
+      if (bajar === null) {
         // No se lanza: un canal desconocido no es un error transitorio. El
         // dominio lo trata como archivo ausente y no lo reintenta.
         log.warn({ canal }, "no sé bajar archivos de este canal");
         return null;
       }
 
-      const token = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
-      if (!token) {
-        // Esto SÍ es un error del worker, no del archivo: falta configuración.
-        // Lanzando, el trabajo se reintenta cuando se corrija.
-        throw new Error("falta TELEGRAM_BOT_TOKEN para bajar archivos del canal");
-      }
-
       try {
-        return await descargarDeTelegram(referencia, token);
+        return await bajar();
       } catch (error) {
-        // Un archivo vencido devuelve null para que no se reintente; el resto
-        // se propaga y sí se reintenta.
         if (error instanceof MediaVencidaError) {
           log.warn({ err: error.message }, "el canal ya no tiene el archivo");
           return null;
