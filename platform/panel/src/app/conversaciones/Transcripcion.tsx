@@ -106,7 +106,18 @@ export function Transcripcion({
               {mensajes.map((m) => (
                 <div key={m.id} className={`burbuja ${m.direccion}`}>
                   <div className="cuerpo">
-                    {m.texto ?? <em className="ayuda">(sin texto)</em>}
+                    {/* Un entrante sin texto es un botón tocado: el bot manda
+                        `texto: null` y no guarda cuál opción fue. «(sin texto)»
+                        dejaba al que lee la charla sin entender qué pasó ahí;
+                        «tocó una opción» es lo mismo que dice Interacciones para
+                        el mismo caso. Un saliente sin texto sí es raro y se
+                        sigue diciendo. */}
+                    {m.texto ??
+                      (m.direccion === "entrante" ? (
+                        <em className="ayuda">tocó una opción</em>
+                      ) : (
+                        <em className="ayuda">(sin texto)</em>
+                      ))}
                     {m.media_tipo && (
                       <div className="sub-fila" style={{ marginTop: 4 }}>
                         adjuntó {m.media_tipo}

@@ -1263,13 +1263,25 @@ dl.ficha dd {
   border-radius: 14px 14px 14px 4px;
 }
 
-/* El vecino: papel, a la derecha, con borde. El borde importa: sin él, sobre el
-   fondo claro del cajón la burbuja no se distingue del vacío. */
+/* El vecino: a la derecha, con borde.
+ *
+ * El fondo es `--papel-2` y no `--papel`, y la diferencia se paga cara: el cajón
+ * TAMBIÉN es `--papel`, así que con ese fondo la burbuja del vecino era del
+ * mismo color exacto que lo que tiene atrás. En el tema claro el borde la
+ * salvaba; en el OSCURO no, porque ahí el borde es apenas más claro que el fondo
+ * —medido: burbuja y cajón en rgb(20,35,29), borde en rgb(44,71,57)—.
+ *
+ * El efecto era que una conversación leída de corrido parecía un monólogo de
+ * Migue: sus burbujas son verdes y sólidas, y las del vecino quedaban como texto
+ * flotando. Lo reportó el área usándolo, no lo vio ninguna prueba.
+ *
+ * `--papel-2` es la superficie que está un escalón del papel, en los dos temas,
+ * así que separa sin inventar un color nuevo. El borde se queda igual. */
 .burbuja.entrante {
   align-self: flex-end;
 }
 .burbuja.entrante .cuerpo {
-  background: var(--papel);
+  background: var(--papel-2);
   color: var(--tinta);
   border: 1px solid var(--linea);
   border-radius: 14px 14px 4px 14px;
