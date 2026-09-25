@@ -2136,6 +2136,51 @@ begin
 end $$;
 \echo '   OK: la clave del aviso al asesor esta sembrada y es una lista'
 
+-- ---------------------------------------------------------------------------
+-- 040 · un tramite cuenta para la encuesta de cierre; un fallback no
+-- ---------------------------------------------------------------------------
+-- La 031 exigia una respuesta de la cadena de conocimiento, y dejaba afuera
+-- `flujo`: quien completaba un retiro nunca recibia la encuesta. Se prueban
+-- las dos mitades, porque arreglarlo de mas seria igual de malo: preguntarle
+-- a alguien a quien se le dijo que no se sabia.
+do $$
+declare
+  v_tramite uuid;
+  v_nosupo  uuid;
+  v_ids     uuid[];
+begin
+  insert into public.conversaciones (canal, canal_usuario_id, nombre_usuario)
+  values ('telegram', 'enc-040-tramite', 'Vecino Prueba') returning id into v_tramite;
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta) values
+    (v_tramite, 'saliente', 'Por favor, enviame la foto', 'flujo');
+
+  insert into public.conversaciones (canal, canal_usuario_id, nombre_usuario)
+  values ('telegram', 'enc-040-nosupo', 'Vecino Prueba') returning id into v_nosupo;
+  insert into public.mensajes (conversacion_id, direccion, texto, origen_respuesta) values
+    (v_nosupo, 'saliente', 'No tengo esa informacion', 'fallback');
+
+  -- Las dos quedan en silencio: se envejece la ultima actividad a proposito,
+  -- porque la funcion pide silencio y la prueba no puede esperar un minuto.
+  update public.conversaciones
+     set ultima_actividad_en = now() - interval '10 minutes'
+   where id in (v_tramite, v_nosupo);
+
+  select array_agg(id) into v_ids
+    from public.conversaciones_para_encuestar(1, 50);
+
+  if not (v_tramite = any(coalesce(v_ids, '{}'))) then
+    raise exception 'la conversacion de TRAMITE tendria que entrar en la encuesta de cierre';
+  end if;
+
+  if v_nosupo = any(coalesce(v_ids, '{}')) then
+    raise exception 'la conversacion de fallback NO tendria que recibir la encuesta';
+  end if;
+
+  delete from public.mensajes where conversacion_id in (v_tramite, v_nosupo);
+  delete from public.conversaciones where id in (v_tramite, v_nosupo);
+end $$;
+\echo '   OK: un tramite entra en la encuesta de cierre y un fallback no'
+
 \echo '=============================================='
 \echo ' TODAS LAS PRUEBAS FUNCIONALES PASARON'
 \echo '=============================================='
