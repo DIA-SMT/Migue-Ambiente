@@ -91,6 +91,38 @@ genera las apps de PM2, valida que el entry exista y que no haya nombres
 duplicados. No se edita la lista de apps a mano, así el registro nunca se
 desincroniza de lo que corre de verdad.
 
+### No todo lo que hay en la VPS es nuestro
+
+`/srv/bots` es una plataforma **multibot compartida**: conviven procesos de
+otros equipos, que no están en este repo y cuyo registro mutan ellos en el
+servidor. Que una carpeta no figure en nuestro manifiesto no significa que
+sobre — puede significar que no es nuestra.
+
+Esto no es teoría. El 2026-09-25 `limpiar-sobrantes.sh` borró el código de
+`bots/cimba` justamente por eso. Desde entonces:
+
+- `limpiar-sobrantes.sh` respeta entera cualquier subcarpeta de `bots/` o
+  `packages/` que no aparezca ni una vez en el manifiesto.
+- `botctl doctor --propios <dirs>` sólo falla por **nuestros** bots; los ajenos
+  avisan y no frenan nada.
+- `ecosystem.config.cjs` no explota al parsear si un bot ajeno quedó roto:
+  saltea la entrada y sigue.
+- `deploy.sh` recarga bot por bot con `botctl nombres --propios`, no
+  `pm2 reload ecosystem.config.cjs`, que reiniciaría todo lo de la máquina.
+
+El deploy **imprime qué está respetando**, para que sea verificable en vez de
+tener que confiar.
+
+Lo que hay hoy de otros equipos, según ellos (2026-09-25):
+
+| Bot | Proceso PM2 | Carpeta | Config |
+|---|---|---|---|
+| cimba | `cimba`, bajo el PM2 del usuario `bots` | `/srv/bots/bots/cimba/` | `.env` → symlink a `.secrets/cimba.env` |
+
+Su código ya vive en el repositorio de ellos con instrucciones de despliegue,
+así que tienen con qué volver atrás. Aun así: para mover, tocar o parar algo
+ajeno, se avisa primero.
+
 ### `@bots/core`
 
 Lo que todo bot necesita y no conviene reescribir por bot:
