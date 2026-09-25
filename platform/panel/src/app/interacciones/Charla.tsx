@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  comoLeFue,
   fechaLegible,
   ORIGENES_RESPUESTA,
   type Conversacion,
@@ -73,31 +72,24 @@ export function Charla({
   }, [conversacion.id]);
 
   const costo = (mensajes ?? []).reduce((n, m) => n + (m.costo_usd ?? 0), 0);
-  const resultado = comoLeFue(conversacion);
 
   return (
     <div className="charla-desplegada">
-      {/* Cómo le fue. Es lo que daba la pantalla de Conversaciones, que ya no
-          está: el voto del vecino y, si dejó comentario, qué dijo que le
-          faltaba. Va en la cabecera del desplegado y no en la fila de la lista
-          porque es de la CHARLA entera, no de esta consulta. */}
+      {/* La ficha de la charla: lo que no entra en la fila de la lista.
+          El «cómo le fue» y el comentario del vecino NO van acá aunque sean de
+          la charla: ya están en la fila de arriba, a cuarenta píxeles, y
+          repetirlos hacía leer dos veces lo mismo. */}
       <div className="charla-cabecera">
-        <span className={`chip ${resultado.tono}`}>{resultado.etiqueta}</span>
         <span className="sub-fila">
           {conversacion.nombre_usuario ?? "Vecino sin nombre"} · {conversacion.canal} ·{" "}
           {conversacion.cantidad_mensajes}{" "}
           {conversacion.cantidad_mensajes === 1 ? "mensaje" : "mensajes"} · empezó{" "}
           {fechaLegible(conversacion.iniciada_en, true)} · {conversacion.estado}
-          {conversacion.flujo_activo && ` · quedó a medias en ${conversacion.flujo_activo}`}
           {/* Seis decimales: una charla sale centésimas de centavo y redondear a
               dos mostraría 0,00 en todas. */}
           {costo > 0 && ` · costó US$ ${costo.toFixed(6)}`}
         </span>
       </div>
-
-      {conversacion.ultimo_comentario && (
-        <div className="detalle-problema">«{conversacion.ultimo_comentario}»</div>
-      )}
 
       {error && <div className="aviso mal">{error}</div>}
       {mensajes === null && !error && <div className="tarjeta vacio">Cargando la charla…</div>}

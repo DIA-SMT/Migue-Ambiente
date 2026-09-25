@@ -8,7 +8,7 @@ import type { Conversacion } from "@/lib/tipos";
 export const dynamic = "force-dynamic";
 
 /**
- * Qué le preguntan a Migue, una fila por consulta, con la charla adentro.
+ * Con quién habló Migue, una fila por vecino, con la charla adentro.
  *
  * Reemplazó a dos pantallas: esta y «Conversaciones». El porqué está en el
  * componente; acá basta con que `/conversaciones` ahora redirige a esta ruta.
@@ -68,11 +68,11 @@ export default async function PaginaInteracciones({
           <h1>Interacciones</h1>
         </div>
         <p className="bajada">
-          Qué le preguntan a Migue, una fila por consulta y en orden de llegada. Es la lista que
-          dice qué conocimiento falta cargar: si algo aparece seguido con «no supo», es una
-          pregunta frecuente esperando a que alguien la escriba. Hacé clic en una consulta y se
-          despliega ahí mismo la charla completa, con lo que contestó Migue y cómo le fue al
-          vecino.
+          Con quién habló Migue, una fila por vecino y en orden de llegada. Hacé clic en una y se
+          despliega ahí mismo la charla completa, con lo que preguntó y lo que le contestó Migue.
+          Los filtros miran cada pregunta de adentro: si filtrás por «no supo», aparecen las
+          charlas donde Migue no supo, y la fila te muestra cuál fue la pregunta. Eso es lo que
+          dice qué conocimiento falta cargar.
         </p>
 
         {problema && (

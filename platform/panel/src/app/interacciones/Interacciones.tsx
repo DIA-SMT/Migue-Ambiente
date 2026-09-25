@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
+  comoLeFue,
   fechaCorta,
   ORIGENES_RESPUESTA,
   recortarTexto,
@@ -10,31 +11,35 @@ import {
 import { Charla } from "./Charla";
 
 /**
- * Una fila por PREGUNTA, y la charla entera desplegada adentro de la fila.
+ * Una fila por VECINO, con la charla entera desplegada adentro de la fila.
  *
  * ANTES ERAN DOS PANTALLAS. «Interacciones» listaba una fila por consulta y
- * «Conversaciones» una fila por charla. La división tenía una lógica —una
- * contesta «¿qué me preguntan?» y la otra «¿cómo le fue a esta persona?»— pero
- * en la práctica las dos listas mostraban los mismos hechos con distinto
- * agrupamiento, y para contestar cualquier pregunta real había que ir a las dos:
- * la consulta estaba en una y el voto del vecino en la otra.
+ * «Conversaciones» una fila por charla. La división tenía una lógica en el
+ * papel —una contesta «¿qué me preguntan?» y la otra «¿cómo le fue a esta
+ * persona?»— y ninguna en el uso: para entender un caso había que ir a las dos,
+ * porque la consulta estaba en una y el voto del vecino en la otra.
  *
- * Quedó una sola, y la unidad es la CONSULTA, no la charla. Motivo: la lista de
- * consultas reales, ordenada por hora, es lo más parecido que hay a escuchar la
- * mesa de entrada, y es la que dice qué conocimiento falta cargar. Agrupando por
- * charla eso se pierde: una conversación con seis preguntas aparecía como una
- * sola fila, con la primera.
+ * Y DESPUÉS LA UNIDAD CAMBIÓ. La primera versión unificada listaba una fila por
+ * CONSULTA. Se probó con datos reales y el problema saltó enseguida: una charla
+ * de seis preguntas ocupaba seis renglones, así que la pantalla era una lista
+ * larguísima donde el mismo vecino aparecía una y otra vez y no se veía cuánta
+ * gente había hablado. Ahora la fila es la CHARLA —el vecino— y muestra cómo
+ * empezó; las preguntas de adentro se ven al desplegarla.
  *
- * Lo que aportaba Conversaciones —cómo le fue, el voto, lo que el vecino dijo
- * que le faltaba— no se perdió: está en la cabecera del desplegado, que es donde
- * corresponde, porque es de la charla y no de la consulta.
+ * LOS FILTROS SIGUEN SIENDO POR PREGUNTA, Y ESO ES LO QUE SALVA LA LISTA.
+ * Agrupar por charla podría haber perdido lo que la lista de consultas servía:
+ * saber qué se pregunta y qué no se supo contestar. No se perdió, porque filtrar
+ * por intención, por origen o por texto sigue mirando CADA pregunta de adentro,
+ * y la charla aparece si alguna coincide. Con un filtro puesto, la fila además
+ * muestra cuál fue la pregunta que coincidió, así no hay que desplegar para
+ * saber por qué está ahí.
  *
- * CÓMO SE ARMA CADA FILA. La pregunta es un mensaje ENTRANTE y la respuesta es
- * el saliente que vino después en la misma conversación. La traza —qué intención
- * se le leyó y de dónde salió la respuesta— viaja en el SALIENTE, no en el
- * entrante, así que hay que emparejarlos. Se empareja acá y no en SQL por lo
- * mismo que el tablero: los agregados de PostgREST están deshabilitados en este
- * proyecto y `LIMITE_FILAS` acota cuántas filas entran.
+ * CÓMO SE ARMA CADA CONSULTA. La pregunta es un mensaje ENTRANTE y la respuesta
+ * es el saliente que vino después en la misma conversación. La traza —qué
+ * intención se le leyó y de dónde salió la respuesta— viaja en el SALIENTE, no
+ * en el entrante, así que hay que emparejarlos. Se empareja acá y no en SQL por
+ * lo mismo que el tablero: los agregados de PostgREST están deshabilitados en
+ * este proyecto y `LIMITE_FILAS` acota cuántas filas entran.
  *
  * LO QUE NO ESTÁ, Y ES A PROPÓSITO. El panel de referencia muestra el teléfono
  * del turista en cada fila. Acá no: en WhatsApp `canal_usuario_id` ES el teléfono
@@ -55,26 +60,45 @@ export interface MensajeDeLista {
 }
 
 /** Una consulta del vecino, con lo que se sabe de la respuesta que recibió. */
-interface Interaccion {
+interface Consulta {
   id: string;
   conversacionId: string;
   cuando: string;
-  vecino: string | null;
-  canal: string;
   consulta: string;
-  esMedia: boolean;
   intencion: string | null;
   origen: string | null;
   /** El bot no contestó nada a esta consulta. */
   sinRespuesta: boolean;
+}
+
+/** Una charla, que es lo que ocupa una fila: un vecino y todo lo que preguntó. */
+interface Hilo {
+  conversacion: Conversacion;
+  /** Las preguntas de esa charla, de la más vieja a la más nueva. */
+  consultas: Consulta[];
+  /** Cómo arrancó: lo primero que escribió el vecino. */
+  inicio: string;
   /**
-   * Acá algo salió mal: o no hubo respuesta, o el bot admitió que no sabía, o el
-   * vecino votó que no le sirvió en algún momento de esa charla.
+   * Acá hay algo QUE HACER: el vecino votó que no le sirvió, o quedó una
+   * pregunta sin responder, o una consulta no recibió ninguna respuesta.
    *
-   * Las dos primeras son de la consulta y la tercera es de la conversación, y se
-   * mezclan a propósito: el filtro que usa esto es la lista de trabajo —«qué
-   * tengo que arreglar»—, y para eso no importa a qué nivel está registrada la
-   * falla. Lo que sí importa es no perderla.
+   * NO entra el «no supo» (`origen_respuesta = 'fallback'`), y la ausencia es
+   * lo más importante de este campo. Cuando el bot no sabe, el orquestador
+   * escribe DOS cosas a la vez: el saliente con origen `fallback` y una fila en
+   * `sin_respuesta` (orquestador.ts:761). Son el mismo hecho contado dos veces.
+   * La fila de `sin_respuesta` se resuelve —el área escribe la respuesta y
+   * `preguntas_pendientes` baja—; el mensaje viejo con origen `fallback` se
+   * queda ahí para siempre. Contar el fallback hacía que este número fuera
+   * monótono creciente: hacer el trabajo no lo bajaba nunca.
+   *
+   * Es exactamente el bug que ya tuvo esta pantalla con
+   * `preguntas_sin_responder` y que arregló la columna `preguntas_pendientes`.
+   * Medido en produccion el 2026-09-25: 3 consultas con fallback, 0 pendientes
+   * —porque ya se despacharon—, 2 charlas con voto negativo. Lo honesto es 2;
+   * contando el fallback daban 5.
+   *
+   * El «no supo» no se pierde: sigue en el filtro de origen, que es donde
+   * corresponde, porque es historia y no tarea.
    */
   fallo: boolean;
 }
@@ -120,18 +144,14 @@ const NOMBRE_DE_INTENCION: Readonly<Record<string, string>> = {
   encuesta_cierre: "encuesta de cierre",
 };
 
-function arma(
-  mensajes: readonly MensajeDeLista[],
-  conversaciones: readonly Conversacion[],
-): Interaccion[] {
-  const porConversacion = new Map(conversaciones.map((c) => [c.id, c]));
-
+/** Empareja cada pregunta con la respuesta que le siguió. */
+function consultasDe(mensajes: readonly MensajeDeLista[]): Consulta[] {
   // Los mensajes vienen del más nuevo al más viejo. Para emparejar cada
   // pregunta con la respuesta que le siguió hay que recorrerlos en el orden en
   // que ocurrieron.
   const enOrden = [...mensajes].sort((a, b) => a.creado_en.localeCompare(b.creado_en));
 
-  const salidas: Interaccion[] = [];
+  const salidas: Consulta[] = [];
   for (let i = 0; i < enOrden.length; i++) {
     const m = enOrden[i]!;
     if (m.direccion !== "entrante") continue;
@@ -147,29 +167,55 @@ function arma(
       break;
     }
 
-    const conversacion = porConversacion.get(m.conversacion_id);
     const texto = (m.texto ?? "").trim();
-    const origen = respuesta?.origen_respuesta ?? null;
-    const sinRespuesta = respuesta === null;
 
     salidas.push({
       id: m.id,
       conversacionId: m.conversacion_id,
       cuando: m.creado_en,
-      vecino: conversacion?.nombre_usuario ?? null,
-      canal: conversacion?.canal ?? "telegram",
       // Un toque de botón llega sin texto. Decir «(sin texto)» sería mentir por
       // omisión: el vecino hizo algo, y lo que hizo fue tocar una opción.
-      consulta: texto !== "" ? texto : m.media_tipo !== null ? `envió ${m.media_tipo}` : "tocó una opción",
-      esMedia: texto === "" && m.media_tipo !== null,
+      consulta:
+        texto !== "" ? texto : m.media_tipo !== null ? `envió ${m.media_tipo}` : "tocó una opción",
       intencion: respuesta?.intencion ?? null,
-      origen,
-      sinRespuesta,
-      fallo: sinRespuesta || origen === "fallback" || (conversacion?.votos_no_utiles ?? 0) > 0,
+      origen: respuesta?.origen_respuesta ?? null,
+      sinRespuesta: respuesta === null,
     });
   }
 
-  return salidas.reverse();
+  return salidas;
+}
+
+/** Una fila por charla, con sus consultas adentro. */
+function agrupar(
+  mensajes: readonly MensajeDeLista[],
+  conversaciones: readonly Conversacion[],
+): Hilo[] {
+  const porConversacion = new Map<string, Consulta[]>();
+  for (const c of consultasDe(mensajes)) {
+    const lista = porConversacion.get(c.conversacionId);
+    if (lista) lista.push(c);
+    else porConversacion.set(c.conversacionId, [c]);
+  }
+
+  // La lista sale de CONVERSACIONES y no de los mensajes: así una charla vieja
+  // —cuyos mensajes ya no entran en las filas que se traen— aparece igual, con
+  // su primer mensaje, en vez de desaparecer de la pantalla.
+  return conversaciones.map((conversacion) => {
+    const consultas = porConversacion.get(conversacion.id) ?? [];
+    const primero = (conversacion.primer_mensaje ?? "").trim();
+    const inicio = primero !== "" ? primero : (consultas[0]?.consulta ?? "(sin texto)");
+
+    return {
+      conversacion,
+      consultas,
+      inicio,
+      fallo:
+        conversacion.votos_no_utiles > 0 ||
+        conversacion.preguntas_pendientes > 0 ||
+        consultas.some((c) => c.sinRespuesta),
+    };
+  });
 }
 
 export function Interacciones({
@@ -199,61 +245,109 @@ export function Interacciones({
   const [soloFallas, setSoloFallas] = useState(false);
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+  // Qué charla está desplegada, por id de conversación. Una sola a la vez: son
+  // charlas largas, y dos abiertas dejan la lista imposible de barrer.
+  const [abierta, setAbierta] = useState<string | null>(abrirConversacion ?? null);
 
-  const todas = useMemo(() => arma(mensajes, conversaciones), [mensajes, conversaciones]);
-  const porConversacion = useMemo(
-    () => new Map(conversaciones.map((c) => [c.id, c])),
-    [conversaciones],
-  );
-
-  // Qué consulta está desplegada, por id del mensaje entrante. Es por CONSULTA y
-  // no por charla: una conversación larga aparece en varias filas, y desplegar
-  // «la charla» abriría todas esas filas a la vez.
+  // El enlace de Clima y de Alertas trae la vista hasta la charla, no alcanza
+  // con desplegarla.
   //
-  // Estado inicial perezoso: la búsqueda del enlace corre una sola vez, no en
-  // cada render. Si no hay fila para esa charla —una vieja, que ya no entra en
-  // las que se traen— queda en null y más abajo se despliega igual, suelta.
-  const [abierta, setAbierta] = useState<string | null>(
-    () =>
-      abrirConversacion === undefined
-        ? null
-        : (todas.find((i) => i.conversacionId === abrirConversacion)?.id ?? null),
+  // Antes esto no hacia falta: `?abrir=` levantaba un cajon `position: fixed`,
+  // que aparecia encima de todo estuviera donde estuviera la fila. Ahora la
+  // charla se despliega DENTRO de la tabla, la pagina carga arriba de todo, y
+  // la fila puede estar cincuenta renglones mas abajo. El del area hacia clic
+  // en «Ver la charla entera», veia una pantalla igual a cualquier otra, y
+  // concluia que el boton estaba roto. Lo encontro una revision del cambio, no
+  // una prueba: compila igual y se ve bien en una lista de tres filas.
+  //
+  // Corre una sola vez, al llegar por el enlace, y no en cada clic: que la
+  // pantalla se mueva sola cuando uno despliega una fila que ya esta mirando es
+  // peor que no moverse.
+  //
+  // Sin animacion: de la fila 1 a la 300 un desplazamiento suave es un viaje
+  // largo y mareador. `center` deja la fila en el medio, asi se ve la charla y
+  // tambien las filas de alrededor, que es lo que dice donde esta uno parado.
+  useEffect(() => {
+    if (abrirConversacion === undefined || abrirConversacion === "") return;
+    const fila = document.getElementById(`charla-${abrirConversacion}`);
+    if (fila === null) return;
+    fila.scrollIntoView({ block: "center" });
+  }, [abrirConversacion]);
+
+  const hilos = useMemo(() => agrupar(mensajes, conversaciones), [mensajes, conversaciones]);
+  const totalConsultas = useMemo(
+    () => hilos.reduce((n, h) => n + h.consultas.length, 0),
+    [hilos],
   );
 
   const intenciones = useMemo(() => {
     const cuenta = new Map<string, number>();
-    for (const i of todas) {
-      if (i.intencion === null) continue;
-      cuenta.set(i.intencion, (cuenta.get(i.intencion) ?? 0) + 1);
+    for (const h of hilos) {
+      for (const c of h.consultas) {
+        if (c.intencion === null) continue;
+        cuenta.set(c.intencion, (cuenta.get(c.intencion) ?? 0) + 1);
+      }
     }
     return [...cuenta.entries()].sort((a, b) => b[1] - a[1]);
-  }, [todas]);
+  }, [hilos]);
 
-  const conFallas = useMemo(() => todas.filter((i) => i.fallo).length, [todas]);
+  const conFallas = useMemo(() => hilos.filter((h) => h.fallo).length, [hilos]);
+
+  /** Si hay un filtro de los que miran PREGUNTAS, cuáles coincidieron. */
+  const hayFiltroDePregunta = busqueda.trim() !== "" || intencion !== null || origen !== null;
+
+  const coincidenciasDe = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return (h: Hilo): Consulta[] => {
+      if (!hayFiltroDePregunta) return [];
+      return h.consultas.filter((c) => {
+        if (intencion !== null && c.intencion !== intencion) return false;
+        if (origen !== null && c.origen !== origen) return false;
+        if (q !== "" && !c.consulta.toLowerCase().includes(q)) return false;
+        return true;
+      });
+    };
+  }, [busqueda, intencion, origen, hayFiltroDePregunta]);
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    return todas.filter((i) => {
-      if (soloFallas && !i.fallo) return false;
-      if (intencion !== null && i.intencion !== intencion) return false;
-      if (origen !== null && i.origen !== origen) return false;
-      // Las fechas del filtro son días locales; se comparan contra el día del
-      // mensaje, no contra el instante, para que «desde el 28» incluya al 28.
-      const dia = i.cuando.slice(0, 10);
+    const filtradas = hilos.filter((h) => {
+      if (soloFallas && !h.fallo) return false;
+
+      // Las fechas del filtro son días locales; se comparan contra el día de la
+      // última actividad de la charla, no contra el instante, para que «desde el
+      // 28» incluya al 28.
+      const dia = h.conversacion.ultima_actividad_en.slice(0, 10);
       if (desde !== "" && dia < desde) return false;
       if (hasta !== "" && dia > hasta) return false;
-      if (q === "") return true;
-      return i.consulta.toLowerCase().includes(q) || (i.vecino ?? "").toLowerCase().includes(q);
-    });
-  }, [todas, busqueda, intencion, origen, soloFallas, desde, hasta]);
 
-  const hayFiltro =
-    busqueda !== "" ||
-    intencion !== null ||
-    origen !== null ||
-    soloFallas ||
-    desde !== "" ||
-    hasta !== "";
+      // Los filtros de pregunta miran ADENTRO de la charla: alcanza con que una
+      // coincida. Es lo que hace que agrupar por vecino no pierda la pregunta.
+      if (intencion !== null || origen !== null) {
+        if (coincidenciasDe(h).length === 0) return false;
+      }
+
+      if (q === "") return true;
+      // El texto también busca por el nombre del vecino y por cómo empezó la
+      // charla, no sólo en las preguntas: con el nombre es como el área busca a
+      // alguien que llamó por teléfono.
+      if ((h.conversacion.nombre_usuario ?? "").toLowerCase().includes(q)) return true;
+      if (h.inicio.toLowerCase().includes(q)) return true;
+      return coincidenciasDe(h).length > 0;
+    });
+
+    // Con el filtro de fallas puesto SÍ se reordena por gravedad: ahí la lista
+    // deja de ser la bitácora y pasa a ser la lista de trabajo, y lo primero
+    // que hay que ver es el pulgar abajo sobre una respuesta. Sin esto, una
+    // charla de hace tres días con un voto negativo quedaba al final, debajo de
+    // las de hoy que sólo tienen una pregunta pendiente.
+    if (!soloFallas) return filtradas;
+    return [...filtradas].sort(
+      (a, b) => comoLeFue(a.conversacion).urgencia - comoLeFue(b.conversacion).urgencia,
+    );
+  }, [hilos, busqueda, intencion, origen, soloFallas, desde, hasta, coincidenciasDe]);
+
+  const hayFiltro = hayFiltroDePregunta || soloFallas || desde !== "" || hasta !== "";
 
   function limpiar() {
     setBusqueda("");
@@ -268,22 +362,15 @@ export function Interacciones({
   const noUtiles = conversaciones.reduce((n, c) => n + c.votos_no_utiles, 0);
   const votos = utiles + noUtiles;
 
-  // El enlace apuntaba a una charla que no tiene ninguna fila en la lista. Se
-  // muestra suelta arriba: el que hizo clic en Clima venía a leer ESA charla, y
-  // una pantalla que no le muestra nada lo deja sin saber si el enlace está roto
-  // o si la charla no existe.
-  const sueltaId =
-    abrirConversacion !== undefined && !todas.some((i) => i.conversacionId === abrirConversacion)
-      ? abrirConversacion
-      : null;
-  const suelta = sueltaId === null ? null : (porConversacion.get(sueltaId) ?? null);
-
   return (
     <>
       <div className="resumen">
         <div>
-          <span className="n">{todas.length}</span>
-          <span className="r">consultas</span>
+          <span className="n">{hilos.length}</span>
+          <span className="r">
+            {hilos.length === 1 ? "charla" : "charlas"}, con {totalConsultas}{" "}
+            {totalConsultas === 1 ? "consulta" : "consultas"}
+          </span>
         </div>
         <div>
           <span className="n">
@@ -318,10 +405,10 @@ export function Interacciones({
         <input
           type="search"
           className="buscador"
-          placeholder="Buscar en las consultas…"
+          placeholder="Buscar por vecino o por lo que preguntó…"
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          aria-label="Buscar en las consultas"
+          aria-label="Buscar por vecino o por lo que preguntó"
         />
 
         <select
@@ -377,35 +464,26 @@ export function Interacciones({
         )}
 
         <span className="interacciones-cuenta">
-          {visibles.length === todas.length
-            ? `${todas.length} consultas`
-            : `${visibles.length} de ${todas.length}`}
+          {visibles.length === hilos.length
+            ? `${hilos.length} ${hilos.length === 1 ? "charla" : "charlas"}`
+            : `${visibles.length} de ${hilos.length}`}
         </span>
       </div>
 
       {alcanzoElLimite && (
         <div className="aviso info">
-          Se están mostrando las consultas más recientes, no todas las que hubo. Para el total,
-          mirá Métricas.
-        </div>
-      )}
-
-      {suelta && (
-        <div className="tarjeta" style={{ padding: 16, marginBottom: 16 }}>
-          <div className="aviso info">
-            Esta charla no tiene ninguna consulta entre las más recientes, así que va suelta acá.
-          </div>
-          <Charla conversacion={suelta} />
+          Se están mostrando las charlas más recientes, no todas las que hubo. Para el total, mirá
+          Métricas.
         </div>
       )}
 
       {visibles.length === 0 ? (
         <div className="tarjeta vacio">
-          {todas.length === 0
-            ? "Todavía no hay consultas. Aparecen acá apenas alguien le escriba a Migue."
+          {hilos.length === 0
+            ? "Todavía nadie habló con Migue. Cada vez que un vecino le escriba, la charla aparece acá."
             : soloFallas
-              ? "No hay ninguna consulta donde Migue haya fallado. Buena señal."
-              : "Ninguna consulta coincide con lo que buscaste."}
+              ? "No hay ninguna charla donde Migue haya fallado. Buena señal."
+              : "Ninguna charla coincide con lo que buscaste."}
         </div>
       ) : (
         <div className="envoltorio-tabla tarjeta">
@@ -414,71 +492,83 @@ export function Interacciones({
               <tr>
                 <th>Cuándo</th>
                 <th>Vecino</th>
-                <th>Qué preguntó</th>
-                <th>Intención</th>
-                <th>Respuesta</th>
+                <th>Cómo empezó</th>
+                <th className="num">Consultas</th>
+                <th>Cómo le fue</th>
               </tr>
             </thead>
             <tbody>
-              {visibles.map((i) => {
-                const conversacion = porConversacion.get(i.conversacionId) ?? null;
-                const desplegada = abierta === i.id;
+              {visibles.map((h) => {
+                const c = h.conversacion;
+                const desplegada = abierta === c.id;
+                const resultado = comoLeFue(c);
+                const coincidencias = coincidenciasDe(h);
                 return (
-                  <Fragment key={i.id}>
-                    <tr className={desplegada ? "fila-abierta" : undefined}>
+                  <Fragment key={c.id}>
+                    <tr
+                      id={`charla-${c.id}`}
+                      className={desplegada ? "fila-abierta" : undefined}
+                    >
                       <td className="num" style={{ whiteSpace: "nowrap" }}>
-                        {fechaCorta(i.cuando)}
+                        {fechaCorta(c.ultima_actividad_en)}
                       </td>
-                      <td style={{ whiteSpace: "nowrap" }}>{i.vecino ?? "—"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {c.nombre_usuario ?? "—"}
+                        <div className="sub-fila">{c.canal}</div>
+                      </td>
                       <td style={{ maxWidth: 380 }}>
-                        {conversacion === null ? (
-                          <span className={i.esMedia ? "sub-fila" : undefined}>
-                            {recortarTexto(i.consulta, 120)}
-                          </span>
-                        ) : (
-                          <button
-                            className="enlace-tabla"
-                            onClick={() => setAbierta(desplegada ? null : i.id)}
-                            aria-expanded={desplegada}
-                            title={
-                              desplegada
-                                ? "Cerrar la charla"
-                                : "Ver la charla completa y qué contestó Migue"
-                            }
-                          >
-                            <span className="cursor-desplegar" aria-hidden="true">
-                              {desplegada ? "▾" : "▸"}
-                            </span>{" "}
-                            {recortarTexto(i.consulta, 120)}
-                          </button>
+                        <button
+                          className="enlace-tabla"
+                          onClick={() => setAbierta(desplegada ? null : c.id)}
+                          aria-expanded={desplegada}
+                          title={
+                            desplegada
+                              ? "Cerrar la charla"
+                              : "Ver la charla completa y qué contestó Migue"
+                          }
+                        >
+                          <span className="cursor-desplegar" aria-hidden="true">
+                            {desplegada ? "▾" : "▸"}
+                          </span>{" "}
+                          {recortarTexto(h.inicio, 110)}
+                        </button>
+
+                        {c.flujo_activo && (
+                          <div className="sub-fila">quedó a medias en {c.flujo_activo}</div>
+                        )}
+
+                        {/* Por qué esta charla pasó el filtro. Sin esto, filtrar
+                            por «no supo» daba una lista de vecinos y había que
+                            desplegar cada uno para ver cuál fue la pregunta. */}
+                        {coincidencias.slice(0, 2).map((m) => (
+                          <div key={m.id} className="sub-fila">
+                            ↳ «{recortarTexto(m.consulta, 80)}»
+                          </div>
+                        ))}
+                        {coincidencias.length > 2 && (
+                          <div className="sub-fila">↳ y {coincidencias.length - 2} más</div>
                         )}
                       </td>
+                      <td className="num">{h.consultas.length}</td>
                       <td>
-                        {i.intencion === null ? (
-                          <span className="sub-fila">—</span>
-                        ) : (
-                          <span className="chip">
-                            {NOMBRE_DE_INTENCION[i.intencion] ?? i.intencion}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        {i.sinRespuesta ? (
-                          <span className="chip alerta">se quedó sin respuesta</span>
-                        ) : i.origen === null ? (
-                          <span className="sub-fila">—</span>
-                        ) : (
-                          <span className={`chip ${i.origen === "fallback" ? "alerta" : "ok"}`}>
-                            {ORIGENES_RESPUESTA[i.origen] ?? i.origen}
-                          </span>
+                        <span className={`chip ${resultado.tono}`}>{resultado.etiqueta}</span>
+                        {c.ultimo_comentario && (
+                          // Lo que el vecino dijo que le faltaba. Se muestra en
+                          // la LISTA y no sólo al desplegar: es la información
+                          // más accionable de toda la pantalla, y esconderla
+                          // detrás de un clic haría que casi nadie la lea.
+                          <div className="detalle-problema">«{c.ultimo_comentario}»</div>
                         )}
                       </td>
                     </tr>
 
-                    {desplegada && conversacion !== null && (
+                    {desplegada && (
                       <tr className="fila-desplegada">
                         <td colSpan={5}>
-                          <Charla conversacion={conversacion} resaltar={i.id} />
+                          <Charla
+                            conversacion={c}
+                            resaltar={coincidencias.length === 1 ? coincidencias[0]!.id : undefined}
+                          />
                         </td>
                       </tr>
                     )}
