@@ -7,7 +7,6 @@ import {
   IconoAsesor,
   IconoCasos,
   IconoClima,
-  IconoConversaciones,
   IconoDocumentos,
   IconoMensajes,
   IconoMetricas,
@@ -61,13 +60,14 @@ const GRUPOS = [
       // Primera del grupo: es el único dato del panel donde habla el vecino.
       // Todo lo demás son deducciones nuestras mirando lo que hizo el bot.
       { href: "/clima", texto: "Clima", Icono: IconoClima, listo: true },
-      // Interacciones y Conversaciones contestan preguntas distintas y por eso
-      // conviven: una fila por CONSULTA para saber qué preguntan, una fila por
-      // CHARLA para saber cómo le fue a alguien. Una lista agrupada por charla
-      // no sirve para lo primero: seis preguntas aparecen como una sola fila.
+      // Era dos items: «Interacciones», una fila por CONSULTA, y
+      // «Conversaciones», una fila por CHARLA. La division tenia sentido en el
+      // papel y ninguno en el uso: para entender un caso habia que ir a las dos,
+      // porque la consulta estaba en una y el voto del vecino en la otra. Ahora
+      // es una lista de consultas y la charla se despliega adentro de la fila.
+      // `/conversaciones` sigue viva como redireccion, por los enlaces viejos.
       { href: "/interacciones", texto: "Interacciones", Icono: IconoMensajes, listo: true },
-      { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones, listo: true },
-      // Entre Conversaciones y Casos: los tres son «vecinos esperando algo».
+      // Entre Interacciones y Casos: los tres son «vecinos esperando algo».
       // Es el único ítem con insignia: un vecino esperando que lo LLAMEN es lo
       // más perecedero que muestra el panel, y tiene que verse desde cualquier
       // pantalla sin entrar a mirar.

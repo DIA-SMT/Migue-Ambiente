@@ -1,29 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   fechaCorta,
   ORIGENES_RESPUESTA,
   recortarTexto,
   type Conversacion,
 } from "@/lib/tipos";
-import { Transcripcion } from "../conversaciones/Transcripcion";
+import { Charla } from "./Charla";
 
 /**
- * Una fila por PREGUNTA, no por conversación.
+ * Una fila por PREGUNTA, y la charla entera desplegada adentro de la fila.
  *
- * POR QUÉ EXISTE, SI YA ESTÁ CONVERSACIONES. Son dos preguntas distintas y
- * ninguna de las dos se contesta bien con la lista de la otra:
+ * ANTES ERAN DOS PANTALLAS. «Interacciones» listaba una fila por consulta y
+ * «Conversaciones» una fila por charla. La división tenía una lógica —una
+ * contesta «¿qué me preguntan?» y la otra «¿cómo le fue a esta persona?»— pero
+ * en la práctica las dos listas mostraban los mismos hechos con distinto
+ * agrupamiento, y para contestar cualquier pregunta real había que ir a las dos:
+ * la consulta estaba en una y el voto del vecino en la otra.
  *
- *   Conversaciones  «¿cómo le fue a esta persona?» Una fila por charla, con el
- *                   voto y el estado. Sirve para entender un caso.
- *   Interacciones   «¿qué me están preguntando?» Una fila por consulta, con de
- *                   dónde salió la respuesta. Sirve para entender la demanda.
+ * Quedó una sola, y la unidad es la CONSULTA, no la charla. Motivo: la lista de
+ * consultas reales, ordenada por hora, es lo más parecido que hay a escuchar la
+ * mesa de entrada, y es la que dice qué conocimiento falta cargar. Agrupando por
+ * charla eso se pierde: una conversación con seis preguntas aparecía como una
+ * sola fila, con la primera.
  *
- * La segunda es la que dice qué conocimiento falta cargar: una lista de
- * preguntas reales, ordenada por hora, es lo más parecido que hay a escuchar la
- * mesa de entrada. Conversaciones no sirve para eso porque agrupa: una charla
- * con seis preguntas aparece como una sola fila, con la primera.
+ * Lo que aportaba Conversaciones —cómo le fue, el voto, lo que el vecino dijo
+ * que le faltaba— no se perdió: está en la cabecera del desplegado, que es donde
+ * corresponde, porque es de la charla y no de la consulta.
  *
  * CÓMO SE ARMA CADA FILA. La pregunta es un mensaje ENTRANTE y la respuesta es
  * el saliente que vino después en la misma conversación. La traza —qué intención
@@ -36,7 +40,7 @@ import { Transcripcion } from "../conversaciones/Transcripcion";
  * del turista en cada fila. Acá no: en WhatsApp `canal_usuario_id` ES el teléfono
  * del vecino, y la migración 023 lo sacó de la vista justamente para que no
  * viajara a cada navegador que abre una lista. Se reconoce al vecino por el
- * nombre, y quien necesite más abre la conversación.
+ * nombre, y quien necesite más despliega la charla.
  */
 
 export interface MensajeDeLista {
@@ -63,6 +67,16 @@ interface Interaccion {
   origen: string | null;
   /** El bot no contestó nada a esta consulta. */
   sinRespuesta: boolean;
+  /**
+   * Acá algo salió mal: o no hubo respuesta, o el bot admitió que no sabía, o el
+   * vecino votó que no le sirvió en algún momento de esa charla.
+   *
+   * Las dos primeras son de la consulta y la tercera es de la conversación, y se
+   * mezclan a propósito: el filtro que usa esto es la lista de trabajo —«qué
+   * tengo que arreglar»—, y para eso no importa a qué nivel está registrada la
+   * falla. Lo que sí importa es no perderla.
+   */
+  fallo: boolean;
 }
 
 /**
@@ -135,6 +149,8 @@ function arma(
 
     const conversacion = porConversacion.get(m.conversacion_id);
     const texto = (m.texto ?? "").trim();
+    const origen = respuesta?.origen_respuesta ?? null;
+    const sinRespuesta = respuesta === null;
 
     salidas.push({
       id: m.id,
@@ -147,8 +163,9 @@ function arma(
       consulta: texto !== "" ? texto : m.media_tipo !== null ? `envió ${m.media_tipo}` : "tocó una opción",
       esMedia: texto === "" && m.media_tipo !== null,
       intencion: respuesta?.intencion ?? null,
-      origen: respuesta?.origen_respuesta ?? null,
-      sinRespuesta: respuesta === null,
+      origen,
+      sinRespuesta,
+      fallo: sinRespuesta || origen === "fallback" || (conversacion?.votos_no_utiles ?? 0) > 0,
     });
   }
 
@@ -159,19 +176,49 @@ export function Interacciones({
   mensajes,
   conversaciones,
   alcanzoElLimite,
+  abrirConversacion,
 }: {
   mensajes: MensajeDeLista[];
   conversaciones: Conversacion[];
   alcanzoElLimite: boolean;
+  /**
+   * Qué charla desplegar de entrada. Viene de Clima y de Alertas: desde un
+   * pulgar abajo se llega acá para leer el ida y vuelta completo, y hacer buscar
+   * la fila a mano anularía la mitad del sentido del enlace.
+   *
+   * Lo resuelve el SERVIDOR y llega como prop, en vez de leerlo acá con
+   * `useSearchParams`. Ese hook obliga a envolver el componente en un
+   * `<Suspense>` y a que la página se renderice en el cliente; el parámetro ya
+   * lo tiene la página, que es un server component.
+   */
+  abrirConversacion?: string | undefined;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [intencion, setIntencion] = useState<string | null>(null);
   const [origen, setOrigen] = useState<string | null>(null);
+  const [soloFallas, setSoloFallas] = useState(false);
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
-  const [abierta, setAbierta] = useState<Conversacion | null>(null);
 
   const todas = useMemo(() => arma(mensajes, conversaciones), [mensajes, conversaciones]);
+  const porConversacion = useMemo(
+    () => new Map(conversaciones.map((c) => [c.id, c])),
+    [conversaciones],
+  );
+
+  // Qué consulta está desplegada, por id del mensaje entrante. Es por CONSULTA y
+  // no por charla: una conversación larga aparece en varias filas, y desplegar
+  // «la charla» abriría todas esas filas a la vez.
+  //
+  // Estado inicial perezoso: la búsqueda del enlace corre una sola vez, no en
+  // cada render. Si no hay fila para esa charla —una vieja, que ya no entra en
+  // las que se traen— queda en null y más abajo se despliega igual, suelta.
+  const [abierta, setAbierta] = useState<string | null>(
+    () =>
+      abrirConversacion === undefined
+        ? null
+        : (todas.find((i) => i.conversacionId === abrirConversacion)?.id ?? null),
+  );
 
   const intenciones = useMemo(() => {
     const cuenta = new Map<string, number>();
@@ -182,9 +229,12 @@ export function Interacciones({
     return [...cuenta.entries()].sort((a, b) => b[1] - a[1]);
   }, [todas]);
 
+  const conFallas = useMemo(() => todas.filter((i) => i.fallo).length, [todas]);
+
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return todas.filter((i) => {
+      if (soloFallas && !i.fallo) return false;
       if (intencion !== null && i.intencion !== intencion) return false;
       if (origen !== null && i.origen !== origen) return false;
       // Las fechas del filtro son días locales; se comparan contra el día del
@@ -195,21 +245,75 @@ export function Interacciones({
       if (q === "") return true;
       return i.consulta.toLowerCase().includes(q) || (i.vecino ?? "").toLowerCase().includes(q);
     });
-  }, [todas, busqueda, intencion, origen, desde, hasta]);
+  }, [todas, busqueda, intencion, origen, soloFallas, desde, hasta]);
 
   const hayFiltro =
-    busqueda !== "" || intencion !== null || origen !== null || desde !== "" || hasta !== "";
+    busqueda !== "" ||
+    intencion !== null ||
+    origen !== null ||
+    soloFallas ||
+    desde !== "" ||
+    hasta !== "";
 
   function limpiar() {
     setBusqueda("");
     setIntencion(null);
     setOrigen(null);
+    setSoloFallas(false);
     setDesde("");
     setHasta("");
   }
 
+  const utiles = conversaciones.reduce((n, c) => n + c.votos_utiles, 0);
+  const noUtiles = conversaciones.reduce((n, c) => n + c.votos_no_utiles, 0);
+  const votos = utiles + noUtiles;
+
+  // El enlace apuntaba a una charla que no tiene ninguna fila en la lista. Se
+  // muestra suelta arriba: el que hizo clic en Clima venía a leer ESA charla, y
+  // una pantalla que no le muestra nada lo deja sin saber si el enlace está roto
+  // o si la charla no existe.
+  const sueltaId =
+    abrirConversacion !== undefined && !todas.some((i) => i.conversacionId === abrirConversacion)
+      ? abrirConversacion
+      : null;
+  const suelta = sueltaId === null ? null : (porConversacion.get(sueltaId) ?? null);
+
   return (
     <>
+      <div className="resumen">
+        <div>
+          <span className="n">{todas.length}</span>
+          <span className="r">consultas</span>
+        </div>
+        <div>
+          <span className="n">
+            {/*
+              Con pocos votos un porcentaje es ruido: «100% útil» con un voto no
+              dice nada y suena a que está medido. Debajo de diez se muestra el
+              crudo, que es la verdad disponible.
+            */}
+            {votos === 0
+              ? "—"
+              : votos < 10
+                ? `${utiles} de ${votos}`
+                : `${Math.round((utiles / votos) * 100)}%`}
+          </span>
+          <span className="r">
+            {votos === 0
+              ? "todavía nadie votó"
+              : votos < 10
+                ? "votaron que les sirvió (son pocos votos para un porcentaje)"
+                : "de los votos dijeron que sirvió"}
+          </span>
+        </div>
+        <div>
+          <span className="n" style={{ color: conFallas > 0 ? "var(--alerta)" : undefined }}>
+            {conFallas}
+          </span>
+          <span className="r">donde algo falló</span>
+        </div>
+      </div>
+
       <div className="interacciones-filtros">
         <input
           type="search"
@@ -246,6 +350,17 @@ export function Interacciones({
           ))}
         </select>
 
+        {/* La lista de trabajo. Era una pantalla entera —«Donde falló algo», en
+            Conversaciones— y acá es un botón, porque es un recorte de esta misma
+            lista y no otra cosa. */}
+        <button
+          className={soloFallas ? "primario chico" : "chico"}
+          onClick={() => setSoloFallas((v) => !v)}
+          aria-pressed={soloFallas}
+        >
+          Donde algo falló ({conFallas})
+        </button>
+
         <label className="interacciones-fecha">
           Desde
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
@@ -275,11 +390,22 @@ export function Interacciones({
         </div>
       )}
 
+      {suelta && (
+        <div className="tarjeta" style={{ padding: 16, marginBottom: 16 }}>
+          <div className="aviso info">
+            Esta charla no tiene ninguna consulta entre las más recientes, así que va suelta acá.
+          </div>
+          <Charla conversacion={suelta} />
+        </div>
+      )}
+
       {visibles.length === 0 ? (
         <div className="tarjeta vacio">
           {todas.length === 0
             ? "Todavía no hay consultas. Aparecen acá apenas alguien le escriba a Migue."
-            : "Ninguna consulta coincide con lo que buscaste."}
+            : soloFallas
+              ? "No hay ninguna consulta donde Migue haya fallado. Buena señal."
+              : "Ninguna consulta coincide con lo que buscaste."}
         </div>
       ) : (
         <div className="envoltorio-tabla tarjeta">
@@ -295,55 +421,74 @@ export function Interacciones({
             </thead>
             <tbody>
               {visibles.map((i) => {
-                const conversacion = conversaciones.find((c) => c.id === i.conversacionId) ?? null;
+                const conversacion = porConversacion.get(i.conversacionId) ?? null;
+                const desplegada = abierta === i.id;
                 return (
-                  <tr key={i.id}>
-                    <td className="num" style={{ whiteSpace: "nowrap" }}>{fechaCorta(i.cuando)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{i.vecino ?? "—"}</td>
-                    <td style={{ maxWidth: 380 }}>
-                      {conversacion === null ? (
-                        <span className={i.esMedia ? "sub-fila" : undefined}>
-                          {recortarTexto(i.consulta, 120)}
-                        </span>
-                      ) : (
-                        <button
-                          className="enlace-tabla"
-                          onClick={() => setAbierta(conversacion)}
-                          title="Ver la charla completa y qué contestó Migue"
-                        >
-                          {recortarTexto(i.consulta, 120)}
-                        </button>
-                      )}
-                    </td>
-                    <td>
-                      {i.intencion === null ? (
-                        <span className="sub-fila">—</span>
-                      ) : (
-                        <span className="chip">
-                          {NOMBRE_DE_INTENCION[i.intencion] ?? i.intencion}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      {i.sinRespuesta ? (
-                        <span className="chip alerta">se quedó sin respuesta</span>
-                      ) : i.origen === null ? (
-                        <span className="sub-fila">—</span>
-                      ) : (
-                        <span className={`chip ${i.origen === "fallback" ? "alerta" : "ok"}`}>
-                          {ORIGENES_RESPUESTA[i.origen] ?? i.origen}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+                  <Fragment key={i.id}>
+                    <tr className={desplegada ? "fila-abierta" : undefined}>
+                      <td className="num" style={{ whiteSpace: "nowrap" }}>
+                        {fechaCorta(i.cuando)}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>{i.vecino ?? "—"}</td>
+                      <td style={{ maxWidth: 380 }}>
+                        {conversacion === null ? (
+                          <span className={i.esMedia ? "sub-fila" : undefined}>
+                            {recortarTexto(i.consulta, 120)}
+                          </span>
+                        ) : (
+                          <button
+                            className="enlace-tabla"
+                            onClick={() => setAbierta(desplegada ? null : i.id)}
+                            aria-expanded={desplegada}
+                            title={
+                              desplegada
+                                ? "Cerrar la charla"
+                                : "Ver la charla completa y qué contestó Migue"
+                            }
+                          >
+                            <span className="cursor-desplegar" aria-hidden="true">
+                              {desplegada ? "▾" : "▸"}
+                            </span>{" "}
+                            {recortarTexto(i.consulta, 120)}
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        {i.intencion === null ? (
+                          <span className="sub-fila">—</span>
+                        ) : (
+                          <span className="chip">
+                            {NOMBRE_DE_INTENCION[i.intencion] ?? i.intencion}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {i.sinRespuesta ? (
+                          <span className="chip alerta">se quedó sin respuesta</span>
+                        ) : i.origen === null ? (
+                          <span className="sub-fila">—</span>
+                        ) : (
+                          <span className={`chip ${i.origen === "fallback" ? "alerta" : "ok"}`}>
+                            {ORIGENES_RESPUESTA[i.origen] ?? i.origen}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {desplegada && conversacion !== null && (
+                      <tr className="fila-desplegada">
+                        <td colSpan={5}>
+                          <Charla conversacion={conversacion} resaltar={i.id} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
-
-      {abierta && <Transcripcion conversacion={abierta} alCerrar={() => setAbierta(null)} />}
     </>
   );
 }

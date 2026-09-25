@@ -1343,6 +1343,72 @@ dl.ficha dd {
 }
 
 /* --------------------------------------------------------------------------
+   LA CHARLA DESPLEGADA DENTRO DE LA FILA
+
+   Antes la conversación se abría en un cajón encima de la lista. Ahora se
+   despliega en una fila propia, debajo de la consulta en la que se hizo clic.
+
+   EL FONDO NO PUEDE SER `--papel-2`, Y ES LA REGLA IMPORTANTE DE ESTE BLOQUE.
+   La burbuja del vecino ES `--papel-2`: si el desplegado usara ese color para
+   distinguirse, la burbuja volvería a ser exactamente del color de lo que tiene
+   atrás. Eso ya pasó una vez —en el cajón, que es `--papel` igual que la
+   burbuja era entonces— y el área lo reportó usándolo: la charla parecía un
+   monólogo de Migue, porque sus burbujas son verdes y sólidas y las del vecino
+   quedaban como texto flotando.
+
+   Por eso el desplegado se distingue con un filo verde a la izquierda y no con
+   relleno. Y por eso las dos filas —la de la consulta abierta y la de la
+   charla— anulan el `:hover` de la tabla, que también es `--papel-2`: sin eso,
+   pasar el mouse por encima hacía desaparecer las burbujas del vecino mientras
+   se leía.
+   -------------------------------------------------------------------------- */
+
+/* La fila de la consulta que está abierta. Acá no hay burbujas, así que el
+   relleno es seguro y es lo que mejor dice «esta es la que estás mirando». */
+tbody tr.fila-abierta,
+tbody tr.fila-abierta:hover {
+  background: var(--papel-2);
+}
+
+tbody tr.fila-desplegada,
+tbody tr.fila-desplegada:hover {
+  background: var(--papel);
+}
+
+tbody tr.fila-desplegada > td {
+  padding: 0;
+}
+
+.charla-desplegada {
+  padding: 16px 18px 20px;
+  border-left: 3px solid var(--verde-vivo);
+  background: var(--papel);
+}
+
+.charla-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+/* El triángulo que dice si la fila está abierta. Ancho fijo para que el texto
+   de la consulta no se corra un pixel al abrir y cerrar. */
+.cursor-desplegar {
+  display: inline-block;
+  width: 0.8em;
+  color: var(--tinta-suave);
+}
+
+/* La consulta desde la que se abrió la charla, marcada adentro de la charla.
+   En un ida y vuelta de veinte mensajes, encontrar cuál era la fila en la que
+   se hizo clic obliga a releerlo entero. */
+.burbuja.resaltada .cuerpo {
+  outline: 2px solid var(--verde-vivo);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
    Reglas
 
    Cada regla es una tarjeta y no una fila de tabla, y no es una preferencia

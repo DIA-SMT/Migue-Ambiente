@@ -197,10 +197,11 @@ export function Alertas({
                       </button>
                     )}
                     {a.conversacion_id && (
-                      /* El circuito ?abrir= ya existe: Clima lo usa igual. Busca
-                         entre las últimas 200 conversaciones; para una alerta
-                         reciente siempre está. */
-                      <Link className="boton chico" href={`/conversaciones?abrir=${a.conversacion_id}`}>
+                      /* El circuito ?abrir= ya existe: Clima lo usa igual.
+                         Despliega la charla en Interacciones; si esa charla ya
+                         no entra entre las consultas que se traen, la muestra
+                         suelta arriba en vez de no mostrar nada. */
+                      <Link className="boton chico" href={`/interacciones?abrir=${a.conversacion_id}`}>
                         Ver conversación
                       </Link>
                     )}

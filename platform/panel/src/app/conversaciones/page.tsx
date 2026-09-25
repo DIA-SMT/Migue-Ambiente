@@ -1,55 +1,27 @@
-import { redirect } from "next/navigation";
-import { clienteServidor, personaActual } from "@/lib/supabase-servidor";
-import { Armazon } from "@/componentes/Armazon";
-import { Conversaciones } from "./Conversaciones";
-import type { Conversacion } from "@/lib/tipos";
+import { redirect, permanentRedirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
+/**
+ * «Conversaciones» ya no existe como pantalla: se unificó con Interacciones.
+ *
+ * La ruta se queda igual, redirigiendo, y no se borra. Motivo: `?abrir=<id>` es
+ * el enlace que llevaba de un pulgar abajo en Clima —y de una alerta— a la
+ * charla completa. Esos enlaces ya están escritos en la base y en pantallas que
+ * alguien puede tener abiertas; borrar la ruta los convertiría en un 404 el día
+ * del despliegue, que es exactamente el tipo de rotura silenciosa que el panel
+ * no debería tener.
+ *
+ * Los enlaces del propio panel se actualizaron para ir derecho a Interacciones.
+ * Esto es la red para lo que quedó afuera.
+ */
 export default async function PaginaConversaciones({
   searchParams,
 }: {
   searchParams: Promise<{ abrir?: string }>;
 }) {
-  // `abrir` llega desde Clima: se hace clic en un pulgar abajo y esta pantalla
-  // abre directamente esa charla. Se resuelve acá, en el servidor, y baja como
-  // prop: leerlo en el cliente con `useSearchParams` obligaría a un `<Suspense>`
-  // alrededor de toda la lista a cambio de nada.
   const { abrir } = await searchParams;
-  const persona = await personaActual();
-  if (!persona) redirect("/ingresar");
-
-  const supabase = await clienteServidor();
-
-  // Se ordena por actividad y NO por «las que fallaron primero», aunque esa sea
-  // la lista de trabajo. Motivo: esta pantalla se usa de dos maneras —«¿cómo
-  // viene hoy?» y «¿dónde falló?»— y el orden cronológico es el único que sirve
-  // para la primera. El reordenamiento por falla lo hace el filtro, del lado del
-  // cliente, sobre estas mismas filas.
-  const { data: conversaciones, error } = await supabase
-    .from("v_conversaciones")
-    .select("*")
-    .order("ultima_actividad_en", { ascending: false })
-    .limit(200)
-    .returns<Conversacion[]>();
-
-  return (
-    <Armazon persona={persona} actual="/conversaciones">
-      <main>
-        <div className="titulo-pagina">
-          <h1>Conversaciones</h1>
-        </div>
-        <p className="bajada">
-          Con quién habló Migue y cómo le fue. Cuando el vecino toca el pulgar, el voto queda acá — y
-          si tocó el pulgar abajo, también lo que dijo que le faltaba.
-        </p>
-
-        {error && (
-          <div className="aviso mal">No pude leer las conversaciones: {error.message}</div>
-        )}
-
-        <Conversaciones conversaciones={conversaciones ?? []} abrirId={abrir} />
-      </main>
-    </Armazon>
-  );
+  // `permanentRedirect` para que el navegador aprenda el destino y deje de
+  // pedir la vieja. Sin `abrir` no hay nada que conservar y alcanza con llevar a
+  // la lista.
+  if (abrir === undefined || abrir === "") permanentRedirect("/interacciones");
+  redirect(`/interacciones?abrir=${encodeURIComponent(abrir)}`);
 }
