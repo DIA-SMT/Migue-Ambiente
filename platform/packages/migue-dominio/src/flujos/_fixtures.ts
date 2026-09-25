@@ -193,7 +193,7 @@ const TEXTOS = new Map<string, string>([
   // `reclamoRecoleccion.test.ts`.
   [
     "reclamo_info_turnos",
-    "Mientras tanto podés confirmar qué día y en qué turno le toca a tu domicilio:\nhttps://smtendatos.gob.ar/mapa-interactivo-de-recoleccion-de-residuos-por-turno/",
+    "Mientras tanto podés confirmar qué día y en qué turno le toca a tu domicilio:\nhttps://smtendatos.gob.ar/mapa-interactivo-de-recoleccion-de-residuos-por-turno/\n\nSi era sólo eso, escribime «cancelar» y no genero ningún reclamo.",
   ],
   // La encuesta al terminar un trámite. Pregunta por el PROCESO, no por el
   // contenido: un pulgar abajo acá se arregla cambiando los pasos del flujo,
